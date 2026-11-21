@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="fa">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>شبکه‌ساز: شهر متصل</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net">
+<link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header id="topbar">
+  <div class="tb-group tb-title">
+    <span class="logo">شبکه‌ساز</span>
+    <span class="subtitle">شهر متصل</span>
+  </div>
+  <div class="tb-group stats">
+    <span class="stat"><label>نقدینگی</label><strong id="ui-cash">—</strong></span>
+    <span class="stat"><label>درآمد روزانه</label><strong id="ui-income">—</strong></span>
+    <span class="stat"><label>روز</label><strong id="ui-day">—</strong></span>
+    <span class="stat"><label>رضایت</label><strong id="ui-satisfaction">—</strong></span>
+  </div>
+  <div class="tb-group controls">
+    <div class="speed-btns" role="group" aria-label="سرعت بازی">
+      <button id="btn-pause" class="btn icon" title="مکث (Space)">⏸</button>
+      <button id="btn-play" class="btn icon active" title="پخش">▶</button>
+      <button id="btn-fast" class="btn icon" title="سریع">⏩</button>
+    </div>
+    <button id="btn-alerts" class="btn icon bell" title="هشدارها">🔔<span id="alert-count" class="badge hidden">0</span></button>
+  </div>
+  <div class="tb-group actions">
+    <button id="btn-finance" class="btn sm">💰 مالی</button>
+    <button id="btn-rd" class="btn sm">🔬 تحقیق</button>
+    <button id="btn-staff" class="btn sm">👥 کارکنان</button>
+    <button id="btn-missions" class="btn sm">🎯 مأموریت‌ها</button>
+    <button id="btn-packages" class="btn sm">📦 بسته‌ها</button>
+  </div>
+  <div class="tb-group save-btns">
+    <button id="btn-save" class="btn sm" title="ذخیره">💾</button>
+    <button id="btn-load" class="btn sm" title="بارگذاری">📂</button>
+    <button id="btn-export" class="btn sm" title="برون‌بری">⬇</button>
+    <button id="btn-import" class="btn sm" title="درون‌بری">⬆</button>
+    <input type="file" id="file-import" accept=".json" class="hidden">
+    <button id="btn-reset" class="btn sm danger" title="بازی جدید">↺</button>
+  </div>
+  <button id="toggle-right" class="btn sm mobile-only" title="پنل ساخت">☰ ساخت</button>
+  <button id="toggle-detail" class="btn sm mobile-only" title="جزئیات">جزئیات</button>
+</header>
+
+<main id="layout">
+  <aside id="panel-right" class="panel">
+    <section>
+      <h3>ابزار ساخت</h3>
+      <div class="tool-row">
+        <button id="tool-select" class="btn tool active">انتخاب</button>
+        <button id="tool-connect" class="btn tool">اتصال</button>
+        <button id="tool-demolish" class="btn tool">تخریب</button>
+      </div>
+      <div id="build-menu"></div>
+    </section>
+    <section>
+      <h3>لایه‌های نقشه</h3>
+      <div id="layer-toggles">
+        <label><input type="checkbox" data-layer="districts" checked> مناطق</label>
+        <label><input type="checkbox" data-layer="buildings" checked> ساختمان‌ها</label>
+        <label><input type="checkbox" data-layer="links" checked> اتصالات</label>
+        <label><input type="checkbox" data-layer="coverage" checked> پوشش</label>
+        <label><input type="checkbox" data-layer="labels" checked> برچسب‌ها</label>
+      </div>
+    </section>
+    <section>
+      <h3>راهنما</h3>
+      <ul id="legend">
+        <li><span class="dot core"></span> هسته (Core)</li>
+        <li><span class="dot gateway"></span> دروازه (Gateway)</li>
+        <li><span class="dot agg"></span> تجمیع (Aggregation)</li>
+        <li><span class="dot access"></span> دسترسی (Access)</li>
+        <li><span class="dot link-fiber"></span> فیبر</li>
+        <li><span class="dot link-copper"></span> مسی</li>
+        <li><span class="dot link-wireless"></span> بی‌سیم</li>
+        <li><span class="dot problem"></span> دارای مشکل</li>
+      </ul>
+    </section>
+    <section>
+      <h3>گزارش رویدادها</h3>
+      <div id="event-log" class="log"></div>
+    </section>
+  </aside>
+
+  <section id="map-wrap">
+    <canvas id="city-canvas"></canvas>
+    <div id="map-hint" class="map-hint hidden"></div>
+    <div id="zoom-controls">
+      <button id="zoom-in" class="btn icon sm">+</button>
+      <button id="zoom-out" class="btn icon sm">−</button>
+    </div>
+  </section>
+
+  <aside id="panel-detail" class="panel">
+    <h3>جزئیات</h3>
+    <div id="detail-content"><p class="muted">یک گره یا ساختمان را انتخاب کنید.</p></div>
+  </aside>
+</main>
+
+<!-- Confirm build popover -->
+<div id="build-confirm" class="popover hidden" role="dialog">
+  <h4 id="confirm-title">تأیید ساخت</h4>
+  <p id="confirm-desc"></p>
+  <dl class="kv">
+    <dt>هزینه</dt><dd id="confirm-cost"></dd>
+    <dt>زمان ساخت</dt><dd id="confirm-time"></dd>
+    <dt>اثر مورد انتظار</dt><dd id="confirm-effect"></dd>
+  </dl>
+  <div class="row">
+    <button id="confirm-yes" class="btn primary">ساخت</button>
+    <button id="confirm-no" class="btn">لغو</button>
+  </div>
+</div>
+
+<!-- Medium picker -->
+<div id="medium-picker" class="popover hidden" role="dialog">
+  <h4>رسانه اتصال</h4>
+  <p class="muted">رسانه لینک بین دو گره را انتخاب کنید:</p>
+  <div id="medium-options"></div>
+  <button id="medium-cancel" class="btn">لغو</button>
+</div>
+
+<!-- Panels / Modals -->
+<div id="modal-backdrop" class="hidden"></div>
+<div id="modal-finance" class="modal hidden"><div class="modal-head"><h3>مالی</h3><button class="btn icon sm modal-close" data-close="modal-finance">✕</button></div><div class="modal-body" id="finance-body"></div></div>
+<div id="modal-rd" class="modal hidden"><div class="modal-head"><h3>تحقیق و توسعه</h3><button class="btn icon sm modal-close" data-close="modal-rd">✕</button></div><div class="modal-body" id="rd-body"></div></div>
+<div id="modal-staff" class="modal hidden"><div class="modal-head"><h3>کارکنان</h3><button class="btn icon sm modal-close" data-close="modal-staff">✕</button></div><div class="modal-body" id="staff-body"></div></div>
+<div id="modal-missions" class="modal hidden"><div class="modal-head"><h3>مأموریت‌ها</h3><button class="btn icon sm modal-close" data-close="modal-missions">✕</button></div><div class="modal-body" id="missions-body"></div></div>
+<div id="modal-packages" class="modal hidden"><div class="modal-head"><h3>بسته‌های اینترنت</h3><button class="btn icon sm modal-close" data-close="modal-packages">✕</button></div><div class="modal-body" id="packages-body"></div></div>
+
+<!-- Alerts drawer -->
+<div id="alerts-drawer" class="drawer hidden">
+  <div class="modal-head"><h3>هشدارها و مشکلات</h3><button class="btn icon sm" id="alerts-close">✕</button></div>
+  <div id="alerts-body"></div>
+</div>
+
+<!-- Tutorial overlay -->
+<div id="tutorial-overlay" class="hidden">
+  <div id="tutorial-card">
+    <div class="tut-step" id="tut-step-label">گام ۱ از ۸</div>
+    <h3 id="tut-title"></h3>
+    <p id="tut-text"></p>
+    <div class="row">
+      <button id="tut-next" class="btn primary">بعدی</button>
+      <button id="tut-skip" class="btn">رد کردن آموزش</button>
+    </div>
+    <div class="tut-progress"><div id="tut-progress-bar"></div></div>
+  </div>
+</div>
+
+<div id="toasts" aria-live="polite"></div>
+
+<script src="js/data.js"></script>
+<script src="js/sim.js"></script>
+<script src="js/map.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
