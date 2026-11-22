@@ -359,6 +359,15 @@
       }
     }
 
+    if (medium === 'ptp') {
+      const maxRange = mediaInfo.maxRange || 1800;
+      const d = dist(a.x, a.y, b.x, b.y);
+      if (d > maxRange) {
+        log(state, 'لینک نقطه‌به‌نقطه از حداکثر برد بیشتر است؛ فاصلهٔ دو گره ' + Math.round(d) + ' واحد و حداکثر برد ' + maxRange + ' واحد است. یک گره واسط نزدیک‌تر انتخاب کن یا از فیبر استفاده کن.', 'error');
+        return null;
+      }
+    }
+
     const link = {
       id: 'l' + (++state.counters.link),
       from: fromId, to: toId, medium,
