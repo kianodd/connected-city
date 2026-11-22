@@ -290,7 +290,7 @@
   var mouseWorld = { x: 0, y: 0 };
   var rafId = null, lastTs = 0, animT = 0;
   var dragging = false, dragMoved = false, lastPX = 0, lastPY = 0;
-  var downX = 0, downY = 0, pinched = false; // tap-vs-drag discrimination + pinch safety
+  var downX = 0, downY = 0, pinched = false, downPointerType = 'mouse'; // tap-vs-drag discrimination + pinch safety
   var pointers = {};            // pointerId -> {x,y}
   var pinchDist = 0, pinchMid = null;
   var layers = {
@@ -304,7 +304,7 @@
   var suggestions = null; // آرایهٔ نقاط پیشنهادی [{x,y,expectedSubs,expectedCoverage,cost}] یا null
   var sectorDrag = null;  // {nodeId, node} هنگام درگ دستهٔ چرخش سکشن
   var _sectorLastCbTs = 0; // throttle برای onSectorRotate هنگام حرکت
-  var _heatCache = null;  // {rectKey, nodesSig, ts, cells:[{x,y,s}]}
+  var _heatCache = null;  // (قدیمی؛ لایه‌های حرارتی حالا در _heat نگه داشته می‌شوند)
   var _wxParticles = null; // ذرات باران/برف (فضای صفحه)
 
   /* ---------- perf: frame cache, viewport culling, static layer ---------- */
@@ -1434,120 +1434,93 @@
     ctx.restore();
   }
 
-  /* هیت‌مپ سیگنال: میدان گرادیانی نرم روی بوم خارج‌صفحه.
-     هر پیکسلِ بوم کوچک با همان مدل واقعی GameSim.signalAt نمونه‌برداری می‌شود
-     (فاصله، دید مستقیم، باند/کانال، جهت آنتن، تداخل، آب‌وهوا) و بعد با
-     درون‌یابی نرم روی نقشه کشیده می‌شود — یک دایرهٔ گرادیانی پیوسته به‌ازای هر
-     گره که در هم‌پوشانی‌ها در هم حل می‌شوند، نه شبکه‌ای از دایره‌های جدا.
-     بازمحاسبه فقط وقتی: امضای گره‌ها/آب‌وهوا عوض شده، دوربین از حاشیهٔ کش
-     بیرون رفته، یا دست‌کم ۱ ثانیه گذشته باشد (کف سخت ۲۵۰ms). */
-  function drawSignalHeat() {
-    if (!global.GameSim || typeof global.GameSim.signalAt !== 'function' || !state) return;
-    var now = Date.now();
-    var sig = nodesSignature() + '|' + ((state.weather && state.weather.kind) || 'clear');
-    var sigChanged = !_heatCache || _heatCache.sig !== sig;
-    var vr = visibleRect(0);
-    var camMoved = false;
-    if (_heatCache) {
-      var m = 120; // حاشیهٔ امن دوربین نسبت به مستطیل کش‌شده
-      if (vr.x0 < _heatCache.x0 + m || vr.y0 < _heatCache.y0 + m ||
-          vr.x1 > _heatCache.x1 - m || vr.y1 > _heatCache.y1 - m) camMoved = true;
+  /* لایه‌های حرارتی (سیگنال و سرعت): میدان رنگی کل نقشه در فضای جهان.
+     یک بار روی بوم خارج‌صفحه با وضوح ثابت ساخته و کش می‌شود؛ حرکت/زوم دوربین
+     فقط همان بوم را می‌کشد (بدون هیچ بازمحاسبه‌ای). بازسازی فقط وقتی امضای
+     شبکه عوض شود (گره/لینک/انشعاب/آب‌وهوا؛ برای سرعت روز و ساعت هم) و آن هم
+     تدریجی در چند فریم (بودجهٔ ~۸ms در هر فریم) تا هیچ فریمی گیر نکند. */
+  var HEAT_CFG = {
+    signal: { pw: 480, ph: 360, step: 15 },
+    speed: { pw: 360, ph: 270, step: 20 },
+  };
+  var _heat = { signal: null, speed: null };
+  function heatSignature(kind) {
+    var s = '';
+    var ns = (state && state.nodes) || [];
+    for (var i = 0; i < ns.length; i++) {
+      var n = ns[i];
+      s += n.id + ':' + Math.round(n.x) + ',' + Math.round(n.y) + ',' + n.status + ',' + (n.level || 1) + ',' +
+        (n.connected ? 1 : 0) + ',' + (n.channel == null ? '-' : n.channel) + ',' +
+        (typeof n.direction === 'number' ? Math.round(n.direction) : '-') + ',' +
+        (typeof n.angle === 'number' ? Math.round(n.angle) : '-') + ',' +
+        Math.round(n.capacity || 0) + ',' + Math.round(n.radius || 0) + ';';
     }
-    var elapsed = _heatCache ? (now - _heatCache.ts) : Infinity;
-    var need = !_heatCache || (elapsed >= 250 && (sigChanged || camMoved || elapsed > 1000));
-    if (need) {
-      var pad = 160;
-      var x0 = vr.x0 - pad, y0 = vr.y0 - pad, x1 = vr.x1 + pad, y1 = vr.y1 + pad;
-      var wW = Math.max(1, x1 - x0), wH = Math.max(1, y1 - y0);
-      var step = Math.max(6, wW / 220, wH / 220);
-      var pw = Math.max(2, Math.ceil(wW / step)), ph = Math.max(2, Math.ceil(wH / step));
-      var off = document.createElement('canvas');
-      off.width = pw; off.height = ph;
-      var octx = off.getContext('2d');
-      var img = octx.createImageData(pw, ph);
-      var px = img.data;
+    var ls = (state && state.links) || [];
+    for (var j = 0; j < ls.length; j++) {
+      var l = ls[j];
+      s += l.id + ':' + l.medium + ',' + l.status + ',' + (l.level || 1) + ',' + Math.round(l.capacity || 0) + ';';
+    }
+    var ds = (state && state.fiberDrops) || [];
+    for (var k = 0; k < ds.length; k++) {
+      var d = ds[k];
+      s += d.buildingId + ':' + d.nodeId + ',' + (d.medium || 'fiber') + ',' + d.status + ';';
+    }
+    s += '|' + ((state.weather && state.weather.kind) || 'clear');
+    if (kind === 'speed') s += '|' + Math.floor(state.day || 0) + '|' + Math.floor(state.hour || 0);
+    return s;
+  }
+  function drawHeatField(kind) {
+    var G = global.GameSim;
+    if (!G || !state || typeof G.sampleFieldRows !== 'function') return;
+    var cfg = HEAT_CFG[kind];
+    var st = _heat[kind] || (_heat[kind] = { sig: null, canvas: null, job: null, lastStart: 0 });
+    var now = Date.now();
+    var sig = heatSignature(kind);
+    if (!st.job && st.sig !== sig && now - st.lastStart >= 400) {
+      var prep = null;
+      try { prep = kind === 'signal' ? G.prepareSignalField(state) : G.prepareSpeedField(state); } catch (e) { prep = null; }
+      if (prep) {
+        var off = document.createElement('canvas');
+        off.width = cfg.pw; off.height = cfg.ph;
+        var octx = off.getContext('2d');
+        st.job = { prep: prep, off: off, octx: octx, img: octx.createImageData(cfg.pw, cfg.ph), buf: new Float32Array(cfg.pw * cfg.ph), row: 0, sig: sig };
+        st.lastStart = now;
+      }
+    }
+    if (st.job) {
+      var job = st.job;
+      var px = job.img.data;
       var rgba = [0, 0, 0, 0];
-      for (var j = 0; j < ph; j++) {
-        var wy = y0 + (j + 0.5) * step;
-        for (var i = 0; i < pw; i++) {
-          var wx = x0 + (i + 0.5) * step;
-          var res = null;
-          try { res = global.GameSim.signalAt(state, wx, wy); } catch (e) { res = null; }
-          var sv = (res && typeof res.signal === 'number') ? clamp(res.signal, 0, 1) : 0;
-          signalRGBA(sv, rgba);
-          var o = (j * pw + i) * 4;
+      var t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+      while (job.row < cfg.ph) {
+        var j = job.row;
+        try { G.sampleFieldRows(job.prep, kind, 0, 0, cfg.step, cfg.pw, j, j + 1, job.buf); } catch (e) { /* ردیف خالی می‌ماند */ }
+        for (var i = 0; i < cfg.pw; i++) {
+          var v = job.buf[j * cfg.pw + i] || 0;
+          if (kind === 'signal') signalRGBA(clamp(v, 0, 1), rgba); else speedRGBA(v, rgba);
+          var o = (j * cfg.pw + i) * 4;
           px[o] = rgba[0]; px[o + 1] = rgba[1]; px[o + 2] = rgba[2]; px[o + 3] = rgba[3];
         }
+        job.row++;
+        var t1 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+        if (t1 - t0 >= 8) break;
       }
-      octx.putImageData(img, 0, 0);
-      _heatCache = { sig: sig, ts: now, canvas: off, x0: x0, y0: y0, x1: x1, y1: y1 };
-    }
-    if (!_heatCache || !_heatCache.canvas) return;
-    ctx.save();
-    ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(_heatCache.canvas, _heatCache.x0, _heatCache.y0,
-      _heatCache.x1 - _heatCache.x0, _heatCache.y1 - _heatCache.y0);
-    ctx.restore();
-  }
-
-  /* لایهٔ سرعت اتصال: میدان رنگی هموار از سرعت تجمیعی مؤثر (aggregateSpeedAt) — آبی=سریع، قرمز=ضعیف */
-  var _speedCache = null;
-  function drawSpeedHeat() {
-    if (!global.GameSim || typeof global.GameSim.speedTestAt !== 'function' || !state) return;
-    var now = Date.now();
-    // ازدحام به ساعت روز بستگی دارد؛ روز و ساعت هم در امضا می‌آیند تا در ساعت اوج سرعت‌ها افت کنند
-    var sig = nodesSignature() + '|' + ((state.weather && state.weather.kind) || 'clear') +
-      '|' + Math.floor(state.day || 0) + '|' + Math.floor(state.hour || 0);
-    var sigChanged = !_speedCache || _speedCache.sig !== sig;
-    var vr = visibleRect(0);
-    var camMoved = false;
-    if (_speedCache) {
-      var m = 120;
-      if (vr.x0 < _speedCache.x0 + m || vr.y0 < _speedCache.y0 + m ||
-          vr.x1 > _speedCache.x1 - m || vr.y1 > _speedCache.y1 - m) camMoved = true;
-    }
-    var elapsed = _speedCache ? (now - _speedCache.ts) : Infinity;
-    var need = !_speedCache || (elapsed >= 250 && (sigChanged || camMoved || elapsed > 1500));
-    if (need) {
-      var pad = 160;
-      var x0 = vr.x0 - pad, y0 = vr.y0 - pad, x1 = vr.x1 + pad, y1 = vr.y1 + pad;
-      var wW = Math.max(1, x1 - x0), wH = Math.max(1, y1 - y0);
-      var step = Math.max(8, wW / 120, wH / 120); // شبکهٔ درشت‌تر از سیگنال: speedTestAt سنگین‌تر است
-      var pw = Math.max(2, Math.ceil(wW / step)), ph = Math.max(2, Math.ceil(wH / step));
-      var off = document.createElement('canvas');
-      off.width = pw; off.height = ph;
-      var octx = off.getContext('2d');
-      var img = octx.createImageData(pw, ph);
-      var px = img.data;
-      var rgba = [0, 0, 0, 0];
-      var agg = (typeof global.GameSim.aggregateSpeedAt === 'function')
-        ? function (x, y) { return global.GameSim.aggregateSpeedAt(state, x, y); }
-        : function (x, y) {
-            var r = global.GameSim.speedTestAt(state, x, y), mx = 0;
-            for (var k in r) if (r[k] && r[k].speed > mx) mx = r[k].speed;
-            return mx;
-          };
-      for (var j = 0; j < ph; j++) {
-        var wy = y0 + (j + 0.5) * step;
-        for (var i = 0; i < pw; i++) {
-          var wx = x0 + (i + 0.5) * step;
-          var spd = 0;
-          try { spd = agg(wx, wy) || 0; } catch (e) { spd = 0; }
-          speedRGBA(spd, rgba);
-          var o = (j * pw + i) * 4;
-          px[o] = rgba[0]; px[o + 1] = rgba[1]; px[o + 2] = rgba[2]; px[o + 3] = rgba[3];
-        }
+      if (job.row >= cfg.ph) {
+        job.octx.putImageData(job.img, 0, 0);
+        st.canvas = job.off;
+        st.sig = job.sig;
+        st.job = null;
       }
-      octx.putImageData(img, 0, 0);
-      _speedCache = { sig: sig, ts: now, canvas: off, x0: x0, y0: y0, x1: x1, y1: y1 };
     }
-    if (!_speedCache || !_speedCache.canvas) return;
-    ctx.save();
-    ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(_speedCache.canvas, _speedCache.x0, _speedCache.y0,
-      _speedCache.x1 - _speedCache.x0, _speedCache.y1 - _speedCache.y0);
-    ctx.restore();
+    if (st.canvas) {
+      ctx.save();
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(st.canvas, 0, 0, WORLD_W, WORLD_H);
+      ctx.restore();
+    }
   }
+  function drawSignalHeat() { drawHeatField('signal'); }
+  function drawSpeedHeat() { drawHeatField('speed'); }
 
   /* نقاط پیشنهادی ساخت: حلقهٔ تپنده + ضربدر + برچسب مشترک مورد انتظار */
   function drawSuggestions() {
@@ -1704,15 +1677,13 @@
       var bb = bs[i], w = bb.w || 26, h = bb.h || 20;
       if (wx >= bb.x && wx <= bb.x + w && wy >= bb.y && wy <= bb.y + h) return { kind: 'building', id: bb.id };
     }
+    // جزئیات منطقه فقط با ضربه روی پلاک نام منطقه باز می‌شود، نه هر جای خالی آن
     var ds = getDistricts();
+    var tolLabel = touch ? Math.max(10, 18 / cam.z) : 6;
     for (i = ds.length - 1; i >= 0; i--) {
       var d = ds[i];
-      if (typeof d.w === 'number') {
-        if (wx >= d.x && wx <= d.x + d.w && wy >= d.y && wy <= d.y + (d.h || d.w)) return { kind: 'district', id: d.id };
-      } else {
-        var c = districtCenter(d);
-        if (dist(wx, wy, c.x, c.y) <= districtRadius(d)) return { kind: 'district', id: d.id };
-      }
+      var lr = districtLabelRect(d);
+      if (wx >= lr.x - tolLabel && wx <= lr.x + lr.w + tolLabel && wy >= lr.y - tolLabel && wy <= lr.y + lr.h + tolLabel) return { kind: 'district', id: d.id };
     }
     return null;
   }
@@ -1766,7 +1737,7 @@
         return;
       }
       dragging = true; dragMoved = false; lastPX = p.x; lastPY = p.y;
-      downX = p.x; downY = p.y;
+      downX = p.x; downY = p.y; downPointerType = e.pointerType || 'mouse';
       if (ids.length === 1) pinched = false;
     }
   }
@@ -1809,7 +1780,10 @@
     }
     if (dragging) {
       var dx = p.x - lastPX, dy = p.y - lastPY;
-      if (dist(p.x, p.y, downX, downY) > 6) dragMoved = true; // cumulative movement from touch-down
+      // آستانهٔ ضربه: انگشت واقعی روی موبایل چند پیکسل می‌لغزد؛ تا آستانه رد نشده نه پن شود نه ضربه گم شود
+      var tapTol = (downPointerType === 'touch' || (viewW > 0 && viewW < 900)) ? 16 : 6;
+      if (!dragMoved && dist(p.x, p.y, downX, downY) > tapTol) dragMoved = true;
+      if (!dragMoved) { lastPX = p.x; lastPY = p.y; return; } // هنوز ضربه است: دوربین حرکت نکند
       camT.x -= dx / camT.z; camT.y -= dy / camT.z;
       cam.x = camT.x; cam.y = camT.y;
       lastPX = p.x; lastPY = p.y;
@@ -1922,7 +1896,7 @@
       return CityMap;
     },
 
-    setState: function (s) { state = s || state; staticCam = null; _distCache = null; _heatCache = null; applyMapData(); },
+    setState: function (s) { state = s || state; staticCam = null; _distCache = null; _heat.signal = null; _heat.speed = null; applyMapData(); },
     getState: function () { return state; },
 
     layers: layers,
@@ -1977,7 +1951,7 @@
     destroy: function () {
       if (rafId) cancelAnimationFrame(rafId);
       rafId = null;
-      sectorDrag = null; suggestions = null; _heatCache = null; _wxParticles = null;
+      sectorDrag = null; suggestions = null; _heat.signal = null; _heat.speed = null; _wxParticles = null;
       if (canvas) {
         canvas.removeEventListener('pointerdown', onPointerDown);
         canvas.removeEventListener('pointermove', onPointerMove);
