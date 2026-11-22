@@ -48,6 +48,15 @@
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   }
+  // جریان RNG جدا برای ویژگی‌های جدید (آب‌وهوا، افراد، قرارداد، ماهواره) تا توالی
+  // تصادفی سازوکارهای قدیمی (خرابی، رشد شهر، رویدادها) و تست‌های موجود دست‌نخورده بماند
+  function rand2(state) {
+    if (state.rngState2 == null) state.rngState2 = ((state.seed || 42) ^ 0x9e3779b9) >>> 0;
+    let t = (state.rngState2 = (state.rngState2 + 0x6d2b79f5) >>> 0);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  }
 
   const ACCESS_TYPES = ['cell_2g', 'cell_3g', 'cell_4g', 'cell_5g', 'fwa_ap', 'wifi_ap', 'ftth', 'sat_terminal_leo', 'sat_terminal_geo'];
 
@@ -75,11 +84,182 @@
     const eq = getEq(type);
     return (eq && eq.tech) || null;
   }
+  // ---------- ساعت، فصل، آب‌وهوا (ویژگی‌های ۴۵ و ۴۶) ----------
+  // ساعت پیش‌فرض بازی ۱۰ است و منحنی تقاضا در ساعت‌های ۹ تا ۱۱ برابر ۱٫۰ است؛
+  // پس بدون دخالت UI، تقاضا دقیقاً مثل قبل می‌ماند.
+  function demandFactorAtHour(hour) {
+    const curve = DATA && DATA.hourDemandCurve;
+    if (!Array.isArray(curve) || curve.length < 24) return 1;
+    const h = (((hour == null ? 10 : hour) % 24) + 24) % 24;
+    const i = Math.floor(h), f = h - i;
+    const a = curve[i], b = curve[(i + 1) % 24];
+    if (a == null || b == null) return 1;
+    return a * (1 - f) + b * f;
+  }
+  function clockTick(state, dtHours) {
+    const cur = state.hour == null ? 10 : state.hour;
+    state.hour = (((cur + (dtHours || 0)) % 24) + 24) % 24;
+    return state.hour;
+  }
+  const FALLBACK_SEASON = { id: 'spring', name: 'بهار', demandFactor: 1, weather: { clear: 1, rain: 0, storm: 0, snow: 0 } };
+  function seasonOf(state) {
+    const seasons = DATA && DATA.seasons;
+    if (!Array.isArray(seasons) || !seasons.length) return FALLBACK_SEASON;
+    const idx = Math.floor(((state.day || 1) - 1) / 90) % 4;
+    return seasons[idx] || seasons[0] || FALLBACK_SEASON;
+  }
+  function weatherKindCfg(kind) {
+    const kinds = DATA && DATA.weatherKinds;
+    return (kinds && kinds[kind]) || null;
+  }
+  function isMmWaveNode(n) {
+    const eq = n ? getEq(n.type) : null;
+    const name = (eq && eq.name) || (n && n.name) || '';
+    return name.indexOf('mmWave') >= 0 || name.indexOf('۲۶ گیگاهرتز') >= 0;
+  }
+  // ضریب ظرفیت گره بر اساس آب‌وهوای جاری: بی‌سیم و mmWave و ماهواره افت می‌کنند، فیبر نه
+  function nodeWeatherFactor(state, n) {
+    if (!n || !state.weather) return 1;
+    const cfg = weatherKindCfg(state.weather.kind);
+    if (!cfg) return 1;
+    if (isMmWaveNode(n)) return cfg.mmwaveFactor != null ? cfg.mmwaveFactor : 1;
+    const tech = techOfNode(n.type);
+    if (tech === 'fiber') return 1;
+    if (tech === 'satellite') return cfg.satFactor != null ? cfg.satFactor : 1;
+    if (tech === 'cellular' || tech === 'fwa' || tech === 'wifi') return cfg.wirelessFactor != null ? cfg.wirelessFactor : 1;
+    return 1;
+  }
+  function rollWeather(state) {
+    if (!state.weather) state.weather = { kind: 'clear', untilDay: 1 };
+    if (state.day < state.weather.untilDay) return;
+    // بدون پیکربندی آب‌وهوا در داده‌ها، هوا همیشه صاف می‌ماند (و RNG مصرف نمی‌شود)
+    if (!(DATA && (DATA.weatherKinds || DATA.seasons))) { state.weather.untilDay = Math.floor(state.day) + 1; return; }
+    const season = seasonOf(state);
+    const probs = (season && season.weather) || { clear: 1 };
+    const kinds = ['clear', 'rain', 'storm', 'snow'];
+    let r = rand2(state), picked = 'clear';
+    for (const k of kinds) { const p = probs[k] || 0; if (r < p) { picked = k; break; } r -= p; }
+    const prev = state.weather.kind;
+    state.weather.kind = picked;
+    state.weather.untilDay = Math.floor(state.day) + 1 + Math.floor(rand2(state) * 3); // ۱ تا ۳ روز
+    if (picked !== prev && picked !== 'clear') {
+      const cfg = weatherKindCfg(picked);
+      log(state, 'آب‌وهوا تغییر کرد: ' + ((cfg && cfg.name) || picked) + ' — کیفیت لینک‌های بی‌سیم افت می‌کند.', 'warn');
+    }
+  }
+
+  // ---------- گوهٔ سکتوری آنتن (ویژگی ۲۲) ----------
+  // قرارداد جهت: درجه، ۰ = شرق (محور +x)، مثبت = پادساعتگرد در مختصات جهان.
+  // چون محور y در نقشه رو به پایین است، زاویهٔ نقطه با atan2(-dy, dx) گرفته می‌شود
+  // تا با قرارداد رسم map.js (بردار جهت = (cos θ, -sin θ)) دقیقاً یکی باشد.
+  // گره با angle>=360 همه‌جهته است.
+  function inWedge(node, x, y) {
+    if (!node) return false;
+    const angle = node.angle == null ? 360 : node.angle;
+    if (angle >= 360) return true;
+    const dx = x - node.x, dy = y - node.y;
+    if (Math.hypot(dx, dy) < 1) return true;
+    const dir = node.direction || 0;
+    const ang = Math.atan2(-dy, dx) * 180 / Math.PI;
+    const diff = (((ang - dir) + 540) % 360) - 180;
+    return Math.abs(diff) <= angle / 2;
+  }
+
+  // ---------- کانال فرکانسی و تداخل (ویژگی ۲۱) ----------
+  // کانال‌ها ۱-مبنا هستند (۱..count) تا با برچسب‌های DATA.channelSets جور باشند.
+  function channelCountFor(node) {
+    const sets = DATA && DATA.channelSets;
+    if (!sets || !node) return 0;
+    const tech = techOfNode(node.type);
+    return (tech && sets[tech] && sets[tech].count) || 0;
+  }
+  function interferenceFor(state, node, channel, includeBuilding) {
+    if (!node || channel == null) return 0;
+    const tech = techOfNode(node.type);
+    if (!tech) return 0;
+    let sum = 0;
+    for (const m of (state.nodes || [])) {
+      if (m === node || m.id === node.id) continue;
+      if (!isAccessNode(m)) continue;
+      // در جریان ترافیک فقط گره‌های قابل‌استفاده؛ هنگام انتخاب کانال، گره‌های در حال ساخت هم شمرده می‌شوند
+      if (!isUsableNode(m) && !(includeBuilding && (m.status === 'building' || m.status === 'repairing'))) continue;
+      if (techOfNode(m.type) !== tech || m.channel !== channel) continue;
+      const denom = (node.radius || 0) + (m.radius || 0);
+      if (denom <= 0) continue;
+      sum += Math.max(0, 1 - dist(node.x, node.y, m.x, m.y) / denom);
+    }
+    return clamp(sum, 0, 1);
+  }
+  function leastInterferedChannel(state, node) {
+    const count = channelCountFor(node);
+    if (!count) return null;
+    let best = 1, bestVal = Infinity;
+    for (let ch = 1; ch <= count; ch++) {
+      const v = interferenceFor(state, node, ch, true);
+      if (v < bestVal) { bestVal = v; best = ch; }
+    }
+    return best;
+  }
+
+  // ---------- دید مستقیم (LoS) و تأخیر مسیر ----------
+  function losBlocked(state, n, x, y) {
+    if (n.type === 'ftth') return false;
+    for (const b of (state.buildings || (DATA && DATA.buildings) || [])) {
+      if (b.height < 10) continue;
+      const tt = clamp(((b.x - n.x) * (x - n.x) + (b.y - n.y) * (y - n.y)) /
+        (Math.pow(x - n.x, 2) + Math.pow(y - n.y, 2) || 1), 0, 1);
+      const px = n.x + tt * (x - n.x), py = n.y + tt * (y - n.y);
+      if (dist(b.x, b.y, px, py) < 45) return true;
+    }
+    return false;
+  }
+  const TECH_LATENCY_BASE = { fiber: 5, cellular: 30, fwa: 25, wifi: 10, satellite: 45 };
+  function techLatencyBase(tech, node) {
+    if (tech === 'satellite') {
+      const eq = node ? getEq(node.type) : null;
+      const isGeo = node && (node.type === 'sat_terminal_geo' || ((eq && eq.name) || '').indexOf('GEO') >= 0);
+      return isGeo ? 600 : 45;
+    }
+    return TECH_LATENCY_BASE[tech] || 20;
+  }
+  function pathLatency(state, nodeId) {
+    const path = bfsPath(state, nodeId);
+    if (!path) return 0;
+    let sum = 0;
+    for (const id of path) { const l = linkById(state, id); if (l) sum += l.latency || 0; }
+    return sum;
+  }
+
+  // ---------- صورت فلکی ماهواره‌های اختصاصی (ویژگی ۲۹) ----------
+  // مدل ساده و سازگار: ظرفیت صورت فلکی بین لینک‌های ماهواره‌ای تقسیم می‌شود و به
+  // ظرفیت مؤثر هر لینک ماهواره‌ای اضافه می‌شود (در ازدحام computeFlow و تست سرعت)؛
+  // هزینهٔ ماهانهٔ پایانه‌ها هم وقتی صورت فلکی فعال است به ۳۰٪ می‌رسد.
+  function constellationCapacity(state) {
+    return (state.satellites || []).filter((s) => s.status === 'active').reduce((sum, s) => sum + (s.capacity || 0), 0);
+  }
+  function constellationBonusPerLink(state) {
+    const cap = constellationCapacity(state);
+    if (cap <= 0) return 0;
+    const satLinks = (state.links || []).filter((l) => l.medium === 'satellite' && isUsableLink(l)).length;
+    return cap / Math.max(1, satLinks);
+  }
+
+  // ---------- کمپین‌های تبلیغاتی (ویژگی ۱۴) ----------
+  function campaignMultFor(state, districtId) {
+    let mult = 1;
+    for (const c of (state.campaigns || [])) {
+      if (!c.active || !(c.districtIds || []).includes(districtId)) continue;
+      const type = (DATA.campaignTypes || []).find((t) => t.id === c.typeId);
+      if (type && type.growthMult) mult = Math.max(mult, type.growthMult);
+    }
+    return mult;
+  }
+
   // سهم تقاضای هر فناوری از تقاضای کل منطقه + بخش سرویس‌گرفته با ظرفیت همان فناوری
   function computeTechDemand(d, servers, congestionFactor) {
     const split = (DATA.techDemandSplit && DATA.techDemandSplit[d.type]) || DATA.techDemandSplitDefault || {};
     const techCap = { fiber: 0, cellular: 0, fwa: 0, wifi: 0, satellite: 0 };
-    for (const srv of (servers || [])) { const t = techOfNode(srv.type); if (t) techCap[t] += srv.capacity || 0; }
+    for (const srv of (servers || [])) { const t = techOfNode(srv.type); if (t) techCap[t] += (srv._effCap != null ? srv._effCap : srv.capacity) || 0; }
     const demand = d.demand != null ? d.demand : (d.demandBase || 0);
     const cf = congestionFactor == null ? 1 : congestionFactor;
     const out = {};
@@ -130,54 +310,111 @@
 
   function speedTestAt(state, x, y) {
     const fx = staffEffects(state);
+    const satBonus = constellationBonusPerLink(state);
     const out = {};
     for (const t of TECH_KEYS) {
       const covering = state.nodes.filter((n) =>
-        techOfNode(n.type) === t && isUsableNode(n) && dist(x, y, n.x, n.y) <= (n.radius || 0));
-      if (!covering.length) { out[t] = { speed: 0, nodeId: null, nodeName: null, reason: 'no_coverage' }; continue; }
+        techOfNode(n.type) === t && isUsableNode(n) && dist(x, y, n.x, n.y) <= (n.radius || 0) && inWedge(n, x, y));
+      if (!covering.length) { out[t] = { speed: 0, nodeId: null, nodeName: null, reason: 'no_coverage', latency: null }; continue; }
       const connected = covering.filter((n) => n.connected);
       if (!connected.length) {
         const n0 = covering[0];
-        out[t] = { speed: 0, nodeId: n0.id, nodeName: n0.name, reason: 'unconnected' };
+        out[t] = { speed: 0, nodeId: n0.id, nodeName: n0.name, reason: 'unconnected', latency: null };
         continue;
       }
       let best = null;
       for (const n of connected) {
         const path = bfsPath(state, n.id);
         if (!path) continue;
-        let bottleneck = n.capacity || 0;
+        let bottleneck = (n.capacity || 0) * nodeWeatherFactor(state, n) * (1 - 0.5 * interferenceFor(state, n, n.channel));
         let congFactor = 1;
+        let latencySum = 0;
         for (const id of path) {
           const l = linkById(state, id);
           if (!l) continue;
-          const effCap = (l.capacity || 0) * fx.capMult;
+          latencySum += l.latency || 0;
+          const effCap = (l.capacity || 0) * fx.capMult + (l.medium === 'satellite' ? satBonus : 0);
           bottleneck = Math.min(bottleneck, effCap);
           if (effCap > 0 && (l.usage || 0) > effCap) congFactor = Math.min(congFactor, effCap / l.usage);
         }
         const d = dist(x, y, n.x, n.y);
         const distFactor = 1 - 0.5 * clamp(d / Math.max(1, n.radius || 1), 0, 1);
-        let blocked = false;
-        if (n.type !== 'ftth') {
-          for (const b of (state.buildings || DATA.buildings || [])) {
-            if (b.height < 10) continue;
-            const tt = clamp(((b.x - n.x) * (x - n.x) + (b.y - n.y) * (y - n.y)) /
-              (Math.pow(x - n.x, 2) + Math.pow(y - n.y, 2) || 1), 0, 1);
-            const px = n.x + tt * (x - n.x), py = n.y + tt * (y - n.y);
-            if (dist(b.x, b.y, px, py) < 45) { blocked = true; break; }
-          }
-        }
+        const blocked = losBlocked(state, n, x, y);
         const losFactor = blocked ? 0.35 : 1;
         const speed = Math.round(bottleneck * distFactor * losFactor * congFactor);
-        if (!best || speed > best.speed) best = { speed, nodeId: n.id, nodeName: n.name, blocked, congFactor, distFactor };
+        const latency = latencySum + techLatencyBase(t, n);
+        if (!best || speed > best.speed) best = { speed, nodeId: n.id, nodeName: n.name, blocked, congFactor, distFactor, latency };
       }
-      if (!best) { out[t] = { speed: 0, nodeId: connected[0].id, nodeName: connected[0].name, reason: 'no_path' }; continue; }
+      if (!best) { out[t] = { speed: 0, nodeId: connected[0].id, nodeName: connected[0].name, reason: 'no_path', latency: null }; continue; }
       let reason = null;
       if (best.congFactor < 0.7) reason = 'congestion';
       else if (best.blocked) reason = 'los';
       else if (best.distFactor < 0.65) reason = 'distance';
-      out[t] = { speed: best.speed, nodeId: best.nodeId, nodeName: best.nodeName, reason };
+      out[t] = { speed: best.speed, nodeId: best.nodeId, nodeName: best.nodeName, reason, latency: best.latency };
     }
     return out;
+  }
+
+  // ---------- سیگنال در یک نقطه (ویژگی ۲۳) ----------
+  function signalAt(state, x, y) {
+    let best = null;
+    for (const n of (state.nodes || [])) {
+      if (!isAccessNode(n) || !isUsableNode(n)) continue;
+      const radius = n.radius || 0;
+      if (radius <= 0) continue;
+      const d = dist(x, y, n.x, n.y);
+      if (d > radius || !inWedge(n, x, y)) continue;
+      const base = 1 - d / radius;
+      const losFactor = losBlocked(state, n, x, y) ? 0.35 : 1;
+      const signal = base * losFactor * (1 - 0.5 * interferenceFor(state, n, n.channel)) * nodeWeatherFactor(state, n);
+      if (!best || signal > best.signal) best = { signal, tech: techOfNode(n.type), nodeId: n.id };
+    }
+    if (!best) return { signal: 0, tech: null, nodeId: null };
+    return { signal: clamp(best.signal, 0, 1), tech: best.tech, nodeId: best.nodeId };
+  }
+
+  // ---------- پیشنهاد مکان نصب (ویژگی ۲۴) ----------
+  function suggestPlacements(state, eqId) {
+    const eq = getEq(eqId);
+    if (!eq) return [];
+    const radius = eq.radius || 0;
+    if (radius <= 0) return [];
+    const W = (DATA.world && DATA.world.width) || 7200;
+    const H = (DATA.world && DATA.world.height) || 5400;
+    // ساختمان‌های پراکندهٔ بدون پوشش فعلی
+    const accessNodes = (state.nodes || []).filter((n) => isAccessNode(n) && n.connected && isUsableNode(n));
+    const uncovered = (state.buildings || []).filter((b) => !b.districtId).filter((b) => {
+      const cx = b.x + (b.w || 26) / 2, cy = b.y + (b.h || 20) / 2;
+      return !accessNodes.some((n) => dist(cx, cy, n.x, n.y) <= (n.radius || 0) && inWedge(n, cx, cy));
+    });
+    const results = [];
+    for (let gx = 150; gx < W; gx += 300) {
+      for (let gy = 150; gy < H; gy += 300) {
+        if (!isValidPlacement(state, gx, gy).ok) continue;
+        let score = 0, subCap = 0;
+        for (const d of (state.districts || [])) {
+          if ((d.qos || 0) >= 0.5) continue;
+          const demand = d.demand != null && d.demand > 0 ? d.demand : (d.demandBase || 0);
+          const unserved = demand * (1 - (d.qos || 0));
+          const dd = dist(gx, gy, d.x, d.y);
+          if (dd < radius + d.radius * 0.6) {
+            score += unserved * Math.max(0, 1 - dd / (radius + d.radius));
+            subCap += Math.max(0, Math.floor((d.population || 0) * 0.35) - (d.subscribers || 0));
+          }
+        }
+        let uncoveredHere = 0;
+        for (const b of uncovered) {
+          const cx = b.x + (b.w || 26) / 2, cy = b.y + (b.h || 20) / 2;
+          if (dist(gx, gy, cx, cy) <= radius) { score += 6 * 1.2; uncoveredHere++; }
+        }
+        if (score <= 0) continue;
+        subCap += uncoveredHere * 6;
+        const expectedSubs = Math.min(Math.round(score / 1.2 * 0.5), Math.max(0, subCap));
+        results.push({ x: gx, y: gy, expectedSubs, expectedCoverage: Math.round(score), cost: eq.cost });
+      }
+    }
+    results.sort((a, b) => b.expectedSubs - a.expectedSubs);
+    return results.slice(0, 5);
   }
   const CELL_TECH = { cell_2g: '2g', cell_3g: '3g', cell_4g: '4g', cell_5g: '5g' };
 
@@ -211,6 +448,7 @@
       version: 1,
       seed: s,
       rngState: s >>> 0,
+      rngState2: (s ^ 0x9e3779b9) >>> 0,
       cash: 30000,
       debt: 0,
       day: 1,
@@ -230,7 +468,19 @@
       problems: [],
       settings: { autoFailover: true },
       failoverActive: false,
-      counters: { node: 0, link: 0, staff: 0, problem: 0, building: genBuildings.length },
+      counters: { node: 0, link: 0, staff: 0, problem: 0, building: genBuildings.length, individual: 0, contract: 0, campaign: 0, satellite: 0, built: 0, contractsDone: 0, campaignsRun: 0, profitMonths: 0 },
+      // ساعت روز (۰ تا ۲۴) و آب‌وهوای جاری
+      hour: 10,
+      weather: { kind: 'clear', untilDay: 1 },
+      // دستاوردها، مشترکان فردی، قراردادهای سازمانی، کمپین‌ها، ماهواره‌های اختصاصی، تاریخچه
+      achievements: {},
+      newAchievements: [],
+      individuals: [],
+      contracts: [],
+      contractOffers: [],
+      campaigns: [],
+      satellites: [],
+      history: [],
       lastMonthDay: 1,
       monthRevenue: 0,
       lastMonthlyProfit: 0,
@@ -264,6 +514,7 @@
       priceSensitivity: d.priceSensitivity, potentialRevenue: d.potentialRevenue,
       demand: d.demandBase, servedDemand: 0, subscribers: 0,
       qos: 0, satisfaction: 0, revenue: 0, complaints: 0, connected: false,
+      avgLatency: 0, perSubMbps: 0, _qosAcc: 0, _qosDays: 0,
     }));
     state.districts.forEach((d) => { d.techDemand = computeTechDemand(d, [], 1); });
     // گروه مشتری هر منطقه
@@ -282,14 +533,14 @@
       x: hq.x, y: hq.y, status: 'active', health: 100,
       capacity: coreEq ? coreEq.capacity : 40000, radius: 0,
       tech: null, direction: 0, angle: 360, power: 1,
-      buildTimer: 0, usage: 0, connected: true,
+      buildTimer: 0, usage: 0, connected: true, channel: null, interference: 0,
     };
     const gw = {
       id: 'n' + (++state.counters.node), type: 'internet_gateway', name: gwEq ? gwEq.name : 'دروازه اینترنت',
       x: hq.x + 140, y: hq.y, status: 'active', health: 100,
       capacity: gwEq ? gwEq.capacity : 40000, radius: 0,
       tech: null, direction: 0, angle: 360, power: 1,
-      buildTimer: 0, usage: 0, connected: true,
+      buildTimer: 0, usage: 0, connected: true, channel: null, interference: 0,
     };
     state.nodes.push(core, gw);
 
@@ -334,6 +585,7 @@
     }
     state.cash -= eq.cost;
     state.totalCosts += eq.cost;
+    state.counters.built = (state.counters.built || 0) + 1;
     const node = {
       id: 'n' + (++state.counters.node),
       type: eqId,
@@ -345,13 +597,17 @@
       radius: eq.radius || 0,
       tech: CELL_TECH[eqId] || null,
       direction: opts.direction !== undefined ? opts.direction : 0,
-      angle: opts.angle !== undefined ? opts.angle : 360,
+      angle: (DATA.beamwidthByEq && DATA.beamwidthByEq[eqId]) || (opts.angle !== undefined ? opts.angle : 360),
       power: opts.power !== undefined ? opts.power : 1,
       buildTimer: eq.buildDays || 1,
       usage: 0,
       connected: false,
       installPointId: opts.installPointId || null,
+      channel: null,
+      interference: 0,
     };
+    // کانال فرکانسی: برای فناوری‌های بی‌سیم، کم‌تداخل‌ترین کانال انتخاب می‌شود
+    if (channelCountFor(node) > 0) node.channel = leastInterferedChannel(state, node);
     state.nodes.push(node);
     log(state, 'ساخت «' + eq.name + '» آغاز شد (' + node.buildTimer + ' روز).', 'build');
     return node;
@@ -447,6 +703,7 @@
     for (const n of state.nodes) {
       if (!isAccessNode(n)) continue;
       if (!isUsableNode(n)) continue;
+      if (!inWedge(n, district.x, district.y)) continue;
       const d = dist(district.x, district.y, n.x, n.y);
       const reach = (n.radius || 0) + district.radius * 0.6;
       if (d > reach) continue;
@@ -542,6 +799,19 @@
 
     const fx = staffEffects(state);
 
+    // تداخل کانال و ظرفیت مؤثر هر گره دسترسی (تداخل × آب‌وهوا)
+    for (const n of state.nodes) {
+      if (isAccessNode(n) && isUsableNode(n)) {
+        n.interference = interferenceFor(state, n, n.channel);
+        n._effCap = (n.capacity || 0) * nodeWeatherFactor(state, n) * (1 - 0.5 * n.interference);
+      } else {
+        n._effCap = n.capacity || 0;
+      }
+    }
+    const satBonus = constellationBonusPerLink(state);
+    // ضریب تقاضای فصل و ساعت روز (در ساعت ۱۰ و بهار = ۱٫۰)
+    const demandTimeFactor = ((seasonOf(state).demandFactor) || 1) * demandFactorAtHour(state.hour);
+
     // ترتیب اولویت هنگام failover: اضطراری (بیمارستان) و سازمانی/صنعتی اول
     const priority = (d) => (d.id === 'hospital' || d.type === 'medical' ? 0
       : (['industrial', 'heavy_industrial', 'commercial', 'government'].includes(d.type) ? 1 : 2));
@@ -550,14 +820,16 @@
     let totalRevenue = 0, qosSum = 0, servedDistricts = 0;
 
     for (const d of ordered) {
-      d.demand = d.demandBase * (1 + d.subscribers / Math.max(1, d.population));
-      // گره‌های دسترسی متصلِ پوشش‌دهنده
+      d.demand = d.demandBase * (1 + d.subscribers / Math.max(1, d.population)) * demandTimeFactor;
+      // گره‌های دسترسی متصلِ پوشش‌دهنده (مرکز منطقه باید داخل گوهٔ آنتن باشد)
       const servers = state.nodes.filter((n) =>
         isAccessNode(n) && n.connected && isUsableNode(n) &&
-        dist(d.x, d.y, n.x, n.y) <= (n.radius || 0) + d.radius * 0.6);
+        dist(d.x, d.y, n.x, n.y) <= (n.radius || 0) + d.radius * 0.6 && inWedge(n, d.x, d.y));
       const cust = (state.customers || []).find((c) => c.districtId === d.id);
       if (!servers.length) {
         d.servedDemand = 0; d.qos = 0; d.connected = false;
+        d.avgLatency = 0; d.perSubMbps = 0;
+        d._qosAcc = (d._qosAcc || 0) + d.qos; d._qosDays = (d._qosDays || 0) + 1;
         d.techDemand = computeTechDemand(d, [], 1);
         if (cust) cust.servingNodeId = null;
         d.subscribers = Math.max(0, Math.floor(d.subscribers * fx.churnKeepUnserved));
@@ -568,14 +840,18 @@
       }
       d.everServed = true;
       if (cust) cust.servingNodeId = servers[0].id;
-      const accessCap = servers.reduce((s, n) => s + (n.capacity || 0), 0);
+      // ظرفیت رزروشدهٔ قراردادهای سازمانی فعال از ظرفیت دسترسی کم می‌شود
+      const reserved = (state.contracts || [])
+        .filter((c) => c.status === 'active' && c.districtId === d.id)
+        .reduce((s, c) => s + (c.speed || 0), 0);
+      const accessCap = Math.max(0, servers.reduce((s, n) => s + (n._effCap != null ? n._effCap : n.capacity || 0), 0) - reserved);
       let served = Math.min(d.demand, accessCap);
 
       // انتشار روی مسیرها و محاسبه ازدحام
       let remaining = served;
       for (const srv of servers) {
         if (remaining <= 0) break;
-        const share = Math.min(remaining, srv.capacity || 0);
+        const share = Math.min(remaining, srv._effCap != null ? srv._effCap : srv.capacity || 0);
         const path = bfsPath(state, srv.id);
         if (!path) continue;
         srv.usage += share;
@@ -585,10 +861,10 @@
         }
         remaining -= share;
       }
-      // گلوگاه لینک‌ها: اگر مصرف > ظرفیت مؤثر (با ضریب مهندسان شبکه)، کیفیت افت می‌کند
+      // گلوگاه لینک‌ها: اگر مصرف > ظرفیت مؤثر (با ضریب مهندسان شبکه و پاداش صورت فلکی)، کیفیت افت می‌کند
       let congestionFactor = 1;
       for (const l of state.links) {
-        const effCap = l.capacity * fx.capMult;
+        const effCap = l.capacity * fx.capMult + (l.medium === 'satellite' ? satBonus : 0);
         if (l.usage > effCap && effCap > 0) {
           l.status = 'congested';
           congestionFactor = Math.min(congestionFactor, effCap / l.usage);
@@ -601,13 +877,22 @@
       d.techDemand = computeTechDemand(d, servers, congestionFactor);
       d.qos = d.demand > 0 ? clamp(served / d.demand, 0, 1) : 0;
       d.connected = d.qos > 0;
+      d._qosAcc = (d._qosAcc || 0) + d.qos; d._qosDays = (d._qosDays || 0) + 1;
       qosSum += d.qos; if (d.qos > 0) servedDistricts++;
 
-      // مشترکان: رشد متناسب با کیفیت سرویس و تیم فروش، ریزش فقط با کیفیت خیلی بد (پشتیبانی ریزش را کم می‌کند)
+      // مشترکان: رشد متناسب با کیفیت سرویس و تیم فروش و کمپین فعال، ریزش فقط با کیفیت خیلی بد (پشتیبانی ریزش را کم می‌کند)
       const maxSubs = Math.floor(d.population * 0.35);
-      if (d.qos >= 0.12) d.subscribers = Math.min(maxSubs, d.subscribers + Math.max(1, Math.ceil(d.population * 0.004 * d.qos * fx.growthMult)));
+      const subsBefore = d.subscribers;
+      if (d.qos >= 0.12) d.subscribers = Math.min(maxSubs, d.subscribers + Math.max(1, Math.ceil(d.population * 0.004 * d.qos * fx.growthMult * campaignMultFor(state, d.id))));
       else if (d.qos < 0.05) d.subscribers = Math.max(0, Math.floor(d.subscribers * fx.churnKeepLowQos));
       if (cust) cust.count = d.subscribers;
+      // نسبت‌دادن تقریبی مشترکان جدید به کمپین‌های فعالِ هدف‌گرفتهٔ این منطقه
+      const gained = d.subscribers - subsBefore;
+      if (gained > 0) {
+        for (const c of (state.campaigns || [])) {
+          if (c.active && (c.districtIds || []).includes(d.id)) c.newSubs = (c.newSubs || 0) + gained;
+        }
+      }
 
       // بستهٔ منطقه: قیمت برای درآمد، سرعت برای رضایت (نسبت به انتظار نوع منطقه)
       const pkg = (state.packages || []).find((p) => p.id === (cust ? cust.packageId : 'home'));
@@ -616,8 +901,16 @@
         : (['commercial', 'government', 'medical', 'academic'].includes(d.type) ? 200 : 50);
       const speedFactor = clamp(pkgSpeed / expectedSpeed, 0.5, 1.1);
 
+      // تأخیر و سرعت سرانه برای بسته‌های گیمینگ/استریمینگ (ویژگی ۱۶)
+      const firstSrv = servers[0];
+      d.avgLatency = Math.round(pathLatency(state, firstSrv.id) + techLatencyBase(techOfNode(firstSrv.type), firstSrv));
+      d.perSubMbps = d.subscribers > 0 ? Math.round((served / d.subscribers) * 10) / 10 : pkgSpeed;
+      let kindFactor = 1;
+      if (pkg && pkg.kind === 'gaming') kindFactor = clamp(80 / Math.max(1, d.avgLatency), 0.3, 1.1);
+      else if (pkg && pkg.kind === 'streaming') kindFactor = clamp(d.perSubMbps / (pkgSpeed * 0.5), 0.4, 1.1);
+
       // رضایت به سمت کیفیت حرکت می‌کند؛ پشتیبانی بازگشت را سریع‌تر و افت را کندتر می‌کند
-      const target = clamp(d.qos * 100 * speedFactor, 0, 100);
+      const target = clamp(d.qos * 100 * speedFactor * kindFactor, 0, 100);
       const satRate = target >= d.satisfaction ? fx.satRecoveryRate : fx.satDecayRate;
       d.satisfaction = clamp(d.satisfaction + (target - d.satisfaction) * satRate, 0, 100);
       d.complaints = d.qos < 0.4 && d.subscribers > 0 ? Math.ceil(d.subscribers * 0.05) : 0;
@@ -643,7 +936,7 @@
     for (const b of outsideBuildings) {
       const cx = b.x + (b.w || 26) / 2, cy = b.y + (b.h || 20) / 2;
       for (const n of accessNodes) {
-        if (dist(cx, cy, n.x, n.y) <= (n.radius || 0)) { coveredCount++; coveringCaps.set(n.id, n.capacity || 0); break; }
+        if (dist(cx, cy, n.x, n.y) <= (n.radius || 0) && inWedge(n, cx, cy)) { coveredCount++; coveringCaps.set(n.id, n._effCap != null ? n._effCap : n.capacity || 0); break; }
       }
     }
     sc.coveredCount = coveredCount;
@@ -679,7 +972,15 @@
     state.satisfaction = totalPop > 0
       ? Math.round((state.districts.reduce((s, d) => s + d.satisfaction * (d.population || 0), 0) + sc.satisfaction * scatteredPop) / totalPop) : 0;
     let monthlyCosts = 0;
-    for (const n of state.nodes) { const eq = getEq(n.type); if (eq && n.status !== 'building') monthlyCosts += eq.monthlyCost || 0; }
+    const hasConstellation = constellationCapacity(state) > 0;
+    for (const n of state.nodes) {
+      const eq = getEq(n.type);
+      if (!eq || n.status === 'building') continue;
+      // با صورت فلکی اختصاصی، اشتراک پایانه‌های ماهواره‌ای ارزان‌تر می‌شود (۳۰٪)
+      const isSatTerm = n.type === 'sat_terminal_leo' || n.type === 'sat_terminal_geo';
+      monthlyCosts += (eq.monthlyCost || 0) * (isSatTerm && hasConstellation ? 0.3 : 1);
+    }
+    for (const s of (state.satellites || [])) if (s.status === 'active') monthlyCosts += s.monthlyCost || 0;
     for (const st of state.staff) monthlyCosts += st.salary || 0;
     state.incomePerDay = Math.round(totalRevenue / 30);
     state.expensePerDay = Math.round(monthlyCosts / 30);
@@ -1041,6 +1342,341 @@
     }
   }
 
+  // ---------- تنظیم کانال و جهت آنتن (ویژگی‌های ۲۱ و ۲۲) ----------
+  function setNodeChannel(state, nodeId, channel) {
+    const n = nodeById(state, nodeId);
+    if (!n) return { ok: false, error: 'گره پیدا نشد.' };
+    const count = channelCountFor(n);
+    if (!count) return { ok: false, error: 'این گره کانال فرکانسی ندارد.' };
+    if (!Number.isInteger(channel) || channel < 1 || channel > count) {
+      return { ok: false, error: 'کانال باید بین ۱ تا ' + count + ' باشد.' };
+    }
+    n.channel = channel;
+    log(state, 'کانال «' + (n.name || 'گره') + '» روی کانال ' + channel + ' تنظیم شد.', 'info');
+    return { ok: true, channel };
+  }
+  function autoChannel(state, nodeId) {
+    const n = nodeById(state, nodeId);
+    if (!n) return { ok: false, error: 'گره پیدا نشد.' };
+    const count = channelCountFor(n);
+    if (!count) return { ok: false, error: 'این گره کانال فرکانسی ندارد.' };
+    const ch = leastInterferedChannel(state, n);
+    n.channel = ch;
+    log(state, 'کانال «' + (n.name || 'گره') + '» به‌صورت خودکار روی کانال ' + ch + ' تنظیم شد.', 'info');
+    return { ok: true, channel: ch };
+  }
+  function setNodeDirection(state, nodeId, directionDeg, angleDeg) {
+    const n = nodeById(state, nodeId);
+    if (!n) return { ok: false, error: 'گره پیدا نشد.' };
+    if (directionDeg != null && !isNaN(directionDeg)) n.direction = ((directionDeg % 360) + 360) % 360;
+    if (angleDeg != null && !isNaN(angleDeg)) n.angle = clamp(angleDeg, 1, 360);
+    log(state, 'جهت آنتن «' + (n.name || 'گره') + '» تنظیم شد (جهت ' + Math.round(n.direction || 0) + ' درجه، پهنای پرتو ' + Math.round(n.angle || 360) + ' درجه).', 'info');
+    return { ok: true, direction: n.direction, angle: n.angle };
+  }
+
+  // ---------- مشترکان فردی (ویژگی ۱۱) ----------
+  // نمونهٔ نمایشی از مشترکان؛ درآمدشان جدا حساب نمی‌شود (درآمد منطقه‌ای شاملشان است).
+  const INDIVIDUAL_CAP = 300;
+  const INDIVIDUAL_NEEDS = [10, 25, 50, 100, 200];
+  const INDIVIDUAL_NEED_WEIGHTS = [0.35, 0.3, 0.2, 0.1, 0.05];
+  function spawnIndividuals(state, dtDays) {
+    if (!state.individuals) state.individuals = [];
+    if (state.individuals.length >= INDIVIDUAL_CAP) return;
+    const buildings = state.buildings || [];
+    if (!buildings.length) return;
+    const firstNames = (DATA && DATA.firstNames) || [];
+    const lastNames = (DATA && DATA.lastNames) || [];
+    let toSpawn = Math.min(3, Math.round(3 * dtDays), INDIVIDUAL_CAP - state.individuals.length);
+    while (toSpawn-- > 0) {
+      const b = buildings[Math.floor(rand2(state) * buildings.length)];
+      let r = rand2(state), needMbps = INDIVIDUAL_NEEDS[0];
+      for (let i = 0; i < INDIVIDUAL_NEEDS.length; i++) { if (r < INDIVIDUAL_NEED_WEIGHTS[i]) { needMbps = INDIVIDUAL_NEEDS[i]; break; } r -= INDIVIDUAL_NEED_WEIGHTS[i]; }
+      const fn = firstNames.length ? firstNames[Math.floor(rand2(state) * firstNames.length)] : 'مشترک';
+      const ln = lastNames.length ? lastNames[Math.floor(rand2(state) * lastNames.length)] : '';
+      state.individuals.push({
+        id: 'ind' + (++state.counters.individual),
+        name: (fn + ' ' + ln).trim(),
+        needMbps,
+        priceSensitivity: Math.round((0.5 + rand2(state)) * 100) / 100,
+        prefTech: TECH_KEYS[Math.floor(rand2(state) * TECH_KEYS.length)],
+        districtId: b.districtId || null,
+        buildingId: b.id,
+        status: 'candidate',
+        joinedDay: null,
+        satisfaction: 0,
+      });
+    }
+  }
+  function districtPackagePrice(state, districtId) {
+    const cust = (state.customers || []).find((c) => c.districtId === districtId);
+    const pkg = (state.packages || []).find((p) => p.id === (cust ? cust.packageId : 'home'));
+    return pkg ? pkg.price : 120;
+  }
+  function evaluateIndividuals(state) {
+    for (const ind of (state.individuals || [])) {
+      const d = ind.districtId ? (state.districts || []).find((x) => x.id === ind.districtId) : null;
+      const qos = d ? (d.qos || 0) : ((state.scattered && state.scattered.qos) || 0);
+      if (ind.status !== 'subscribed') {
+        const price = districtPackagePrice(state, ind.districtId);
+        const willingness = ind.needMbps * 3 / Math.max(0.1, ind.priceSensitivity);
+        if (qos >= 0.3 && price <= willingness * 2) {
+          ind.status = 'subscribed';
+          ind.joinedDay = Math.floor(state.day);
+          ind.satisfaction = Math.round(qos * 100);
+        }
+      } else {
+        ind.satisfaction = clamp(ind.satisfaction + (qos * 100 - ind.satisfaction) * 0.3, 0, 100);
+        if (qos < 0.1 && rand2(state) < 0.3) {
+          ind.status = 'unsubscribed';
+          ind.satisfaction = Math.round(ind.satisfaction);
+        }
+      }
+    }
+  }
+
+  // ---------- قراردادهای سازمانی (ویژگی ۱۲) ----------
+  function maybeGenerateContractOffer(state, dtDays) {
+    if (!state.contractOffers) state.contractOffers = [];
+    // پیشنهادهای منقضی حذف شوند
+    state.contractOffers = state.contractOffers.filter((o) => state.day <= o.expiresDay);
+    if (state.contractOffers.length >= 3) return;
+    const served = (state.districts || []).filter((d) => d.connected);
+    if (!served.length) return;
+    if (rand2(state) >= 0.05 * dtDays) return;
+    const templates = (DATA && DATA.enterpriseTemplates) || [];
+    const matching = [];
+    for (const t of templates) {
+      const ds = served.filter((d) => (t.districtTypes || []).includes(d.type));
+      if (ds.length) matching.push({ t, ds });
+    }
+    if (!matching.length) return;
+    const pick = matching[Math.floor(rand2(state) * matching.length)];
+    const d = pick.ds[Math.floor(rand2(state) * pick.ds.length)];
+    const t = pick.t;
+    state.contractOffers.push({
+      id: 'co' + (++state.counters.contract),
+      templateId: t.id, orgName: t.orgName, districtId: d.id,
+      wantSpeed: t.wantSpeed, wantSla: t.wantSla, wantPrice: t.wantPrice, months: t.months,
+      expiresDay: Math.floor(state.day) + 30,
+    });
+    log(state, 'پیشنهاد قرارداد سازمانی از «' + t.orgName + '» برای منطقهٔ «' + d.name + '» رسید.', 'info');
+  }
+  function negotiateContract(state, offerId, terms) {
+    terms = terms || {};
+    const idx = (state.contractOffers || []).findIndex((o) => o.id === offerId);
+    if (idx < 0) return { status: 'rejected', error: 'پیشنهاد پیدا نشد.' };
+    const offer = state.contractOffers[idx];
+    const speed = terms.speed != null ? terms.speed : offer.wantSpeed;
+    const sla = terms.sla != null ? terms.sla : offer.wantSla;
+    const price = terms.price != null ? terms.price : offer.wantPrice;
+    const months = terms.months != null ? terms.months : offer.months;
+    const score = 0.35 * clamp(speed / Math.max(1, offer.wantSpeed), 0, 1.2) / 1.2
+      + 0.3 * clamp(sla / Math.max(1, offer.wantSla), 0, 1.1) / 1.1
+      + 0.35 * clamp(offer.wantPrice / Math.max(1, price), 0, 1.3) / 1.3;
+    if (score >= 0.72) {
+      state.contractOffers.splice(idx, 1);
+      const contract = {
+        id: 'ct' + (++state.counters.contract),
+        orgName: offer.orgName, districtId: offer.districtId,
+        speed, sla, priceMonthly: price, monthsLeft: months,
+        startDay: Math.floor(state.day), breaches: 0, status: 'active',
+      };
+      if (!state.contracts) state.contracts = [];
+      state.contracts.push(contract);
+      log(state, 'قرارداد سازمانی با «' + offer.orgName + '» بسته شد (سرعت ' + speed + ' مگابیت، ماهانه ' + price + ').', 'finance');
+      return { status: 'accepted', contract };
+    }
+    if (score >= 0.45) {
+      const counterTerms = {
+        speed: Math.round((speed + offer.wantSpeed) / 2),
+        sla: Math.round((sla + offer.wantSla) / 2),
+        price: Math.round(price * 0.35 + offer.wantPrice * 0.65), // میانه با وزن بیشتر به سمت سازمان
+        months,
+      };
+      return { status: 'counter', counterTerms };
+    }
+    state.contractOffers.splice(idx, 1);
+    log(state, '«' + offer.orgName + '» پیشنهاد قرارداد را رد کرد.', 'warn');
+    return { status: 'rejected' };
+  }
+
+  // ---------- کمپین‌های تبلیغاتی (ویژگی ۱۴) ----------
+  function startCampaign(state, typeId, districtIds, days) {
+    const type = ((DATA && DATA.campaignTypes) || []).find((t) => t.id === typeId);
+    if (!type) return { ok: false, error: 'نوع کمپین نامعتبر است.' };
+    if (!Array.isArray(districtIds) || !districtIds.length) return { ok: false, error: 'حداقل یک منطقه انتخاب کن.' };
+    const valid = districtIds.filter((id) => (state.districts || []).some((d) => d.id === id));
+    if (!valid.length) return { ok: false, error: 'منطقهٔ معتبری انتخاب نشده است.' };
+    if (!(days >= 1)) return { ok: false, error: 'مدت کمپین باید حداقل یک روز باشد.' };
+    if (state.cash < type.costPerDay) return { ok: false, error: 'بودجه کافی برای شروع کمپین نیست (هزینهٔ روز اول: ' + type.costPerDay + ').' };
+    const campaign = {
+      id: 'cp' + (++state.counters.campaign),
+      typeId, districtIds: valid.slice(),
+      startDay: Math.floor(state.day), endDay: Math.floor(state.day) + Math.floor(days),
+      days: Math.floor(days), spent: 0, newSubs: 0, active: true,
+    };
+    if (!state.campaigns) state.campaigns = [];
+    state.campaigns.push(campaign);
+    state.counters.campaignsRun = (state.counters.campaignsRun || 0) + 1;
+    log(state, 'کمپین «' + type.name + '» در ' + valid.length + ' منطقه برای ' + campaign.days + ' روز شروع شد.', 'info');
+    return { ok: true, campaign };
+  }
+  function stopCampaign(state, id) {
+    const c = (state.campaigns || []).find((x) => x.id === id);
+    if (!c) return { ok: false, error: 'کمپین پیدا نشد.' };
+    c.active = false;
+    log(state, 'کمپین متوقف شد.', 'info');
+    return { ok: true, campaign: c };
+  }
+  function tickCampaigns(state, dtDays) {
+    for (const c of (state.campaigns || [])) {
+      if (!c.active) continue;
+      if (state.day > c.endDay) { c.active = false; log(state, 'کمپین تبلیغاتی به پایان رسید.', 'info'); continue; }
+      const type = ((DATA && DATA.campaignTypes) || []).find((t) => t.id === c.typeId);
+      if (!type) { c.active = false; continue; }
+      const cost = Math.round(type.costPerDay * dtDays);
+      if (state.cash < cost) {
+        c.active = false;
+        log(state, 'کمپین «' + type.name + '» به‌خاطر کمبود بودجه زودتر تمام شد.', 'warn');
+        continue;
+      }
+      state.cash -= cost;
+      state.totalCosts += cost;
+      c.spent = (c.spent || 0) + cost;
+    }
+  }
+
+  // ---------- ماهواره‌های اختصاصی (ویژگی ۲۹) ----------
+  function launchSatellite(state, kind) {
+    const cfg = DATA && DATA.satelliteLaunch && DATA.satelliteLaunch[kind];
+    if (!cfg) return { ok: false, error: 'نوع ماهواره نامعتبر است.' };
+    if (!(state.techsUnlocked || []).includes('own_satellite')) {
+      return { ok: false, error: 'فناوری «ماهواره اختصاصی» هنوز باز نشده است.' };
+    }
+    if (state.cash < cfg.cost) return { ok: false, error: 'بودجه کافی برای پرتاب ماهواره نیست (هزینه: ' + cfg.cost + ').' };
+    state.cash -= cfg.cost;
+    state.totalCosts += cfg.cost;
+    const n = (state.counters.satellite = (state.counters.satellite || 0) + 1);
+    const sat = {
+      id: 'sat' + n, kind, name: cfg.name + ' ' + n,
+      status: 'launching', launchTimer: cfg.buildDays,
+      capacity: cfg.capacity, lifetimeDays: cfg.lifetimeDays,
+      ageDays: 0, health: 100, monthlyCost: cfg.monthlyCost,
+    };
+    if (!state.satellites) state.satellites = [];
+    state.satellites.push(sat);
+    log(state, 'پرتاب ماهوارهٔ «' + sat.name + '» آغاز شد (' + cfg.buildDays + ' روز تا قرارگیری در مدار).', 'build');
+    return { ok: true, satellite: sat };
+  }
+  function tickSatellites(state, dtDays) {
+    for (const s of (state.satellites || [])) {
+      if (s.status === 'launching') {
+        s.launchTimer -= dtDays;
+        if (s.launchTimer <= 0) {
+          s.launchTimer = 0; s.status = 'active';
+          log(state, 'ماهوارهٔ «' + s.name + '» در مدار قرار گرفت.', 'build');
+        }
+      } else if (s.status === 'active') {
+        s.ageDays = (s.ageDays || 0) + dtDays;
+        s.health = clamp((s.health == null ? 100 : s.health) - 0.02 * dtDays, 0, 100);
+        if (rand2(state) < 0.0005 * dtDays) {
+          s.status = 'failed'; s.health = 0;
+          log(state, 'ماهوارهٔ «' + s.name + '» دچار خرابی شد و از مدار خارج شد.', 'error');
+        } else if (s.ageDays >= s.lifetimeDays) {
+          s.status = 'deorbited';
+          log(state, 'ماهوارهٔ «' + s.name + '» به پایان عمرش رسید و از مدار خارج شد.', 'warn');
+        }
+      }
+    }
+  }
+
+  // ---------- دستاوردها (ویژگی ۶) ----------
+  function achievementMetrics(state) {
+    const lf = state.lastFlow || {};
+    const totalSubs = lf.totalSubscribers != null ? lf.totalSubscribers
+      : (state.districts || []).reduce((s, d) => s + (d.subscribers || 0), 0) + ((state.scattered && state.scattered.subscribers) || 0);
+    const servedDistricts = lf.servedDistricts != null ? lf.servedDistricts
+      : (state.districts || []).filter((d) => d.connected).length;
+    const counters = state.counters || {};
+    return {
+      subscribers: totalSubs,
+      cash: state.cash || 0,
+      totalRevenue: state.totalRevenue || 0,
+      monthlyRevenue: lf.monthlyRevenue != null ? lf.monthlyRevenue : (state.monthRevenue || 0),
+      servedDistricts,
+      coveragePct: (state.districts || []).length ? Math.round(100 * servedDistricts / state.districts.length) : 0,
+      nodes: (state.nodes || []).length,
+      fiberLinks: (state.links || []).filter((l) => l.medium === 'fiber').length,
+      satellitePath: (state.nodes || []).some((n) => (n.type === 'sat_terminal_leo' || n.type === 'sat_terminal_geo') && traceSatellitePath(state, n.id)) ? 1 : 0,
+      satellitesLaunched: counters.satellite || 0,
+      contractsDone: counters.contractsDone || 0,
+      campaignsRun: counters.campaignsRun || 0,
+      satisfaction: state.satisfaction || 0,
+      days: Math.floor(state.day || 1),
+      techs: (state.techsUnlocked || []).length,
+      staff: (state.staff || []).length,
+      individualSubs: (state.individuals || []).filter((i) => i.status === 'subscribed').length,
+      profitMonths: counters.profitMonths || 0,
+    };
+  }
+  function checkAchievements(state) {
+    const defs = (DATA && DATA.achievements) || [];
+    if (!state.achievements) state.achievements = {};
+    if (!state.newAchievements) state.newAchievements = [];
+    if (!defs.length) return [];
+    const metrics = achievementMetrics(state);
+    const unlockedNow = [];
+    for (const def of defs) {
+      if (state.achievements[def.id] != null) continue;
+      if ((metrics[def.metric] || 0) >= def.target) {
+        state.achievements[def.id] = Math.floor(state.day);
+        state.newAchievements.push(def);
+        unlockedNow.push(def);
+        log(state, 'دستاورد باز شد: «' + def.name + '»', 'mission');
+      }
+    }
+    return unlockedNow;
+  }
+  function achievementProgress(state) {
+    const defs = (DATA && DATA.achievements) || [];
+    const metrics = achievementMetrics(state);
+    return defs.map((def) => ({
+      id: def.id,
+      current: metrics[def.metric] || 0,
+      target: def.target,
+      unlocked: !!(state.achievements && state.achievements[def.id] != null),
+    }));
+  }
+
+  // ---------- تاریخچهٔ روزانه (ویژگی ۴۸) ----------
+  function pushHistory(state) {
+    if (!state.history) state.history = [];
+    const day = Math.floor(state.day);
+    const last = state.history[state.history.length - 1];
+    if (last && last.day === day) return;
+    const lf = state.lastFlow || {};
+    const servedDistricts = lf.servedDistricts != null ? lf.servedDistricts
+      : (state.districts || []).filter((d) => d.connected).length;
+    const byTech = { fiber: 0, cellular: 0, fwa: 0, wifi: 0, satellite: 0 };
+    for (const d of (state.districts || [])) {
+      const td = d.techDemand || {};
+      const totalServed = TECH_KEYS.reduce((s, t) => s + ((td[t] && td[t].served) || 0), 0);
+      for (const t of TECH_KEYS) {
+        byTech[t] += Math.round((d.subscribers || 0) * (((td[t] && td[t].served) || 0) / Math.max(1, totalServed)));
+      }
+    }
+    state.history.push({
+      day,
+      cash: state.cash,
+      revenue: state.incomePerDay || 0,
+      subs: lf.totalSubscribers || 0,
+      sat: state.satisfaction || 0,
+      cov: (state.districts || []).length ? Math.round(100 * servedDistricts / state.districts.length) : 0,
+      byTech,
+    });
+    if (state.history.length > 400) state.history.splice(0, state.history.length - 400);
+  }
+
   function tick(state, dtDays) {
     dtDays = (dtDays === undefined || dtDays === null) ? 1 : dtDays;
     if (state.paused) return { events: [], problems: state.problems || [] };
@@ -1096,12 +1732,33 @@
       }
     }
 
+    // آب‌وهوا: قرعه‌کشی دوره‌ای + خرابی تصادفی در طوفان
+    rollWeather(state);
+    if (state.weather && state.weather.kind === 'storm' && rand2(state) < 0.01 * dtDays) {
+      const wireless = state.nodes.filter((n) => isAccessNode(n) && isUsableNode(n) && ['cellular', 'fwa', 'wifi'].includes(techOfNode(n.type)));
+      if (wireless.length) {
+        const victim = wireless[Math.floor(rand2(state) * wireless.length)];
+        victim.status = 'failed'; victim.health = 0;
+        log(state, 'طوفان به گره «' + (victim.name || 'نامشخص') + '» آسیب زد و از کار افتاد.', 'error');
+      }
+    }
+
+    // کمپین‌ها (هزینهٔ روزانه و انقضا) و ماهواره‌ها قبل از جریان ترافیک
+    tickCampaigns(state, dtDays);
+    tickSatellites(state, dtDays);
+
     // رویدادها + failover خودکار
     const events = rollEvents(state, dtDays);
     if (state.links.some((l) => l.status === 'cut')) failover(state);
 
     // جریان ترافیک
     computeFlow(state);
+
+    // مشترکان فردی، پیشنهاد قرارداد سازمانی و تاریخچهٔ روزانه
+    spawnIndividuals(state, dtDays);
+    evaluateIndividuals(state);
+    maybeGenerateContractOffer(state, dtDays);
+    pushHistory(state);
 
     // درآمد فروش اینترنت: هر روز به‌صورت روزانه به نقدینگی اضافه می‌شود (نه فقط پایان ماه)
     const dailyRevenue = Math.round(((state.lastFlow && state.lastFlow.monthlyRevenue) || 0) / 30 * dtDays);
@@ -1120,18 +1777,48 @@
     // حساب ماهانه (هر ۳۰ روز): فقط هزینه‌ها کسر می‌شوند؛ درآمد روزانه قبلاً واریز شده است
     if (state.day - state.lastMonthDay >= 30) {
       state.lastMonthDay += 30;
-      const revenue = state.monthRevenue || 0;
+      let revenue = state.monthRevenue || 0;
       state.monthRevenue = 0;
       let costs = 0;
+      const hasConstellation = constellationCapacity(state) > 0;
       for (const n of state.nodes) {
         if (n.status === 'building') continue;
         const eq = getEq(n.type);
-        if (eq) costs += eq.monthlyCost || 0;
+        if (!eq) continue;
+        const isSatTerm = n.type === 'sat_terminal_leo' || n.type === 'sat_terminal_geo';
+        costs += (eq.monthlyCost || 0) * (isSatTerm && hasConstellation ? 0.3 : 1);
       }
+      for (const s of (state.satellites || [])) if (s.status === 'active') costs += s.monthlyCost || 0;
       for (const st of state.staff) costs += st.salary || 0;
+
+      // قراردادهای سازمانی: واریز ماهانه + جریمهٔ نقض SLA بر اساس میانگین کیفیت ماه
+      for (const c of (state.contracts || [])) {
+        if (c.status !== 'active') continue;
+        state.cash += c.priceMonthly || 0;
+        state.totalRevenue += c.priceMonthly || 0;
+        revenue += c.priceMonthly || 0;
+        const d = (state.districts || []).find((x) => x.id === c.districtId);
+        const avgQos = d && d._qosDays ? (d._qosAcc / d._qosDays) * 100 : 100;
+        if (avgQos < (c.sla || 0)) {
+          const penalty = Math.round((c.priceMonthly || 0) * 0.3);
+          state.cash -= penalty;
+          c.breaches = (c.breaches || 0) + 1;
+          if (d) d.satisfaction = clamp(d.satisfaction - 5, 0, 100);
+          log(state, 'قرارداد «' + c.orgName + '»: کیفیت ماه (' + Math.round(avgQos) + '٪) از SLA (' + c.sla + '٪) کمتر بود؛ جریمه ' + penalty + '.', 'warn');
+        }
+        c.monthsLeft = (c.monthsLeft || 0) - 1;
+        if (c.monthsLeft <= 0) {
+          c.status = 'expired';
+          state.counters.contractsDone = (state.counters.contractsDone || 0) + 1;
+          log(state, 'قرارداد «' + c.orgName + '» به پایان رسید.', 'finance');
+        }
+      }
+      for (const d of (state.districts || [])) { d._qosAcc = 0; d._qosDays = 0; }
+
       state.cash -= costs;
       state.totalCosts += costs;
       state.lastMonthlyProfit = revenue - costs;
+      if (state.lastMonthlyProfit > 0) state.counters.profitMonths = (state.counters.profitMonths || 0) + 1;
       if (state.cash < 0) { state.debt += -state.cash; state.cash = 0; }
       state.loan = state.debt;
       log(state, 'پایان ماه: درآمد ' + revenue + '، هزینه ' + costs + '، سود ' + (revenue - costs) + '.', 'finance');
@@ -1139,6 +1826,7 @@
 
     updateTutorial(state);
     checkMissions(state);
+    checkAchievements(state);
     state.problems = buildProblems(state);
     return { events, problems: state.problems };
   }
@@ -1365,10 +2053,33 @@
     if (!state.counters) state.counters = { node: 0, link: 0, staff: 0, problem: 0 };
     if (!state.counters.building) state.counters.building = state.buildings.length;
     if (state.monthRevenue == null) state.monthRevenue = 0;
+    // فیلدهای جدید: ساعت، آب‌وهوا، دستاوردها، افراد، قراردادها، کمپین‌ها، ماهواره‌ها، تاریخچه
+    if (state.hour == null) state.hour = 10;
+    if (!state.weather) state.weather = { kind: 'clear', untilDay: Math.floor(state.day || 1) + 1 };
+    if (!state.achievements) state.achievements = {};
+    if (!Array.isArray(state.newAchievements)) state.newAchievements = [];
+    if (!Array.isArray(state.individuals)) state.individuals = [];
+    if (!Array.isArray(state.contracts)) state.contracts = [];
+    if (!Array.isArray(state.contractOffers)) state.contractOffers = [];
+    if (!Array.isArray(state.campaigns)) state.campaigns = [];
+    if (!Array.isArray(state.satellites)) state.satellites = [];
+    if (!Array.isArray(state.history)) state.history = [];
+    for (const key of ['individual', 'contract', 'campaign', 'satellite', 'built', 'contractsDone', 'campaignsRun', 'profitMonths']) {
+      if (state.counters[key] == null) state.counters[key] = 0;
+    }
+    for (const n of state.nodes) {
+      if (n.interference == null) n.interference = 0;
+      if (n.channel === undefined) n.channel = null;
+      if (n.channel == null && channelCountFor(n) > 0) n.channel = leastInterferedChannel(state, n);
+    }
     const capMult = (DATA.growth && DATA.growth.capMultiplier) || {};
     if (!state.scattered) state.scattered = { subscribers: 0, demand: 0, servedDemand: 0, qos: 0, satisfaction: 0, revenue: 0, potentialSubs: 0, buildingCount: 0, coveredCount: 0 };
     for (const d of (state.districts || [])) {
       if (!d.baseRadius) d.baseRadius = d.radius;
+      if (d._qosAcc == null) d._qosAcc = 0;
+      if (d._qosDays == null) d._qosDays = 0;
+      if (d.avgLatency == null) d.avgLatency = 0;
+      if (d.perSubMbps == null) d.perSubMbps = 0;
       if (!d.buildingCap) {
         const initial = (DATA.buildings || []).filter((b) => b.districtId === d.id).length;
         d.buildingCap = Math.max(1, Math.round(initial * (capMult[d.type] || 1.5)));
@@ -1392,6 +2103,8 @@
         else if (pkgDefaults[p.id]) p.speedMbps = pkgDefaults[p.id].speedMbps;
       }
       if (p.price == null && pkgDefaults[p.id]) p.price = pkgDefaults[p.id].price;
+      if (p.kind == null && pkgDefaults[p.id]) p.kind = pkgDefaults[p.id].kind;
+      if (p.expectFa == null && pkgDefaults[p.id]) p.expectFa = pkgDefaults[p.id].expectFa;
     }
     // ذخیره‌های قدیمی ممکن است مناطق هم‌پوشان داشته باشند: شعاع‌ها یک‌بار با همسایه‌ها محدود شوند
     for (const d of (state.districts || [])) {
@@ -1409,6 +2122,10 @@
     // کمکی‌ها
     nodeById, linkById, getEq, getTech, rand, ACCESS_TYPES, computeTechDemand, TECH_KEYS, speedTestAt,
     isAccessNode, nodeCategory, updateDistrictSizes, mergeDistricts, desiredRadius,
+    // ویژگی‌های جدید: دستاورد، کانال، جهت، سیگنال، پیشنهاد مکان، ماهواره، قرارداد، کمپین، ساعت و فصل
+    checkAchievements, achievementProgress, setNodeChannel, autoChannel, setNodeDirection,
+    signalAt, suggestPlacements, launchSatellite, constellationCapacity,
+    negotiateContract, startCampaign, stopCampaign, clockTick, demandFactorAtHour, seasonOf,
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = GameSim;
