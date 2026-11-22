@@ -25,7 +25,7 @@
   function dist(x1, y1, x2, y2) { var dx = x2 - x1, dy = y2 - y1; return Math.sqrt(dx * dx + dy * dy); }
   function isActive(n) { return n && (n.status === 'active' || n.status === 'online' || n.status === 'ok' || n.status === 'up'); }
   function isFailed(n) { return n && (n.status === 'failed' || n.status === 'down' || n.status === 'error' || n.status === 'fault'); }
-  function isBuilding(n) { return n && (n.status === 'building' || n.status === 'constructing' || n.status === 'installing' || n.status === 'pending'); }
+  function isBuilding(n) { return n && (n.status === 'building' || n.status === 'constructing' || n.status === 'installing' || n.status === 'pending' || n.status === 'upgrading'); }
   function isConnected(n) {
     if (!n) return false;
     if (n.connected === false) return false;
@@ -106,13 +106,23 @@
     }
     return s;
   }
-  function signalColor(s) {
-    // ۰ شفاف، کم قرمز/نارنجی، میانه زرد، زیاد سبز (آلفا حدود ۰٫۳۵)
-    if (s <= 0.02) return null;
-    if (s < 0.3) return 'rgba(239,68,68,0.35)';
-    if (s < 0.5) return 'rgba(249,115,22,0.35)';
-    if (s < 0.7) return 'rgba(250,204,21,0.35)';
-    return 'rgba(34,197,94,0.35)';
+  /* رمپ رنگی پیوستهٔ قدرت سیگنال (هم‌خانواده با راهنمای «قدرت سیگنال»):
+     ۰ شفاف ← قرمز ← نارنجی ← زرد ← سبز در ۱؛ آلفا در لبه‌ها محو می‌شود */
+  var SIGNAL_STOPS = [
+    [0.00, 239, 68, 68], [0.30, 249, 115, 22], [0.50, 250, 204, 21],
+    [0.72, 163, 230, 53], [1.00, 34, 197, 94]
+  ];
+  function signalRGBA(s, out) {
+    if (s <= 0.02) { out[0] = out[1] = out[2] = out[3] = 0; return out; }
+    var i = 0;
+    while (i < SIGNAL_STOPS.length - 2 && s > SIGNAL_STOPS[i + 1][0]) i++;
+    var a = SIGNAL_STOPS[i], b = SIGNAL_STOPS[i + 1];
+    var t = clamp((s - a[0]) / Math.max(0.0001, b[0] - a[0]), 0, 1);
+    out[0] = Math.round(a[1] + (b[1] - a[1]) * t);
+    out[1] = Math.round(a[2] + (b[2] - a[2]) * t);
+    out[2] = Math.round(a[3] + (b[3] - a[3]) * t);
+    out[3] = Math.round(128 * clamp(s / 0.25, 0, 1)); // محو تدریجی لبه تا شفاف
+    return out;
   }
   /* cached id -> node map (rebuilt when the nodes array identity/length changes) */
   var _nodeMap = null, _nodeMapSrc = null, _nodeMapLen = -1;
@@ -276,7 +286,6 @@
   var sectorDrag = null;  // {nodeId, node} هنگام درگ دستهٔ چرخش سکشن
   var _sectorLastCbTs = 0; // throttle برای onSectorRotate هنگام حرکت
   var _heatCache = null;  // {rectKey, nodesSig, ts, cells:[{x,y,s}]}
-  var _heatCam = null;    // آخرین دوربین هنگام محاسبهٔ هیت‌مپ
   var _wxParticles = null; // ذرات باران/برف (فضای صفحه)
 
   /* ---------- perf: frame cache, viewport culling, static layer ---------- */
@@ -487,6 +496,7 @@
     if (layers.demand) drawDemandHeat();
     drawBuildingSelection();
     if (layers.links) drawLinks();
+    drawFiberDrops();
     drawNodes();
     drawHighlights();
     if (layers.revenue) drawRevenue();
@@ -968,6 +978,36 @@
     }
   }
 
+  // انشعاب‌های فیبر ساختمان‌ها: خط باریک فیروزه‌ای (در حال نصب: کهربایی خط‌چین)
+  function drawFiberDrops() {
+    var drops = (state && state.fiberDrops) || [];
+    if (!drops.length) return;
+    var bMap = {};
+    (state.buildings || []).forEach(function (b) { bMap[b.id] = b; });
+    var nMap = {};
+    (state.nodes || []).forEach(function (n) { nMap[n.id] = n; });
+    ctx.save();
+    ctx.lineCap = 'round';
+    var sqrtZ = Math.sqrt(cam.z);
+    for (var i = 0; i < drops.length; i++) {
+      var fd = drops[i], b = bMap[fd.buildingId], n = nMap[fd.nodeId];
+      if (!b || !n) continue;
+      var cx = b.x + (b.w || 26) / 2, cy = b.y + (b.h || 20) / 2;
+      if (!inRect(cx, cy, cullRect) && !inRect(n.x, n.y, cullRect)) continue;
+      if (fd.status === 'building') {
+        ctx.strokeStyle = 'rgba(245,158,11,0.8)';
+        ctx.setLineDash([5 / sqrtZ, 4 / sqrtZ]);
+      } else {
+        ctx.strokeStyle = 'rgba(34,211,238,0.55)';
+        ctx.setLineDash([]);
+      }
+      ctx.lineWidth = 1.3 / sqrtZ;
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(n.x, n.y); ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+
   function drawLinks() {
     var links = (state && state.links) || [];
     ctx.save();
@@ -1173,6 +1213,18 @@
       // inner vector mark per kind (canvas paths, no text glyphs)
       drawNodeMark(k, n.x, n.y, r);
 
+      // نشان سطح ارتقا (فقط سطح ۲ به بالا): دایرهٔ کوچک با عدد سطح
+      if ((n.level || 1) > 1) {
+        var bx = n.x + r * 0.95, by = n.y + r * 0.95, br = Math.max(6, 7 / Math.sqrt(cam.z));
+        ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI * 2);
+        ctx.fillStyle = '#f59e0b'; ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 1 / Math.sqrt(cam.z); ctx.stroke();
+        ctx.fillStyle = '#111827';
+        ctx.font = 'bold ' + Math.max(7, br * 1.15) + 'px Vazirmatn, Tahoma, sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(String(n.level), bx, by + 0.5);
+      }
+
       // تیک جهت برای سکشن‌ها (قرارداد: ۰=شرق، پادساعتگرد، y با علامت منفی)
       if (typeof n.direction === 'number' && coverageRadius(n) > 0) {
         var dv = dirToVec(n.direction);
@@ -1315,52 +1367,59 @@
     ctx.restore();
   }
 
-  /* هیت‌مپ سیگنال: نمونه‌برداری شبکه‌ای از نمای قابل‌مشاهده با کش.
-     بازمحاسبه فقط وقتی: دوربین به‌اندازهٔ کافی جابه‌جا/زوم شده، امضای گره‌ها عوض شده،
-     یا دست‌کم ۱ ثانیه گذشته باشد. هرگز در هر فریم signalAt صدا زده نمی‌شود. */
+  /* هیت‌مپ سیگنال: میدان گرادیانی نرم روی بوم خارج‌صفحه.
+     هر پیکسلِ بوم کوچک با همان مدل واقعی GameSim.signalAt نمونه‌برداری می‌شود
+     (فاصله، دید مستقیم، باند/کانال، جهت آنتن، تداخل، آب‌وهوا) و بعد با
+     درون‌یابی نرم روی نقشه کشیده می‌شود — یک دایرهٔ گرادیانی پیوسته به‌ازای هر
+     گره که در هم‌پوشانی‌ها در هم حل می‌شوند، نه شبکه‌ای از دایره‌های جدا.
+     بازمحاسبه فقط وقتی: امضای گره‌ها/آب‌وهوا عوض شده، دوربین از حاشیهٔ کش
+     بیرون رفته، یا دست‌کم ۱ ثانیه گذشته باشد (کف سخت ۲۵۰ms). */
   function drawSignalHeat() {
     if (!global.GameSim || typeof global.GameSim.signalAt !== 'function' || !state) return;
-    var STEP = 140;
     var now = Date.now();
-    var sig = nodesSignature();
+    var sig = nodesSignature() + '|' + ((state.weather && state.weather.kind) || 'clear');
     var sigChanged = !_heatCache || _heatCache.sig !== sig;
+    var vr = visibleRect(0);
     var camMoved = false;
-    if (_heatCam) {
-      var moved = Math.abs(cam.x - _heatCam.x) + Math.abs(cam.y - _heatCam.y);
-      var zr = cam.z / (_heatCam.z || cam.z);
-      if (moved > STEP * 0.7 || zr > 1.25 || zr < 0.8) camMoved = true;
+    if (_heatCache) {
+      var m = 120; // حاشیهٔ امن دوربین نسبت به مستطیل کش‌شده
+      if (vr.x0 < _heatCache.x0 + m || vr.y0 < _heatCache.y0 + m ||
+          vr.x1 > _heatCache.x1 - m || vr.y1 > _heatCache.y1 - m) camMoved = true;
     }
-    // کف سخت ۲۵۰ms: هرگز در هر فریم بازمحاسبه نمی‌شود؛ رویدادها (امضا/دوربین) سریع‌تر،
-    // و در حالت سکون حداکثر هر ۱ ثانیه یک بازخوانی دوره‌ای.
     var elapsed = _heatCache ? (now - _heatCache.ts) : Infinity;
     var need = !_heatCache || (elapsed >= 250 && (sigChanged || camMoved || elapsed > 1000));
     if (need) {
-      var vr = visibleRect(0);
-      var cells = [];
-      var x0 = Math.floor(vr.x0 / STEP) * STEP, y0 = Math.floor(vr.y0 / STEP) * STEP;
-      for (var gx = x0; gx <= vr.x1; gx += STEP) {
-        for (var gy = y0; gy <= vr.y1; gy += STEP) {
-          var cx2 = gx + STEP / 2, cy2 = gy + STEP / 2;
+      var pad = 160;
+      var x0 = vr.x0 - pad, y0 = vr.y0 - pad, x1 = vr.x1 + pad, y1 = vr.y1 + pad;
+      var wW = Math.max(1, x1 - x0), wH = Math.max(1, y1 - y0);
+      var step = Math.max(6, wW / 220, wH / 220);
+      var pw = Math.max(2, Math.ceil(wW / step)), ph = Math.max(2, Math.ceil(wH / step));
+      var off = document.createElement('canvas');
+      off.width = pw; off.height = ph;
+      var octx = off.getContext('2d');
+      var img = octx.createImageData(pw, ph);
+      var px = img.data;
+      var rgba = [0, 0, 0, 0];
+      for (var j = 0; j < ph; j++) {
+        var wy = y0 + (j + 0.5) * step;
+        for (var i = 0; i < pw; i++) {
+          var wx = x0 + (i + 0.5) * step;
           var res = null;
-          try { res = global.GameSim.signalAt(state, cx2, cy2); } catch (e) { res = null; }
+          try { res = global.GameSim.signalAt(state, wx, wy); } catch (e) { res = null; }
           var sv = (res && typeof res.signal === 'number') ? clamp(res.signal, 0, 1) : 0;
-          if (sv > 0.02) cells.push({ x: cx2, y: cy2, s: sv });
+          signalRGBA(sv, rgba);
+          var o = (j * pw + i) * 4;
+          px[o] = rgba[0]; px[o + 1] = rgba[1]; px[o + 2] = rgba[2]; px[o + 3] = rgba[3];
         }
       }
-      _heatCache = { sig: sig, ts: now, cells: cells, step: STEP };
-      _heatCam = { x: cam.x, y: cam.y, z: cam.z };
+      octx.putImageData(img, 0, 0);
+      _heatCache = { sig: sig, ts: now, canvas: off, x0: x0, y0: y0, x1: x1, y1: y1 };
     }
-    if (!_heatCache || !_heatCache.cells.length) return;
+    if (!_heatCache || !_heatCache.canvas) return;
     ctx.save();
-    var half = STEP / 2;
-    for (var i = 0; i < _heatCache.cells.length; i++) {
-      var c = _heatCache.cells[i];
-      if (!circleInRect(c.x, c.y, half, cullRect)) continue;
-      var col = signalColor(c.s);
-      if (!col) continue;
-      ctx.fillStyle = col;
-      ctx.beginPath(); ctx.arc(c.x, c.y, half * 0.92, 0, Math.PI * 2); ctx.fill();
-    }
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(_heatCache.canvas, _heatCache.x0, _heatCache.y0,
+      _heatCache.x1 - _heatCache.x0, _heatCache.y1 - _heatCache.y0);
     ctx.restore();
   }
 
