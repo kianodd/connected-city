@@ -2025,5 +2025,78 @@ let s1, cell1, link1;
     'a=' + a2.channel + ' b=' + b2.channel);
 }
 
+// ---------- 69: اکسس‌پوینت خصوصی ساختمان فقط با مسیر واقعی تا شبکه ----------
+// اشتراک به‌تنهایی کافی نیست: ساختمان باید یا انشعاب سیمیِ منبعِ متصل داشته باشد
+// یا در برد یک دکل/گره دسترسیِ متصل به دروازه باشد؛ وگرنه وای‌فای داخلی «بدون اتصال به شبکه» است.
+{
+  const addSub = (s, b, id) => {
+    if (!s.individuals) s.individuals = [];
+    s.individuals.push({
+      id, name: 'مشترک آزمایشی', needMbps: 50, priceSensitivity: 1, prefTech: 'cellular',
+      districtId: b.districtId || null, buildingId: b.id, status: 'subscribed', joinedDay: 0, satisfaction: 50,
+    });
+  };
+  const centerOf = (b) => [b.x + (b.w || 26) / 2, b.y + (b.h || 20) / 2];
+
+  // 69a: ساختمانِ دارای مشترک، بدون انشعاب و بدون پوشش → اکسس‌پوینت بدون اتصال به شبکه
+  const s = GameSim.newGame(42); s.cash = 9999999;
+  const core = coreOf(s);
+  const bFar = s.buildings.slice().sort((p, q) =>
+    Math.hypot(q.x - core.x, q.y - core.y) - Math.hypot(p.x - core.x, p.y - core.y))[0];
+  addSub(s, bFar, 'ind69a');
+  GameSim.refreshConnectivity(s);
+  const stA = GameSim.buildingServiceStatus(s, bFar.id);
+  const [ax, ay] = centerOf(bFar);
+  const spA = GameSim.speedTestAt(s, ax, ay);
+  check('69a مشترک بدون انشعاب و بدون پوشش: وای‌فای داخلی بدون اتصال به شبکه است',
+    stA.subscribed === true && stA.networkPath === false && stA.wifi === false &&
+    spA.wifi.speed === 0 && spA.wifi.reason === 'no_network',
+    JSON.stringify({ wifi: stA.wifi, path: stA.networkPath, sp: spA.wifi }));
+
+  // 69b: همان ساختمان + انشعاب فیبر از کابینت متصل → اکسس‌پوینت فعال
+  const cab = GameSim.buildNode(s, 'street_cabinet', ax, ay);
+  GameSim.connect(s, cab.id, core.id, 'fiber');
+  const rDrop = GameSim.connectBuildingWired(s, bFar.id, cab.id, 'fiber');
+  const stB = GameSim.buildingServiceStatus(s, bFar.id);
+  const spB = GameSim.speedTestAt(s, ax, ay);
+  check('69b با انشعاب سیمیِ منبعِ متصل: وای‌فای داخلی فعال و سرعت مثبت است',
+    rDrop.ok === true && stB.networkPath === true && stB.wifiVia === 'wired' && stB.wifi === true && spB.wifi.speed > 0,
+    JSON.stringify({ wifi: stB.wifi, via: stB.wifiVia, sp: spB.wifi }));
+
+  // 69d: انشعاب فعال است ولی کابینت مسیرش تا دروازه را از دست می‌دهد → اکسس‌پوینت دوباره بدون شبکه
+  const cabLink = s.links.find(l => l.from === cab.id || l.to === cab.id);
+  GameSim.disconnectLink(s, cabLink.id);
+  const stD = GameSim.buildingServiceStatus(s, bFar.id);
+  const wsD = GameSim.buildingWiredStatus(s, bFar.id);
+  const spD = GameSim.speedTestAt(s, ax, ay);
+  check('69d انشعاب فعال ولی منبع نامتصل: وای‌فای داخلی بدون اتصال به شبکه می‌شود',
+    wsD.status === 'active' && wsD.sourceConnected === false && stD.wifi === false && stD.networkPath === false &&
+    spD.wifi.speed === 0 && spD.wifi.reason === 'no_network',
+    JSON.stringify({ ws: wsD, wifi: stD.wifi, sp: spD.wifi }));
+
+  // 69c: ساختمان در برد دکل سلولارِ متصل → فعال؛ با قطع مسیر دکل تا هسته → بلافاصله غیرفعال
+  const s2 = GameSim.newGame(42); s2.cash = 9999999;
+  const d2 = s2.districts.find(x => x.id === 'center');
+  const tower = GameSim.buildNode(s2, 'cell_2g', d2.x, d2.y);
+  const tLink = GameSim.connect(s2, tower.id, coreOf(s2).id, 'fiber');
+  const bIn = s2.buildings.find(b => b.districtId === d2.id &&
+    Math.hypot(b.x + (b.w || 26) / 2 - tower.x, b.y + (b.h || 20) / 2 - tower.y) <= (tower.radius || 0));
+  addSub(s2, bIn, 'ind69c');
+  GameSim.refreshConnectivity(s2);
+  const stC1 = GameSim.buildingServiceStatus(s2, bIn.id);
+  const [cx2, cy2] = centerOf(bIn);
+  const spC1 = GameSim.speedTestAt(s2, cx2, cy2);
+  check('69c در برد دکل متصل: وای‌فای داخلی فعال است',
+    !!bIn && stC1.networkPath === true && stC1.wifiVia === 'wireless' && stC1.wifi === true && spC1.wifi.speed > 0,
+    JSON.stringify({ wifi: stC1.wifi, via: stC1.wifiVia, sp: spC1.wifi }));
+  GameSim.disconnectLink(s2, tLink.id); // بدون هیچ تیکی؛ refreshConnectivity داخل disconnectLink است
+  const stC2 = GameSim.buildingServiceStatus(s2, bIn.id);
+  const spC2 = GameSim.speedTestAt(s2, cx2, cy2);
+  check('69c2 با قطع مسیر دکل تا هسته: وای‌فای داخلی همان لحظه بدون اتصال به شبکه می‌شود',
+    tower.connected === false && stC2.wifi === false && stC2.networkPath === false &&
+    spC2.wifi.speed === 0 && spC2.wifi.reason === 'no_network',
+    JSON.stringify({ wifi: stC2.wifi, path: stC2.networkPath, sp: spC2.wifi }));
+}
+
 console.log('\nنتیجه: ' + pass + ' پاس، ' + fail + ' رد');
 process.exit(fail ? 1 : 0);
