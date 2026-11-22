@@ -13,6 +13,13 @@
   if (!DATA && typeof GAME_DATA !== 'undefined') DATA = GAME_DATA;
   if (!DATA && root && root.GAME_DATA) DATA = root.GAME_DATA;
 
+  // ---------- مولد نقشه (اختیاری؛ اگر نبود نقشهٔ ثابت DATA استفاده می‌شود) ----------
+  let MapGen = null;
+  if (typeof module !== 'undefined' && module.exports) {
+    try { MapGen = require('./mapgen.js'); } catch (e) { MapGen = null; }
+  }
+  if (!MapGen && root && root.MapGen) MapGen = root.MapGen;
+
   // ---------- ابزار ----------
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const dist = (x1, y1, x2, y2) => Math.hypot(x2 - x1, y2 - y1);
@@ -64,13 +71,18 @@
   // ---------- ساخت بازی جدید ----------
   function newGame(seed) {
     const s = (seed === undefined || seed === null) ? 42 : (seed >>> 0);
-    const hq = (DATA.installPoints || []).find((p) => p.id === 'ip_hq') || { x: 1600, y: 1200 };
+    // نقشهٔ تصادفی با بذر؛ در نبود مولد، نقشهٔ ثابت DATA
+    const gen = (MapGen && MapGen.generate) ? MapGen.generate(s) : null;
+    const genDistricts = gen ? gen.districts : (DATA.districts || []);
+    const genBuildings = gen ? gen.buildings : (DATA.buildings || []);
+    const genInstallPoints = gen ? gen.installPoints : (DATA.installPoints || []);
+    const hq = (gen && gen.hq) || genInstallPoints.find((p) => p.id === 'ip_hq') || { x: 1600, y: 1200 };
 
     const state = {
       version: 1,
       seed: s,
       rngState: s >>> 0,
-      cash: 500000,
+      cash: 30000,
       debt: 0,
       day: 1,
       speed: 1,
@@ -89,8 +101,9 @@
       problems: [],
       settings: { autoFailover: true },
       failoverActive: false,
-      counters: { node: 0, link: 0, staff: 0, problem: 0 },
+      counters: { node: 0, link: 0, staff: 0, problem: 0, building: genBuildings.length },
       lastMonthDay: 1,
+      monthRevenue: 0,
       lastMonthlyProfit: 0,
       totalRevenue: 0,
       totalCosts: 0,
@@ -99,22 +112,27 @@
       finance: { incomePerDay: 0, expensePerDay: 0 },
       incomePerDay: 0,
       expensePerDay: 0,
-      satisfaction: 50,
+      satisfaction: 20,
       completedMissions: [],
       missionsDone: 0,
       loan: 0,
       isNewGame: true,
-      buildings: DATA.buildings || [],
-      installPoints: DATA.installPoints || [],
+      buildings: genBuildings.slice(),
+      installPoints: genInstallPoints,
+      mapSeed: s,
+      map: gen ? { river: gen.river, bridges: gen.bridges, roads: gen.roads, parks: gen.parks } : null,
     };
 
     // مناطق runtime
-    state.districts = (DATA.districts || []).map((d) => ({
+    const growthCfg = DATA.growth || {};
+    const capMult = growthCfg.capMultiplier || {};
+    state.districts = genDistricts.map((d) => ({
       id: d.id, name: d.name, type: d.type, x: d.x, y: d.y, radius: d.radius,
+      buildingCap: Math.max(1, Math.round(genBuildings.filter((b) => b.districtId === d.id).length * (capMult[d.type] || 1.5))),
       population: d.population, demandBase: d.demandBase,
       priceSensitivity: d.priceSensitivity, potentialRevenue: d.potentialRevenue,
       demand: d.demandBase, servedDemand: 0, subscribers: 0,
-      qos: 0, satisfaction: 50, revenue: 0, complaints: 0, connected: false,
+      qos: 0, satisfaction: 20, revenue: 0, complaints: 0, connected: false,
     }));
     // گروه مشتری هر منطقه
     state.customers = state.districts.map((d) => ({
@@ -284,9 +302,9 @@
       // ساختمان‌های بلند بین گره و مرکز منطقه دید را می‌بندند (برای بی‌سیم)
       let blocked = false;
       if (n.type !== 'ftth') {
-        for (const b of (DATA.buildings || [])) {
+        for (const b of (state.buildings || DATA.buildings || [])) {
           if (b.height < 10) continue;
-          // فاصله ساختمان از پاره‌خط گره↔مرکز منطقه
+          // فاصله ساختمان از پاره‌خط گره تا مرکز منطقه
           const t = clamp(((b.x - n.x) * (district.x - n.x) + (b.y - n.y) * (district.y - n.y)) /
             (Math.pow(district.x - n.x, 2) + Math.pow(district.y - n.y, 2) || 1), 0, 1);
           const px = n.x + t * (district.x - n.x), py = n.y + t * (district.y - n.y);
@@ -388,9 +406,13 @@
         d.servedDemand = 0; d.qos = 0; d.connected = false;
         if (cust) cust.servingNodeId = null;
         d.subscribers = Math.max(0, Math.floor(d.subscribers * 0.97));
+        // قطعی/از دست رفتن سرویس: رضایت منطقه‌ای که قبلاً سرویس گرفته به سمت صفر افت می‌کند
+        // (منطقه‌ای که هرگز سرویس نگرفته روی مقدار شروع می‌ماند تا رضایت کلی بی‌دلیل سقوط نکند)
+        if (d.everServed) d.satisfaction = clamp(d.satisfaction + (0 - d.satisfaction) * 0.25, 0, 100);
         d.revenue = 0;
         continue;
       }
+      d.everServed = true;
       if (cust) cust.servingNodeId = servers[0].id;
       const accessCap = servers.reduce((s, n) => s + (n.capacity || 0), 0);
       let served = Math.min(d.demand, accessCap);
@@ -425,10 +447,10 @@
       d.connected = d.qos > 0;
       qosSum += d.qos; if (d.qos > 0) servedDistricts++;
 
-      // مشترکان: رشد با کیفیت خوب، ریزش با کیفیت بد
+      // مشترکان: رشد متناسب با کیفیت سرویس (حتی کیفیت متوسط هم مشترک می‌آورد)، ریزش فقط با کیفیت خیلی بد
       const maxSubs = Math.floor(d.population * 0.35);
-      if (d.qos >= 0.7) d.subscribers = Math.min(maxSubs, d.subscribers + Math.ceil(d.population * 0.004));
-      else if (d.qos < 0.3) d.subscribers = Math.max(0, Math.floor(d.subscribers * 0.96));
+      if (d.qos >= 0.12) d.subscribers = Math.min(maxSubs, d.subscribers + Math.max(1, Math.ceil(d.population * 0.004 * d.qos)));
+      else if (d.qos < 0.05) d.subscribers = Math.max(0, Math.floor(d.subscribers * 0.96));
       if (cust) cust.count = d.subscribers;
 
       // رضایت به سمت کیفیت حرکت می‌کند
@@ -620,6 +642,100 @@
   }
 
   // ---------- تیک اصلی ----------
+  // ---------- رشد تدریجی شهر ----------
+  // هندسهٔ خیابان‌ها و رودخانه برای جای‌گذاری ساختمان جدید (هم‌خوان با رندر map.js):
+  // خیابان‌ها روی خطوط مضرب ۲۰۰ (از ۲۰۰) و رودخانه با پاره‌خط DATA.river.
+  const RIVER_BAND = 64; // نیم‌پهنای رودخانه + انحراف منحنی + حاشیهٔ امن
+  function riverXAtY(state, y) {
+    const pts = (state && state.map && state.map.river) || (DATA && DATA.river) || [];
+    if (!pts.length) return -1e9;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i], b = pts[i + 1];
+      if (y >= a.y && y <= b.y) { const t = (y - a.y) / Math.max(1, b.y - a.y); return a.x + (b.x - a.x) * t; }
+    }
+    return pts[pts.length - 1].x;
+  }
+  function rectHitsRoad(state, x, y, w, h) {
+    const M = 14; // فاصلهٔ امن از محور خیابان (نیم‌پهنای بلوار ۱۱ + حاشیه)
+    const roads = state && state.map && state.map.roads;
+    if (roads && roads.v && roads.h) {
+      for (const lx of roads.v) if (x - M < lx && lx < x + w + M) return true;
+      for (const ly of roads.h) if (y - M < ly && ly < y + h + M) return true;
+      return false;
+    }
+    const W = (DATA.world && DATA.world.width) || 3200;
+    const H = (DATA.world && DATA.world.height) || 2400;
+    for (let lx = 200; lx < W; lx += 200) if (x - M < lx && lx < x + w + M) return true;
+    for (let ly = 200; ly < H; ly += 200) if (y - M < ly && ly < y + h + M) return true;
+    return false;
+  }
+  function rectHitsRiver(state, x, y, w, h) {
+    const pts = [[x, y], [x + w, y], [x, y + h], [x + w, y + h], [x + w / 2, y + h / 2]];
+    for (const p of pts) if (Math.abs(p[0] - riverXAtY(state, p[1])) < RIVER_BAND) return true;
+    return false;
+  }
+  function rectOverlaps(x, y, w, h, buildings, nodes) {
+    const G = 3;
+    for (const b of buildings) {
+      if (x < b.x + (b.w || 26) + G && x + w + G > b.x && y < b.y + (b.h || 20) + G && y + h + G > b.y) return true;
+    }
+    for (const n of nodes) {
+      if (n.x > x - 20 && n.x < x + w + 20 && n.y > y - 20 && n.y < y + h + 20) return true;
+    }
+    return false;
+  }
+
+  function growCity(state, dtDays) {
+    if (!state.buildings) state.buildings = (DATA.buildings || []).slice();
+    const rates = (DATA.growth && DATA.growth.rate) || {};
+    const counts = {};
+    for (const b of state.buildings) counts[b.districtId] = (counts[b.districtId] || 0) + 1;
+    const W = (DATA.world && DATA.world.width) || 3200;
+    const H = (DATA.world && DATA.world.height) || 2400;
+    const bTypes = DATA.buildingTypes || ['residential', 'commercial', 'office', 'industrial'];
+    const palettes = DATA.buildingColors || {};
+    for (const d of state.districts) {
+      const cap = d.buildingCap || 0;
+      if (!cap || (counts[d.id] || 0) >= cap) continue;
+      const p = Math.min(1, (rates[d.type] != null ? rates[d.type] : 0.07) * dtDays);
+      if (rand(state) >= p) continue;
+      // تلاش برای یافتن جای مناسب داخل منطقه (نه روی خیابان، نه در رودخانه، نه روی ساختمان/گره دیگر)
+      // تلاش‌های پایانی: شعاع بزرگ‌تر و ساختمان کوچک‌تر تا مناطق تنگ هم به سقف برسند
+      for (let attempt = 0; attempt < 80; attempt++) {
+        const small = attempt >= 50;
+        const w = 26 + Math.floor(rand(state) * (small ? 16 : 42));
+        const h = 26 + Math.floor(rand(state) * (small ? 16 : 42));
+        const ang = rand(state) * Math.PI * 2;
+        const rr = Math.sqrt(rand(state)) * d.radius * (attempt >= 30 ? 0.92 : 0.85);
+        const x = Math.round(d.x + Math.cos(ang) * rr - w / 2);
+        const y = Math.round(d.y + Math.sin(ang) * rr - h / 2);
+        if (x < 10 || y < 10 || x + w > W - 10 || y + h > H - 10) continue;
+        if (rectHitsRoad(state, x, y, w, h)) continue;
+        if (rectHitsRiver(state, x, y, w, h)) continue;
+        if (rectOverlaps(x, y, w, h, state.buildings, state.nodes)) continue;
+        const tall = (d.type === 'dense' || d.type === 'commercial') && rand(state) > 0.45;
+        const height = tall ? 10 + Math.floor(rand(state) * 18) : 2 + Math.floor(rand(state) * 7);
+        const bType = d.type === 'industrial' ? 'industrial' : bTypes[Math.floor(rand(state) * 3)];
+        const palette = palettes[bType] || palettes.residential || ['#5b6b82'];
+        state.counters.building = (state.counters.building || state.buildings.length) + 1;
+        state.buildings.push({
+          id: 'b' + state.counters.building,
+          districtId: d.id,
+          x, y, w, h, height,
+          type: bType,
+          color: palette[Math.floor(rand(state) * palette.length)],
+          name: height >= 15 ? 'برج ' + d.name + ' ' + ((counts[d.id] || 0) + 1) : undefined,
+        });
+        counts[d.id] = (counts[d.id] || 0) + 1;
+        // ساختمان جدید یعنی جمعیت و تقاضای بالقوهٔ بیشتر (تدریجی و متناسب)
+        d.population = Math.round(d.population * 1.02);
+        d.demandBase = Math.round(d.demandBase * 1.02);
+        log(state, 'ساختمان جدیدی در «' + d.name + '» ساخته شد؛ جمعیت و تقاضای منطقه بیشتر شد.', 'info');
+        break;
+      }
+    }
+  }
+
   function tick(state, dtDays) {
     dtDays = (dtDays === undefined || dtDays === null) ? 1 : dtDays;
     if (state.paused) return { events: [], problems: state.problems || [] };
@@ -662,10 +778,22 @@
     // جریان ترافیک
     computeFlow(state);
 
-    // حساب ماهانه (هر ۳۰ روز)
+    // درآمد فروش اینترنت: هر روز به‌صورت روزانه به نقدینگی اضافه می‌شود (نه فقط پایان ماه)
+    const dailyRevenue = Math.round(((state.lastFlow && state.lastFlow.monthlyRevenue) || 0) / 30 * dtDays);
+    if (dailyRevenue > 0) {
+      state.cash += dailyRevenue;
+      state.totalRevenue += dailyRevenue;
+      state.monthRevenue = (state.monthRevenue || 0) + dailyRevenue;
+    }
+
+    // رشد تدریجی شهر: ساختمان‌های جدید در مناطق
+    growCity(state, dtDays);
+
+    // حساب ماهانه (هر ۳۰ روز): فقط هزینه‌ها کسر می‌شوند؛ درآمد روزانه قبلاً واریز شده است
     if (state.day - state.lastMonthDay >= 30) {
       state.lastMonthDay += 30;
-      const revenue = state.districts.reduce((s, d) => s + (d.revenue || 0), 0);
+      const revenue = state.monthRevenue || 0;
+      state.monthRevenue = 0;
       let costs = 0;
       for (const n of state.nodes) {
         if (n.status === 'building') continue;
@@ -673,8 +801,7 @@
         if (eq) costs += eq.monthlyCost || 0;
       }
       for (const st of state.staff) costs += st.salary || 0;
-      state.cash += revenue - costs;
-      state.totalRevenue += revenue;
+      state.cash -= costs;
       state.totalCosts += costs;
       state.lastMonthlyProfit = revenue - costs;
       if (state.cash < 0) { state.debt += -state.cash; state.cash = 0; }
@@ -855,12 +982,24 @@
     if (!state || !Array.isArray(state.nodes) || !Array.isArray(state.links)) {
       throw new Error('فایل ذخیره نامعتبر است.');
     }
+    // تکمیل فیلدهای نسخه‌های قدیمی ذخیره (رشد شهر + درآمد روزانه)
+    if (!Array.isArray(state.buildings)) state.buildings = (DATA.buildings || []).slice();
+    if (!state.counters) state.counters = { node: 0, link: 0, staff: 0, problem: 0 };
+    if (!state.counters.building) state.counters.building = state.buildings.length;
+    if (state.monthRevenue == null) state.monthRevenue = 0;
+    const capMult = (DATA.growth && DATA.growth.capMultiplier) || {};
+    for (const d of (state.districts || [])) {
+      if (!d.buildingCap) {
+        const initial = (DATA.buildings || []).filter((b) => b.districtId === d.id).length;
+        d.buildingCap = Math.max(1, Math.round(initial * (capMult[d.type] || 1.5)));
+      }
+    }
     return state;
   }
 
   // ---------- API ----------
   const GameSim = {
-    newGame, buildNode, connect, tracePath, computeFlow, tick,
+    newGame, buildNode, connect, tracePath, computeFlow, tick, growCity,
     failover, saveGame, loadGame, unlockTech, isUnlocked, traceSatellitePath,
     // عملیات کمکی UI
     demolishNode, hireStaff, updatePackage, applyFix,
