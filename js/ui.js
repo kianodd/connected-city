@@ -33,6 +33,7 @@
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); }
   function faDigits(s) { return String(s == null ? '' : s).replace(/\d/g, function (d) { return '۰۱۲۳۴۵۶۷۸۹'[+d]; }); }
   function fmt1(n) { return (n == null || isNaN(n)) ? '—' : (Math.round(n * 10) / 10).toLocaleString('fa-IR'); }
+  function fmtDays(n) { return (n == null || isNaN(n)) ? '—' : (Math.round(n * 4) / 4).toLocaleString('fa-IR'); } // زمان ساخت با دقت ربع‌روز
   function playSound(name) { try { if (window.GameAudio && GameAudio.play) GameAudio.play(name); } catch (e) { /* ignore */ } }
   function districtNameById(id) {
     var d = ((state && state.districts) || []).find(function (x) { return String(x.id) === String(id); });
@@ -257,7 +258,7 @@
       '<dt>هزینه ماهانه</dt><dd>' + fmt(item.monthlyCost || 0) + ' تومان</dd>' +
       '<dt>ظرفیت</dt><dd>' + fmt(item.capacity || 0) + ' Mbps</dd>' +
       (item.radius ? '<dt>برد/پوشش</dt><dd>' + fmt(item.radius) + '</dd>' : '') +
-      '<dt>زمان ساخت</dt><dd>' + fmt(item.buildDays || 0) + ' روز</dd>' +
+      '<dt>زمان ساخت</dt><dd>' + fmtDays(item.buildDays || 0) + ' روز</dd>' +
       '</dl>';
     if (locked) html += '<div class="warn-box">' + ICONS.lock + ' این تجهیز قفل است. برای باز شدن، تحقیق «' + esc(techNameForEquip(item)) + '» را در بخش تحقیق و توسعه انجام دهید.</div>';
     $('guide-body').innerHTML = html;
@@ -1341,7 +1342,7 @@
       var dis = !hasTech || (state.cash || 0) < cost;
       var reason = !hasTech ? 'نیازمند تحقیق «ماهواره اختصاصی»' : ((state.cash || 0) < cost ? 'نقدینگی کافی نیست' : '');
       return '<div class="contract-card"><h5>' + label + '</h5>' +
-        '<p class="muted">هزینه ' + fmt(cost) + ' تومان — زمان ساخت ' + fmt(def.buildDays || 0) + ' روز — ظرفیت ' + fmt(def.capacity || 0) + ' Mbps — عمر ' + fmt(def.lifetimeDays || 0) + ' روز</p>' +
+        '<p class="muted">هزینه ' + fmt(cost) + ' تومان — زمان ساخت ' + fmtDays(def.buildDays || 0) + ' روز — ظرفیت ' + fmt(def.capacity || 0) + ' Mbps — عمر ' + fmt(def.lifetimeDays || 0) + ' روز</p>' +
         '<button class="btn sm primary" data-launch="' + kind + '"' + (dis ? ' disabled title="' + esc(reason) + '"' : '') + '>پرتاب</button>' +
         (reason ? ' <span class="muted">' + esc(reason) + '</span>' : '') + '</div>';
     }
@@ -1644,14 +1645,22 @@
     });
     document.querySelectorAll('#layer-toggles input').forEach(function (cb) {
       cb.addEventListener('change', function () {
-        if (window.CityMap && CityMap.setLayer) CityMap.setLayer(cb.getAttribute('data-layer'), cb.checked);
-        else if (window.CityMap && CityMap.layers) CityMap.layers[cb.getAttribute('data-layer')] = cb.checked;
+        var layerName = cb.getAttribute('data-layer');
+        if (window.CityMap && CityMap.setLayer) CityMap.setLayer(layerName, cb.checked);
+        else if (window.CityMap && CityMap.layers) CityMap.layers[layerName] = cb.checked;
         // راهنمای رنگ‌های لایهٔ تقاضای فناوری فقط وقتی آن لایه فعال است دیده شود
-        if (cb.getAttribute('data-layer') === 'techdemand') {
+        if (layerName === 'techdemand') {
           var lg = $('tech-legend'); if (lg) lg.classList.toggle('hidden', !cb.checked);
         }
-        if (cb.getAttribute('data-layer') === 'signal') {
-          var sg = $('signal-legend'); if (sg) sg.classList.toggle('hidden', !cb.checked);
+        // دو هیت‌مپ «سیگنال» و «سرعت اتصال» انحصاری‌اند: روشن‌شدن یکی، دیگری را خاموش می‌کند
+        if (layerName === 'signal' || layerName === 'speed') {
+          var otherName = layerName === 'signal' ? 'speed' : 'signal';
+          if (cb.checked) {
+            var otherCb = document.querySelector('#layer-toggles input[data-layer="' + otherName + '"]');
+            if (otherCb) otherCb.checked = false;
+          }
+          var sg = $('signal-legend'); if (sg) sg.classList.toggle('hidden', !(window.CityMap && CityMap.layers && CityMap.layers.signal));
+          var pg = $('speed-legend'); if (pg) pg.classList.toggle('hidden', !(window.CityMap && CityMap.layers && CityMap.layers.speed));
         }
       });
     });
