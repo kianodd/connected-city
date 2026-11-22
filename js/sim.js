@@ -98,8 +98,22 @@
   }
   function clockTick(state, dtHours) {
     const cur = state.hour == null ? 10 : state.hour;
-    state.hour = (((cur + (dtHours || 0)) % 24) + 24) % 24;
+    const total = cur + (dtHours || 0);
+    // عبور از نیمه‌شب = یک روز کامل؛ حلقهٔ اصلی بازی به‌ازای هر نیمه‌شب یک tick روزانه می‌زند
+    // تا شمارندهٔ «روز» دقیقاً با ساعت هم‌گام بماند (قبلاً روز ساعت ۱۰ عوض می‌شد)
+    const wraps = Math.floor(total / 24);
+    if (wraps > 0) state.pendingDays = (state.pendingDays || 0) + wraps;
+    state.hour = (((total % 24) + 24) % 24);
     return state.hour;
+  }
+  // میانگین ضریب تقاضا در کل ۲۴ ساعت — برای محاسبهٔ روزانهٔ اقتصاد (tick) تا درآمد
+  // به ساعتِ لحظهٔ tick وابسته نباشد؛ نمایش لحظه‌ای (تست سرعت/هیت‌مپ) از ضریب ساعتی استفاده می‌کند
+  function dailyAvgDemandFactor() {
+    const curve = DATA && DATA.hourDemandCurve;
+    if (!Array.isArray(curve) || curve.length < 24) return 1;
+    let sum = 0;
+    for (let i = 0; i < 24; i++) sum += (curve[i] == null ? 1 : curve[i]);
+    return sum / 24;
   }
   const FALLBACK_SEASON = { id: 'spring', name: 'بهار', demandFactor: 1, weather: { clear: 1, rain: 0, storm: 0, snow: 0 } };
   function seasonOf(state) {
@@ -471,6 +485,7 @@
       counters: { node: 0, link: 0, staff: 0, problem: 0, building: genBuildings.length, individual: 0, contract: 0, campaign: 0, satellite: 0, built: 0, contractsDone: 0, campaignsRun: 0, profitMonths: 0 },
       // ساعت روز (۰ تا ۲۴) و آب‌وهوای جاری
       hour: 10,
+      pendingDays: 0,
       weather: { kind: 'clear', untilDay: 1 },
       // دستاوردها، مشترکان فردی، قراردادهای سازمانی، کمپین‌ها، ماهواره‌های اختصاصی، تاریخچه
       achievements: {},
@@ -544,14 +559,8 @@
     };
     state.nodes.push(core, gw);
 
-    // خدمهٔ شروع: یک تکنسین میدانی تا آموزش و شبکهٔ اول بدون استخدام هم کامل شود
-    const startRole = (DATA.staffRoles || []).find((r) => r.id === 'technician');
-    if (startRole) {
-      state.staff.push({
-        id: 's' + (++state.counters.staff), role: startRole.id,
-        name: startRole.name, salary: startRole.salary, skill: startRole.skill,
-      });
-    }
+    // شروع بدون هیچ کارمندی: نرخ‌های پایهٔ صفرکارمند برای شبکهٔ کوچک قابل بازی‌اند؛
+    // استخدام با بزرگ‌شدن شبکه لازم می‌شود (به‌خواست کاربر، ۲۰۲۶-۱۱-۲۲)
     state.links.push({
       id: 'l' + (++state.counters.link), from: core.id, to: gw.id,
       medium: 'fiber', capacity: 10000, latency: 2,
@@ -768,7 +777,7 @@
   }
 
   // ---------- محاسبه جریان ترافیک ----------
-  function computeFlow(state) {
+  function computeFlow(state, opts) {
     // صفر کردن مصرف‌ها
     state.links.forEach((l) => { l.usage = 0; if (l.status === 'congested') l.status = 'active'; });
     state.nodes.forEach((n) => { n.usage = 0; });
@@ -810,7 +819,9 @@
     }
     const satBonus = constellationBonusPerLink(state);
     // ضریب تقاضای فصل و ساعت روز (در ساعت ۱۰ و بهار = ۱٫۰)
-    const demandTimeFactor = ((seasonOf(state).demandFactor) || 1) * demandFactorAtHour(state.hour);
+    // در محاسبهٔ روزانه (tick) میانگین ۲۴ساعته به‌کار می‌رود تا اقتصاد به ساعت لحظهٔ tick حساس نباشد
+    const hourFactor = (opts && opts.dailyAvg) ? dailyAvgDemandFactor() : demandFactorAtHour(state.hour);
+    const demandTimeFactor = ((seasonOf(state).demandFactor) || 1) * hourFactor;
 
     // ترتیب اولویت هنگام failover: اضطراری (بیمارستان) و سازمانی/صنعتی اول
     const priority = (d) => (d.id === 'hospital' || d.type === 'medical' ? 0
@@ -1751,8 +1762,8 @@
     const events = rollEvents(state, dtDays);
     if (state.links.some((l) => l.status === 'cut')) failover(state);
 
-    // جریان ترافیک
-    computeFlow(state);
+    // جریان ترافیک (روزانه: با میانگین ضریب تقاضای ۲۴ ساعت)
+    computeFlow(state, { dailyAvg: true });
 
     // مشترکان فردی، پیشنهاد قرارداد سازمانی و تاریخچهٔ روزانه
     spawnIndividuals(state, dtDays);
@@ -2055,6 +2066,7 @@
     if (state.monthRevenue == null) state.monthRevenue = 0;
     // فیلدهای جدید: ساعت، آب‌وهوا، دستاوردها، افراد، قراردادها، کمپین‌ها، ماهواره‌ها، تاریخچه
     if (state.hour == null) state.hour = 10;
+    if (state.pendingDays == null) state.pendingDays = 0;
     if (!state.weather) state.weather = { kind: 'clear', untilDay: Math.floor(state.day || 1) + 1 };
     if (!state.achievements) state.achievements = {};
     if (!Array.isArray(state.newAchievements)) state.newAchievements = [];
