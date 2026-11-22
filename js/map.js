@@ -243,6 +243,13 @@
   var staticCanvas = null, staticCtx = null, staticCam = null, staticViewW = 0, staticViewH = 0;
   var _staticBldLen = -1; // buildings count baked into the static layer (city growth invalidates it)
   var _staticNodeLen = -1; // nodes count baked in (district label offsets depend on node positions)
+  var _staticDistSig = ''; // district count+radius signature (dynamic sizing/merges invalidate labels)
+  function districtSig() {
+    var ds = (state && state.districts) || [];
+    var s = ds.length + ':';
+    for (var i = 0; i < ds.length; i++) s += Math.round(ds[i].radius || 0) + ',';
+    return s;
+  }
   var _prevCamZ = 0, _lastZoomChangeTs = 0;
   var canStatic = typeof document !== 'undefined' && !!document.createElement;
 
@@ -265,21 +272,28 @@
   /* ---------- data accessors (defensive) ---------- */
   function getDistricts() {
     if (_distCache && _distCacheFrame === _frame) return _distCache;
-    var gd = (global.GAME_DATA && global.GAME_DATA.districts) || [];
     var rt = (state && state.districts) || [];
-    var map = {};
+    var out = [];
     var i, d;
-    for (i = 0; i < gd.length; i++) { d = gd[i]; map[d.id] = { id: d.id, name: d.nameFa || d.name || d.id, x: d.x, y: d.y, w: d.w, h: d.h, radius: d.radius, color: d.color, demand: d.demand || d.demandBase || 0, revenue: 0, qos: null }; }
-    for (i = 0; i < rt.length; i++) {
-      d = rt[i];
-      if (!map[d.id]) map[d.id] = { id: d.id, name: d.nameFa || d.name || d.id, x: d.x, y: d.y, w: d.w, h: d.h, radius: d.radius, color: d.color };
-      if (typeof d.demand === 'number') map[d.id].demand = d.demand;
-      else if (typeof d.demandBase === 'number') map[d.id].demand = d.demandBase;
-      if (typeof d.revenue === 'number') map[d.id].revenue = d.revenue;
-      if (typeof d.qos === 'number') map[d.id].qos = d.qos;
-      if (typeof d.satisfaction === 'number' && map[d.id].qos == null) map[d.id].qos = d.satisfaction;
+    if (rt.length) {
+      // وضعیت زندهٔ بازی مرجع است: موقعیت/شعاع پویا و مناطق ادغام‌شده درست دیده شوند
+      for (i = 0; i < rt.length; i++) {
+        d = rt[i];
+        out.push({
+          id: d.id, name: d.nameFa || d.name || d.id, x: d.x, y: d.y, w: d.w, h: d.h,
+          radius: d.radius, color: d.color,
+          demand: (typeof d.demand === 'number' ? d.demand : (d.demandBase || 0)),
+          revenue: (typeof d.revenue === 'number' ? d.revenue : 0),
+          qos: (typeof d.qos === 'number' ? d.qos : null),
+        });
+      }
+    } else {
+      var gd = (global.GAME_DATA && global.GAME_DATA.districts) || [];
+      for (i = 0; i < gd.length; i++) {
+        d = gd[i];
+        out.push({ id: d.id, name: d.nameFa || d.name || d.id, x: d.x, y: d.y, w: d.w, h: d.h, radius: d.radius, color: d.color, demand: d.demand || d.demandBase || 0, revenue: 0, qos: null });
+      }
     }
-    var out = []; for (var k in map) out.push(map[k]);
     _distCache = out; _distCacheFrame = _frame;
     return out;
   }
@@ -358,6 +372,7 @@
     ctx = savedCtx; selected = savedSel; cullRect = savedCull;
     _staticBldLen = getBuildings().length;
     _staticNodeLen = ((state && state.nodes) || []).length;
+    _staticDistSig = districtSig();
     staticCam = { x: cam.x, y: cam.y, z: cam.z };
     staticViewW = viewW; staticViewH = viewH;
   }
@@ -377,8 +392,9 @@
     ctx.fillRect(0, 0, viewW, viewH);
 
     if (canStatic) {
-      // city growth: new buildings must appear without waiting for a camera move
-      if (getBuildings().length !== _staticBldLen || ((state && state.nodes) || []).length !== _staticNodeLen) ensureStatic(true);
+      // city growth: new buildings must appear without waiting for a camera move;
+      // district merges/resizes change labels too, so watch a cheap district signature
+      if (getBuildings().length !== _staticBldLen || ((state && state.nodes) || []).length !== _staticNodeLen || districtSig() !== _staticDistSig) ensureStatic(true);
       // zoom handling: blit the cached layer scaled during a zoom gesture (cheap),
       // re-render crisply once the zoom settles or jumps too far.
       if (cam.z !== _prevCamZ) { _prevCamZ = cam.z; _lastZoomChangeTs = Date.now(); }
