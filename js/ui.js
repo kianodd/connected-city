@@ -333,16 +333,18 @@
     var panel = $('panel-detail'); if (panel) panel.classList.remove('open');
     toast('حالت اتصال فعال شد؛ مقصد اتصال رو انتخاب کن.');
   }
-  // فعال‌کردن اتصال فیبر از پنل ساختمان: ضربهٔ بعدی روی یک گره منبع فیبر، انشعاب را می‌سازد
-  function armConnectFromBuilding(buildingId) {
+  // فعال‌کردن اتصال سیمی از پنل ساختمان: ضربهٔ بعدی روی یک کابینت خیابانی، انشعاب را می‌سازد
+  var connectWiredMedium = 'fiber';
+  function armConnectFromBuilding(buildingId, medium) {
     setMode('connect');
     connectFirst = null;
     connectFromBuilding = buildingId;
+    connectWiredMedium = medium === 'copper' ? 'copper' : 'fiber';
     if (window.CityMap && CityMap.setSelected) CityMap.setSelected('building', buildingId);
     var hint = $('map-hint');
-    if (hint) { hint.textContent = 'گره منبع فیبر را انتخاب کنید (FTTH/تجمیع/هسته)'; hint.classList.remove('hidden'); }
+    if (hint) { hint.textContent = 'کابینت خیابانی متصل نزدیک ساختمان را انتخاب کنید'; hint.classList.remove('hidden'); }
     var panel = $('panel-detail'); if (panel) panel.classList.remove('open');
-    toast('حالت اتصال فیبر فعال شد؛ گره منبع فیبر را انتخاب کنید.');
+    toast('حالت اتصال ' + (connectWiredMedium === 'copper' ? 'سیم مسی' : 'فیبر') + ' فعال شد؛ کابینت خیابانی را انتخاب کنید.');
   }
 
   function selectTool(equipId) {
@@ -471,13 +473,16 @@
       return;
     }
     if (mode === 'connect') {
-      // اتصال فیبر ساختمان: ضربه روی گره منبع، انشعاب را می‌سازد و حالت خاموش می‌شود
+      // اتصال سیمی ساختمان: ضربه روی کابینت، انشعاب را می‌سازد و حالت خاموش می‌شود
       if (connectFromBuilding != null) {
         if (kind !== 'node') { setMode('select'); toast('حالت اتصال لغو شد.', 'warn'); return; }
-        if (window.GameSim && GameSim.connectBuildingFiber) {
-          var rf = GameSim.connectBuildingFiber(state, connectFromBuilding, id);
-          if (rf && rf.ok === false) { toast(rf.error || 'اتصال فیبر انجام نشد.', 'error'); return; } // stay armed
-          toast('اتصال فیبر شروع شد؛ حدود ' + fmt(rf.days) + ' روز طول می‌کشد.', 'success');
+        var wiredFn = window.GameSim && (GameSim.connectBuildingWired || GameSim.connectBuildingFiber);
+        if (wiredFn) {
+          var rf = GameSim.connectBuildingWired
+            ? GameSim.connectBuildingWired(state, connectFromBuilding, id, connectWiredMedium)
+            : GameSim.connectBuildingFiber(state, connectFromBuilding, id);
+          if (rf && rf.ok === false) { toast(rf.error || 'اتصال سیمی انجام نشد.', 'error'); return; } // stay armed
+          toast('اتصال ' + (connectWiredMedium === 'copper' ? 'سیم مسی' : 'فیبر') + ' شروع شد؛ حدود ' + fmt(rf.days) + ' روز طول می‌کشد.', 'success');
           setMode('select');
           refresh();
         }
@@ -699,33 +704,39 @@
       }
       var bIndiv = (state.individuals || []).filter(function (p) { return String(p.buildingId) === String(n.id); });
       html += '<h5>ساکنان ساختمان</h5>' + individualsHtml(bIndiv, 'ساکنی برای این ساختمان ثبت نشده است.', { key: 'b:' + n.id });
-      // انشعاب فیبر دستی
+      // انشعاب سیمی دستی (فیبر یا سیم مسی از راه کابینت خیابانی؛ هر ساختمان فقط یکی از این دو)
       var fStatus = null;
-      try { fStatus = (window.GameSim && GameSim.buildingFiberStatus) ? GameSim.buildingFiberStatus(state, n.id) : null; } catch (e) { fStatus = null; }
+      try { fStatus = (window.GameSim && (GameSim.buildingWiredStatus || GameSim.buildingFiberStatus)) ? (GameSim.buildingWiredStatus || GameSim.buildingFiberStatus)(state, n.id) : null; } catch (e) { fStatus = null; }
       if (fStatus) {
-        html += '<h5>اتصال فیبر</h5><div class="fiber-row">';
+        var medFa = fStatus.medium === 'copper' ? 'سیم مسی' : 'فیبر';
+        var otherFa = fStatus.medium === 'copper' ? 'فیبر' : 'سیم مسی';
+        html += '<h5>اتصال سیمی</h5><div class="fiber-row">';
         if (fStatus.status === 'active') {
-          html += '<span class="status-ok">متصل به فیبر</span> <span class="muted">(منبع: ' + esc(fStatus.nodeName || '—') + ')</span>' +
-            '<button class="btn sm danger" data-fiber-disconnect="' + esc(n.id) + '">قطع اتصال</button>';
+          html += '<span class="status-ok">متصل به ' + medFa + '</span> <span class="muted">(منبع: ' + esc(fStatus.nodeName || '—') + ')</span>' +
+            '<button class="btn sm danger" data-wired-disconnect="' + esc(n.id) + '">قطع اتصال</button>' +
+            '<button class="btn sm" disabled title="اول اتصال فعلی را قطع کنید">اتصال به ' + otherFa + '</button>' +
+            '<span class="muted">هر ساختمان فقط به یکی از فیبر یا سیم مسی وصل می‌شود؛ برای تغییر، اول اتصال فعلی را قطع کنید.</span>';
         } else if (fStatus.status === 'building') {
-          html += '<span class="status-warn">در حال اتصال به فیبر…</span>';
+          html += '<span class="status-warn">در حال اتصال به ' + medFa + '…</span>';
         } else {
-          html += '<span class="status-bad">به فیبر متصل نیست</span>' +
-            '<button class="btn sm primary" data-fiber-connect="' + esc(n.id) + '">' + ICONS.cable + ' اتصال به فیبر</button>' +
-            '<span class="muted">بعد از زدن دکمه، روی یک گره منبع فیبر (FTTH/تجمیع/هستهٔ متصل) ضربه بزنید؛ هزینه و زمان بر اساس فاصله است. بدون انشعاب، این ساختمان از فیبر سرویس نمی‌گیرد.</span>';
+          html += '<span class="status-bad">به شبکه سیمی متصل نیست</span>' +
+            '<button class="btn sm primary" data-wired-connect="fiber" data-building="' + esc(n.id) + '">' + ICONS.cable + ' اتصال به فیبر</button>' +
+            '<button class="btn sm" data-wired-connect="copper" data-building="' + esc(n.id) + '">' + ICONS.cable + ' اتصال به سیم مسی</button>' +
+            '<span class="muted">بعد از زدن دکمه، روی یک کابینت خیابانی متصل نزدیک ساختمان ضربه بزنید. فیبر تا شعاع ۱۸۰ واحد؛ سیم مسی (DSL تا حدود ۱۰۰ مگابیت، ارزان‌تر) تا شعاع ۱۲۰ واحد. هزینه و زمان بر اساس فاصله است.</span>';
         }
         html += '</div>';
       }
       box.innerHTML = html;
       wireIndivLists(box);
-      box.querySelectorAll('[data-fiber-connect]').forEach(function (btn) {
-        btn.addEventListener('click', function () { armConnectFromBuilding(btn.getAttribute('data-fiber-connect')); });
+      box.querySelectorAll('[data-wired-connect]').forEach(function (btn) {
+        btn.addEventListener('click', function () { armConnectFromBuilding(btn.getAttribute('data-building'), btn.getAttribute('data-wired-connect')); });
       });
-      box.querySelectorAll('[data-fiber-disconnect]').forEach(function (btn) {
+      box.querySelectorAll('[data-wired-disconnect]').forEach(function (btn) {
         btn.addEventListener('click', function () {
-          if (window.GameSim && GameSim.disconnectBuildingFiber) {
-            var r = GameSim.disconnectBuildingFiber(state, btn.getAttribute('data-fiber-disconnect'));
-            toast(r && r.ok === false ? (r.error || 'قطع اتصال انجام نشد.') : 'انشعاب فیبر قطع شد.', r && r.ok === false ? 'error' : 'success');
+          var disc = window.GameSim && (GameSim.disconnectBuildingWired || GameSim.disconnectBuildingFiber);
+          if (disc) {
+            var r = disc(state, btn.getAttribute('data-wired-disconnect'));
+            toast(r && r.ok === false ? (r.error || 'قطع اتصال انجام نشد.') : 'انشعاب سیمی قطع شد.', r && r.ok === false ? 'error' : 'success');
           }
           refresh();
         });
@@ -815,6 +826,10 @@
       var pct = n.capacity ? Math.min(100, used / n.capacity * 100) : 0;
       var cls = pct > 90 ? 'hot' : pct > 70 ? 'warm' : '';
       html += '<p>ظرفیت: ' + fmt(used) + ' از ' + fmt(n.capacity) + ' Mbps (' + fmt(pct) + '٪)</p><div class="cap-bar"><div class="cap-fill ' + cls + '" style="width:' + pct + '%"></div></div>';
+    }
+    if (n.type === 'street_cabinet' && window.GameSim && GameSim.cabinetPorts) {
+      var usedPorts = GameSim.cabinetUsedPorts ? GameSim.cabinetUsedPorts(state, n.id) : 0;
+      html += '<p>پورت‌های انشعاب: ' + fmt(usedPorts) + ' از ' + fmt(GameSim.cabinetPorts(n)) + ' پورت</p>';
     }
     html += '<dl class="kv">';
     if (n.cost != null) html += '<dt>هزینه ساخت</dt><dd>' + fmt(n.cost) + '</dd>';
