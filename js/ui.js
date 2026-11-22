@@ -26,6 +26,29 @@
   function fmt(n) { return (n == null || isNaN(n)) ? '—' : Math.round(n).toLocaleString('fa-IR'); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); }
 
+  /* ---------- Mobile panels (drawer / bottom sheet, one at a time) ---------- */
+  function isMobile() { return window.innerWidth <= 900; }
+  function openPanel(id) {
+    ['panel-right', 'panel-detail'].forEach(function (p) { $(p).classList.toggle('open', p === id); });
+  }
+  function closePanels() {
+    $('panel-right').classList.remove('open');
+    $('panel-detail').classList.remove('open');
+  }
+  function togglePanel(id) {
+    if ($(id).classList.contains('open')) $(id).classList.remove('open');
+    else openPanel(id);
+  }
+  /* On mobile the save buttons join the scrollable actions row; on desktop they stay in place. */
+  function placeSaveBtns() {
+    var save = document.querySelector('.save-btns');
+    var actions = document.querySelector('.tb-group.actions');
+    var topbar = $('topbar');
+    if (!save || !actions || !topbar) return;
+    if (isMobile()) { if (save.parentNode !== actions) actions.appendChild(save); }
+    else if (save.parentNode !== topbar) topbar.insertBefore(save, $('toggle-right'));
+  }
+
   /* ---------- Toasts ---------- */
   function toast(msg, kind) {
     var box = $('toasts'); if (!box) return;
@@ -101,6 +124,7 @@
 
   function setMode(m) {
     mode = m; connectFirst = null;
+    if (window.CityMap && CityMap.setPlacementMode) CityMap.setPlacementMode(m === 'place');
     ['tool-select', 'tool-connect', 'tool-demolish'].forEach(function (id) {
       var b = $(id); if (b) b.classList.toggle('active', (m === 'select' && id === 'tool-select') || (m === 'connect' && id === 'tool-connect') || (m === 'demolish' && id === 'tool-demolish'));
     });
@@ -123,6 +147,7 @@
     selectedTool = equipId;
     setMode('place');
     renderBuildMenu();
+    if (isMobile()) $('panel-right').classList.remove('open'); // free the map for the placement tap
   }
 
   /* ---------- Placement / connect (called from map via main) ---------- */
@@ -154,6 +179,7 @@
   }
 
   function onMapSelect(id, kind) {
+    if (id == null) { if (mode === 'select') selectNode(null, kind); return; } // empty tap: clear selection only
     if (mode === 'connect') {
       if (connectFirst == null) {
         connectFirst = id;
@@ -212,7 +238,10 @@
   function selectNode(id, kind) {
     selectedId = id;
     renderDetail();
-    if (window.innerWidth < 900) $('panel-detail').classList.add('open');
+    if (isMobile()) {
+      if (id != null) openPanel('panel-detail');
+      else $('panel-detail').classList.remove('open');
+    }
     if (window.GameSim && GameSim.tracePath && kind !== 'building') {
       var path = GameSim.tracePath(state, id);
       if (window.CityMap && CityMap.setHighlightPath) CityMap.setHighlightPath(path || []);
@@ -409,9 +438,9 @@
   /* ---------- Init wiring ---------- */
   function init(getState) {
     state = typeof getState === 'function' ? getState() : getState;
-    $('tool-select').addEventListener('click', function () { selectedTool = null; setMode('select'); renderBuildMenu(); });
-    $('tool-connect').addEventListener('click', function () { selectedTool = null; setMode('connect'); renderBuildMenu(); });
-    $('tool-demolish').addEventListener('click', function () { selectedTool = null; setMode('demolish'); renderBuildMenu(); });
+    $('tool-select').addEventListener('click', function () { selectedTool = null; setMode('select'); renderBuildMenu(); if (isMobile()) $('panel-right').classList.remove('open'); });
+    $('tool-connect').addEventListener('click', function () { selectedTool = null; setMode('connect'); renderBuildMenu(); if (isMobile()) $('panel-right').classList.remove('open'); });
+    $('tool-demolish').addEventListener('click', function () { selectedTool = null; setMode('demolish'); renderBuildMenu(); if (isMobile()) $('panel-right').classList.remove('open'); });
     $('confirm-yes').addEventListener('click', confirmBuild);
     $('confirm-no').addEventListener('click', function () { pendingBuild = null; $('build-confirm').classList.add('hidden'); });
     $('medium-cancel').addEventListener('click', function () { $('medium-picker').classList.add('hidden'); });
@@ -429,8 +458,13 @@
       if (cur >= TUTORIAL.length - 1) hideTutorial(); else showTutorial(cur + 1);
     });
     $('tut-skip').addEventListener('click', hideTutorial);
-    $('toggle-right').addEventListener('click', function () { $('panel-right').classList.toggle('open'); });
-    $('toggle-detail').addEventListener('click', function () { $('panel-detail').classList.toggle('open'); });
+    $('toggle-right').addEventListener('click', function () { togglePanel('panel-right'); });
+    $('toggle-detail').addEventListener('click', function () { togglePanel('panel-detail'); });
+    document.querySelectorAll('.panel-close').forEach(function (b) {
+      b.addEventListener('click', function () { $(b.getAttribute('data-close-panel')).classList.remove('open'); });
+    });
+    placeSaveBtns();
+    window.addEventListener('resize', placeSaveBtns);
     document.querySelectorAll('#layer-toggles input').forEach(function (cb) {
       cb.addEventListener('change', function () {
         if (window.CityMap && CityMap.setLayer) CityMap.setLayer(cb.getAttribute('data-layer'), cb.checked);
@@ -438,7 +472,7 @@
       });
     });
     document.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape') { setMode('select'); selectedTool = null; $('build-confirm').classList.add('hidden'); $('medium-picker').classList.add('hidden'); closeModals(); }
+      if (e.key === 'Escape') { setMode('select'); selectedTool = null; $('build-confirm').classList.add('hidden'); $('medium-picker').classList.add('hidden'); closeModals(); closePanels(); }
     });
     refresh();
     if (state && (state.tutorialStep == null || state.tutorialStep < TUTORIAL.length) && state.isNewGame) showTutorial(state.tutorialStep || 0);
