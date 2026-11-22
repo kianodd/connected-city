@@ -1316,5 +1316,55 @@ let s1, cell1, link1;
   check('51f جابه‌جایی بلافاصله گره را نامتصل می‌کند', w.connected === false);
 }
 
+// ---------- 52: قطع اتصال لینک ----------
+{
+  const s = GameSim.newGame(42);
+  s.cash = 9999999;
+  const core = coreOf(s);
+  const agg = GameSim.buildNode(s, 'aggregation', core.x - 400, core.y);
+  finishBuild(s, agg);
+  const w = GameSim.buildNode(s, 'wifi_ap', core.x - 700, core.y);
+  finishBuild(s, w);
+  const l1 = GameSim.connect(s, agg.id, core.id, 'fiber');
+  const l2 = GameSim.connect(s, w.id, agg.id, 'fiber');
+  check('52a هر دو گره متصل‌اند', agg.connected === true && w.connected === true);
+  const impact = GameSim.linkDisconnectImpact(s, l1.id);
+  check('52b اثر قطع لینک اصلی: دو گره یتیم می‌شوند', impact.orphanCount === 2, 'orphans=' + impact.orphanCount);
+  const r = GameSim.disconnectLink(s, l1.id);
+  check('52c قطع اتصال موفق و لینک حذف شد', r.ok === true && !s.links.some((l) => l.id === l1.id));
+  check('52d گره پایین‌دست بلافاصله نامتصل گزارش می‌شود', agg.connected === false && w.connected === false);
+  check('52e لینک دیگر سر جایش است', s.links.some((l) => l.id === l2.id));
+  const s2 = GameSim.loadGame(GameSim.saveGame(s));
+  check('52f ذخیره/بارگذاری لینک‌های باقی‌مانده را حفظ می‌کند',
+    s2.links.length === s.links.length && s2.links.some((l) => l.id === l2.id) && !s2.links.some((l) => l.id === l1.id));
+  const rBad = GameSim.disconnectLink(s, 'nope');
+  check('52g قطع لینک ناموجود خطا می‌دهد', rBad.ok === false);
+  // لینک تکراری رد می‌شود
+  const dup = GameSim.connect(s, w.id, agg.id, 'fiber');
+  check('52h اتصال تکراری (همان دو گره + همان رسانه) رد می‌شود', dup === null);
+}
+
+// ---------- 53: مشترکان فردی با مدل تجمیعی منطقه سازگارند ----------
+{
+  const s = GameSim.newGame(42);
+  s.cash = 99999999;
+  GameSim.unlockTech(s, 'lte'); GameSim.unlockTech(s, '5g');
+  const core = coreOf(s);
+  const d = s.districts.find((x) => x.type === 'residential') || s.districts[1];
+  const t = GameSim.buildNode(s, 'cell_5g', d.x, d.y);
+  finishBuild(s, t);
+  GameSim.connect(s, t.id, core.id, 'fiber');
+  for (let i = 0; i < 45; i++) { GameSim.tick(s, 1); keepAlive(s); }
+  const inD = s.individuals.filter((p) => String(p.districtId) === String(d.id));
+  const subD = inD.filter((p) => p.status === 'subscribed');
+  check('53a منطقهٔ خوب‌سرویس‌شده مشترک تجمیعی دارد', d.qos >= 0.3 && d.subscribers > 100, 'qos=' + d.qos.toFixed(2) + ' subs=' + d.subscribers);
+  check('53b بیشتر افراد منطقه مشترک شده‌اند (سازگار با آمار منطقه)',
+    inD.length >= 3 && subD.length >= Math.ceil(inD.length / 2),
+    'indiv=' + inD.length + ' subscribed=' + subD.length);
+  const unserved = s.districts.find((x) => x.id !== d.id && (x.qos || 0) < 0.1);
+  const inU = unserved ? s.individuals.filter((p) => String(p.districtId) === String(unserved.id) && p.status === 'subscribed') : [];
+  check('53c در منطقهٔ بی‌سرویس کسی مشترک نمی‌شود', inU.length === 0, 'unservedSubscribed=' + inU.length);
+}
+
 console.log('\nنتیجه: ' + pass + ' پاس، ' + fail + ' رد');
 process.exit(fail ? 1 : 0);
