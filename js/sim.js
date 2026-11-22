@@ -216,16 +216,36 @@
   }
 
   // ---------- دید مستقیم (LoS) و تأخیر مسیر ----------
-  function losBlocked(state, n, x, y) {
-    if (n.type === 'ftth') return false;
-    for (const b of (state.buildings || (DATA && DATA.buildings) || [])) {
-      if (b.height < 10) continue;
-      const tt = clamp(((b.x - n.x) * (x - n.x) + (b.y - n.y) * (y - n.y)) /
-        (Math.pow(x - n.x, 2) + Math.pow(y - n.y, 2) || 1), 0, 1);
-      const px = n.x + tt * (x - n.x), py = n.y + tt * (y - n.y);
-      if (dist(b.x, b.y, px, py) < 45) return true;
+  // شمار ساختمان‌هایی که مرکزشان نزدیک پاره‌خط (ax,ay)-(bx,by) است (با پیش‌فیلتر جعبهٔ مرزی)
+  function segNearBuildings(state, ax, ay, bx, by, minHeight) {
+    const bs = state.buildings || (DATA && DATA.buildings) || [];
+    const minX = Math.min(ax, bx) - 45, maxX = Math.max(ax, bx) + 45;
+    const minY = Math.min(ay, by) - 45, maxY = Math.max(ay, by) + 45;
+    const dx = bx - ax, dy = by - ay;
+    const len2 = dx * dx + dy * dy || 1;
+    let count = 0;
+    for (const b of bs) {
+      if ((b.height || 0) < minHeight) continue;
+      const cx = b.x + (b.w || 26) / 2, cy = b.y + (b.h || 20) / 2;
+      if (cx < minX || cx > maxX || cy < minY || cy > maxY) continue;
+      const tt = clamp(((cx - ax) * dx + (cy - ay) * dy) / len2, 0, 1);
+      if (dist(cx, cy, ax + tt * dx, ay + tt * dy) < 45) count++;
     }
-    return false;
+    return count;
+  }
+  // مدل سیگنال: ارتفاع ساختمان فقط دید لینک نقطه‌به‌نقطه (PtP) را مخدوش می‌کند؛
+  // برای سلولار/FWA/وای‌فای، هر ساختمانِ سر راه فقط ۴٪ از قدرت سیگنال کم می‌کند (سقف مجموع: ‎−۳۰٪).
+  // فیبر و ماهواره از ساختمان اثر نمی‌گیرند.
+  function buildingAttenuation(state, ax, ay, bx, by) {
+    return Math.max(0.70, 1 - 0.04 * segNearBuildings(state, ax, ay, bx, by, 0));
+  }
+  function ptpLosFactor(state, a, b) {
+    if (!a || !b) return 1;
+    return segNearBuildings(state, a.x, a.y, b.x, b.y, 10) > 0 ? 0.35 : 1;
+  }
+  function wirelessAttFactor(state, tech, ax, ay, bx, by) {
+    if (tech === 'fiber' || tech === 'satellite') return 1;
+    return buildingAttenuation(state, ax, ay, bx, by);
   }
   const TECH_LATENCY_BASE = { fiber: 5, cellular: 30, fwa: 25, wifi: 10, satellite: 45 };
   function techLatencyBase(tech, node) {
@@ -360,22 +380,21 @@
           const l = linkById(state, id);
           if (!l) continue;
           latencySum += l.latency || 0;
-          const effCap = (l.capacity || 0) * fx.capMult + (l.medium === 'satellite' ? satBonus : 0);
+          const effCap = (l.capacity || 0) * fx.capMult * (l.medium === 'ptp' ? ptpLosFactor(state, nodeById(state, l.from), nodeById(state, l.to)) : 1) + (l.medium === 'satellite' ? satBonus : 0);
           bottleneck = Math.min(bottleneck, effCap);
           if (effCap > 0 && (l.usage || 0) > effCap) congFactor = Math.min(congFactor, effCap / l.usage);
         }
         const d = dist(x, y, n.x, n.y);
         const distFactor = 1 - 0.5 * clamp(d / Math.max(1, n.radius || 1), 0, 1);
-        const blocked = losBlocked(state, n, x, y);
-        const losFactor = blocked ? 0.35 : 1;
-        const speed = Math.round(bottleneck * distFactor * losFactor * congFactor);
+        const attFactor = wirelessAttFactor(state, t, n.x, n.y, x, y);
+        const speed = Math.round(bottleneck * distFactor * attFactor * congFactor);
         const latency = latencySum + techLatencyBase(t, n);
-        if (!best || speed > best.speed) best = { speed, nodeId: n.id, nodeName: n.name, blocked, congFactor, distFactor, latency };
+        if (!best || speed > best.speed) best = { speed, nodeId: n.id, nodeName: n.name, attFactor, congFactor, distFactor, latency };
       }
       if (!best) { out[t] = { speed: 0, nodeId: connected[0].id, nodeName: connected[0].name, reason: 'no_path', latency: null }; continue; }
       let reason = null;
       if (best.congFactor < 0.7) reason = 'congestion';
-      else if (best.blocked) reason = 'los';
+      else if (best.attFactor <= 0.85) reason = 'los';
       else if (best.distFactor < 0.65) reason = 'distance';
       out[t] = { speed: best.speed, nodeId: best.nodeId, nodeName: best.nodeName, reason, latency: best.latency };
     }
@@ -392,8 +411,8 @@
       const d = dist(x, y, n.x, n.y);
       if (d > radius || !inWedge(n, x, y)) continue;
       const base = 1 - d / radius;
-      const losFactor = losBlocked(state, n, x, y) ? 0.35 : 1;
-      const signal = base * losFactor * (1 - 0.5 * interferenceFor(state, n, n.channel)) * nodeWeatherFactor(state, n);
+      const attFactor = wirelessAttFactor(state, techOfNode(n.type), n.x, n.y, x, y);
+      const signal = base * attFactor * (1 - 0.5 * interferenceFor(state, n, n.channel)) * nodeWeatherFactor(state, n);
       if (!best || signal > best.signal) best = { signal, tech: techOfNode(n.type), nodeId: n.id };
     }
     if (!best) return { signal: 0, tech: null, nodeId: null };
@@ -953,7 +972,7 @@
       // گلوگاه لینک‌ها: اگر مصرف > ظرفیت مؤثر (با ضریب مهندسان شبکه و پاداش صورت فلکی)، کیفیت افت می‌کند
       let congestionFactor = 1;
       for (const l of state.links) {
-        const effCap = l.capacity * fx.capMult + (l.medium === 'satellite' ? satBonus : 0);
+        const effCap = l.capacity * fx.capMult * (l.medium === 'ptp' ? ptpLosFactor(state, nodeById(state, l.from), nodeById(state, l.to)) : 1) + (l.medium === 'satellite' ? satBonus : 0);
         if (l.usage > effCap && effCap > 0) {
           l.status = 'congested';
           congestionFactor = Math.min(congestionFactor, effCap / l.usage);
@@ -2419,6 +2438,7 @@
     upgradeNode, upgradeInfo,
     refreshConnectivity, connectBuildingFiber, disconnectBuildingFiber, buildingFiberStatus, fiberDropFor,
     disconnectLink, linkDisconnectImpact, linksOfNode,
+    buildingAttenuation, ptpLosFactor,
     // کمکی‌ها
     nodeById, linkById, getEq, getTech, rand, ACCESS_TYPES, computeTechDemand, TECH_KEYS, speedTestAt,
     isAccessNode, nodeCategory, updateDistrictSizes, mergeDistricts, desiredRadius,
