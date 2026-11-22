@@ -2098,5 +2098,35 @@ let s1, cell1, link1;
     JSON.stringify({ wifi: stC2.wifi, path: stC2.networkPath, sp: spC2.wifi }));
 }
 
+// ---------- 70: هیچ «undefined»ای در خروجی تست سرعت و برچسب‌های فناوری UI نیست ----------
+{
+  // 70a: نقشه‌های برچسب TECH_FA در ui.js همهٔ کلیدهای ردیف‌های تست سرعت را دارند
+  const uiSrc = require('fs').readFileSync(__dirname + '/../js/ui.js', 'utf8');
+  const techFaBlocks = [...uiSrc.matchAll(/var TECH_FA = \{([^}]*)\}/g)].map(m => m[1]);
+  check('70a برچسب همهٔ فناوری‌ها (از جمله وای‌فای) در UI هست و undefined رندر نمی‌شود',
+    techFaBlocks.length >= 2 &&
+    techFaBlocks.every(b => ['fiber', 'cellular', 'fwa', 'satellite'].every(k => b.includes(k + ':'))) &&
+    techFaBlocks.some(b => b.includes('wifi:')),
+    'blocks=' + techFaBlocks.length);
+  // 70b: خروجی speedTestAt برای نقاط نمونه هیچ فیلد undefined ندارد
+  const s = GameSim.newGame(42); s.cash = 9999999;
+  const d = s.districts.find(x => x.id === 'center');
+  const tower = GameSim.buildNode(s, 'cell_2g', d.x, d.y);
+  GameSim.connect(s, tower.id, coreOf(s).id, 'fiber');
+  const b0 = s.buildings.find(b => b.districtId === d.id);
+  const pts = [[d.x, d.y], [b0.x + (b0.w || 26) / 2, b0.y + (b0.h || 20) / 2], [100, 100], [7000, 5200]];
+  let ok70 = true, bad70 = '';
+  for (const [x, y] of pts) {
+    const r = GameSim.speedTestAt(s, x, y);
+    for (const t of ['fiber', 'cellular', 'fwa', 'wifi', 'satellite']) {
+      const e = r[t];
+      if (!e || typeof e.speed !== 'number' || e.reason === undefined || e.nodeName === undefined) {
+        ok70 = false; bad70 = t + '@' + x + ',' + y + '=' + JSON.stringify(e);
+      }
+    }
+  }
+  check('70b خروجی تست سرعت برای نقاط نمونه هیچ فیلد undefined ندارد', ok70, bad70);
+}
+
 console.log('\nنتیجه: ' + pass + ' پاس، ' + fail + ' رد');
 process.exit(fail ? 1 : 0);
