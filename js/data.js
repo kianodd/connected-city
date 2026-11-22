@@ -131,15 +131,6 @@ const GAME_DATA = (() => {
     { id: 'ptp_link',        name: 'لینک نقطه‌به‌نقطه',        cost: 18000,  monthlyCost: 450,  buildDays: 0.25,  capacity: 5000,  radius: 1500, unlock: null,            category: 'backhaul',
       connects: [{ medium: 'ptp', targets: ['node'], direction: 'both' }, { medium: 'fiber', targets: ['node'], direction: 'both' }, { medium: 'copper', targets: ['node'], direction: 'both' }],
       guide: 'اتصال بی‌سیم جهت‌دار بین دو گره؛ جایگزین کابل برای انتقال (Backhaul) با ظرفیت حدود ۵ گیگابیت (در دنیای واقعی لینک‌های مایکروویو ۱ تا ۱۰ گیگابیت می‌دهند). وقتی کابل‌کشی سخت یا گران است استفاده کنید؛ برای مسیر پشتیبان هم خوب است. به دید مستقیم بین دو طرف نیاز دارد.' },
-    { id: 'sat_terminal_leo',name: 'پایانه ماهواره‌ای LEO',    cost: 82000,  monthlyCost: 2600, buildDays: 0.5,  capacity: 300,   radius: 300,  unlock: 'satellite_leo', category: 'satellite', tech: 'satellite',
-      connects: [{ medium: 'satellite', targets: ['sat_gateway'], direction: 'upstream' }, { medium: 'wireless', targets: ['subscribers'], direction: 'service' }],
-      guide: 'پایانه ماهواره مدار پایین: اینترنت ماهواره‌ای با تأخیر کمتر برای مناطق دورافتاده و مسیر پشتیبان (ظرفیت: حدود ۳۰۰ مگابیت؛ در دنیای واقعی پایانه‌های LEO مثل استارلینک معمولاً ۱۰۰ تا ۳۰۰ مگابیت می‌دهند). باید از راه دروازه زمینی ماهواره به هسته برسد. نیازمند تحقیق «ماهواره مدار پایین»؛ هزینه ماهانه بالایی دارد.' },
-    { id: 'sat_terminal_geo',name: 'پایانه ماهواره‌ای GEO',    cost: 61000,  monthlyCost: 1900, buildDays: 0.5,  capacity: 150,   radius: 350,  unlock: 'satellite_geo', category: 'satellite', tech: 'satellite',
-      connects: [{ medium: 'satellite', targets: ['sat_gateway'], direction: 'upstream' }, { medium: 'wireless', targets: ['subscribers'], direction: 'service' }],
-      guide: 'پایانه ماهواره زمین‌آهنگ: پوشش وسیع ولی تأخیر بیشتر و ظرفیت کمتر از LEO (ظرفیت: حدود ۱۵۰ مگابیت؛ در دنیای واقعی سرویس‌های GEO حدود ۲۵ تا ۱۵۰ مگابیت می‌دهند). برای نقاط خیلی دور که هیچ زیرساختی ندارند. نیازمند تحقیق «ماهواره زمین‌آهنگ» و اتصال به دروازه زمینی است.' },
-    { id: 'sat_gateway',     name: 'دروازه زمینی ماهواره',     cost: 205000, monthlyCost: 6200, buildDays: 1, capacity: 6000,  radius: 0,    unlock: 'satellite_leo', category: 'satellite',
-      connects: [{ medium: 'satellite', targets: ['sat_terminal_leo', 'sat_terminal_geo'], direction: 'downstream' }, { medium: 'fiber', targets: ['node'], direction: 'both' }, { medium: 'copper', targets: ['node'], direction: 'both' }],
-      guide: 'ایستگاه زمینی که ترافیک پایانه‌های ماهواره‌ای را به هسته شبکه می‌رساند. بدون آن هیچ پایانه ماهواره‌ای کار نمی‌کند. گران است؛ فقط وقتی شبکه ماهواره‌ای می‌سازید لازم می‌شود.' },
     { id: 'router',          name: 'روتر لبه پارس‌نت',         cost: 10000,  monthlyCost: 250,  buildDays: 0.125,  capacity: 2500,  radius: 0,    unlock: null,            category: 'core',
       connects: [{ medium: 'fiber', targets: ['node'], direction: 'both' }, { medium: 'copper', targets: ['node'], direction: 'both' }],
       guide: 'گره واسط برای جمع‌کردن ترافیک چند دستگاه دسترسی و رساندنش به تجمیع یا هسته (ظرفیت: حدود ۲٫۵ گیگابیت). ارزان و سریع ساخته می‌شود و برای شبکه‌های کوچک کافی است.' },
@@ -167,7 +158,7 @@ const GAME_DATA = (() => {
   equipmentList.forEach((e) => { equipment[e.id] = e; });
 
   // نگاشت تجهیزات حذف‌شدهٔ کاتالوگ گسترده (۲۰۵ قلم) به نزدیک‌ترین معادل کلی — برای سازگاری ذخیره‌های قدیمی
-  const legacyEquipmentMap = { 'wifi_ap': 'fwa_ap', 'ant_sector_65_900': 'cell_2g', 'ant_sector_90_1800': 'cell_3g', 'ant_sector_33_2600': 'cell_4g', 'ant_sector_120_700': 'cell_2g', 'ant_sector_65_2100': 'cell_3g', 'ant_sector_65_3500': 'cell_5g', 'ant_sector_90_3500': 'cell_5g', 'ant_sector_120_5800': 'cell_5g', 'ant_sector_65_5800': 'cell_5g', 'ant_panel_3500_5g': 'cell_5g', 'ant_panel_2600': 'cell_4g', 'ant_dish_5800_28': 'cell_5g', 'ant_dish_3500_24': 'cell_5g', 'ant_dish_2600_21': 'cell_4g', 'ant_omni_900_8': 'cell_2g', 'ant_omni_1800_10': 'cell_3g', 'ant_omni_5800_12': 'cell_5g', 'ant_yagi_900_12': 'cell_2g', 'ant_yagi_2100_14': 'cell_3g', 'ant_yagi_3500_16': 'cell_5g', 'ant_log_700_2700': 'cell_2g', 'ant_log_1800_5800': 'cell_3g', 'rru_2g_900_40': 'cell_2g', 'rru_2g_1800_80': 'cell_2g', 'rru_3g_2100_220': 'cell_3g', 'rru_3g_900_150': 'cell_3g', 'rru_4g_700_600': 'cell_4g', 'rru_4g_1800_800': 'cell_4g', 'rru_4g_2100_900': 'cell_4g', 'rru_4g_2600_1100': 'cell_4g', 'rru_4g_dual_1800_2600': 'cell_4g', 'rru_4g_carrier_agg': 'cell_4g', 'rru_smallcell_4g_3500': 'cell_4g', 'rru_smallcell_5g_3500': 'cell_5g', 'rru_5g_2600_2800': 'cell_5g', 'rru_5g_3500_3200': 'cell_5g', 'rru_5g_massive_32t32r': 'cell_5g', 'rru_5g_massive_64t64r': 'cell_5g', 'rru_macro_4g5g_dual': 'cell_5g', 'rru_5g_mmwave_26g': 'cell_5g', 'fwa_cpe_lte_1800': 'fwa_ap', 'fwa_cpe_lte_2600': 'fwa_ap', 'fwa_cpe_indoor_3500': 'fwa_ap', 'fwa_cpe_outdoor_3500': 'fwa_ap', 'fwa_cpe_5g_dual': 'fwa_ap', 'fwa_sector_3500_90': 'fwa_ap', 'fwa_sector_5000_120': 'fwa_ap', 'fwa_sector_5800_65': 'fwa_ap', 'fwa_ap_3500_8x8': 'fwa_ap', 'fwa_ap_5000_4x4': 'fwa_ap', 'fwa_ptmp_5800': 'fwa_ap', 'fwa_sector_700': 'fwa_ap', 'fwa_mmwave_26g_ap': 'fwa_ap', 'fwa_mmwave_cpe_26g': 'fwa_ap', 'wifi4_indoor_300': 'fwa_ap', 'wifi4_outdoor_300': 'fwa_ap', 'wifi5_ceiling_867': 'fwa_ap', 'wifi5_wall_1200': 'fwa_ap', 'wifi5_outdoor_1300': 'fwa_ap', 'wifi_mesh_node_5': 'fwa_ap', 'wifi6_ceiling_2400': 'fwa_ap', 'wifi6_wall_1800': 'fwa_ap', 'wifi6_outdoor_2400': 'fwa_ap', 'wifi6_highdensity': 'fwa_ap', 'wifi_mesh_node_6': 'fwa_ap', 'wifi6e_ceiling_3600': 'fwa_ap', 'wifi6e_outdoor_3600': 'fwa_ap', 'wifi7_wall_3600': 'fwa_ap', 'wifi7_ceiling_5800': 'fwa_ap', 'wifi7_outdoor': 'fwa_ap', 'mw_6ghz_300': 'ptp_link', 'mw_11ghz_500': 'ptp_link', 'mw_11ghz_1000': 'ptp_link', 'mw_13ghz_1000': 'ptp_link', 'mw_18ghz_1000': 'ptp_link', 'mw_18ghz_2000': 'ptp_link', 'mw_23ghz_2000': 'ptp_link', 'mw_23ghz_4000': 'ptp_link', 'mw_38ghz_4000': 'ptp_link', 'mw_38ghz_8000': 'ptp_link', 'mw_60ghz_5000': 'ptp_link', 'mw_60ghz_10000': 'ptp_link', 'mw_80ghz_10000': 'ptp_link', 'mw_80ghz_5000': 'ptp_link', 'mw_6ghz_1000_long': 'ptp_link', 'rt_edge_1g_500': 'router', 'rt_edge_1g_1000': 'router', 'rt_edge_10g_5000': 'router', 'rt_agg_10g_10000': 'aggregation', 'rt_agg_25g_20000': 'aggregation', 'rt_agg_40g_30000': 'aggregation', 'rt_core_100g_40000': 'core_router', 'rt_core_100g_60000': 'core_router', 'rt_core_400g_60000': 'core_router', 'rt_branch_1g_800': 'router', 'rt_vpn_10g_8000': 'router', 'sw_access_24g_500': 'switch', 'sw_access_48g_1000': 'switch', 'sw_access_24g_poe_1000': 'switch', 'sw_access_48g_poe_2000': 'switch', 'sw_agg_10g_10000': 'aggregation', 'sw_agg_25g_20000': 'aggregation', 'sw_core_100g_40000': 'switch', 'sw_core_40g_30000': 'switch', 'sw_industrial_1g_800': 'switch', 'fw_edge_400': 'router', 'fw_edge_2000': 'router', 'fw_agg_8000': 'aggregation', 'fw_core_20000': 'router', 'fw_core_30000': 'router', 'olt_gpon_4_2000': 'aggregation', 'olt_gpon_8_4000': 'aggregation', 'olt_gpon_16_8000': 'aggregation', 'olt_xgs_4_5000': 'aggregation', 'olt_xgs_8_10000': 'aggregation', 'olt_xgs_16_20000': 'aggregation', 'olt_combo_8_6000': 'aggregation', 'ont_gpon_1ge_100': 'ftth', 'ont_gpon_4ge_300': 'ftth', 'ont_gpon_wifi_500': 'ftth', 'ont_xgs_1ge_1000': 'ftth', 'ont_xgs_wifi_1000': 'ftth', 'ont_gpon_2ge_200': 'ftth', 'ont_business_1000': 'ftth', 'spl_plc_1x4_500': 'fiber_cable', 'spl_plc_1x8_1000': 'fiber_cable', 'spl_plc_1x16_2000': 'fiber_cable', 'spl_plc_1x32_3000': 'fiber_cable', 'spl_plc_1x64_5000': 'fiber_cable', 'cab_street_500': 'router', 'cab_street_2000': 'router', 'cab_odf_4000': 'router', 'cab_splice_1000': 'router', 'cab_outdoor_8000': 'router', 'cbl_os2_12_5000': 'fiber_cable', 'cbl_os2_48_10000': 'fiber_cable', 'cbl_os2_96_20000': 'fiber_cable', 'cbl_om4_1000': 'fiber_cable', 'cbl_cat6a_1000': 'copper_cable', 'cbl_drop_500': 'fiber_cable', 'cbl_rg11_800': 'fiber_cable', 'con_sc_apc_500': 'fiber_cable', 'con_lc_duplex_1000': 'fiber_cable', 'con_mpo_trunk_10000': 'fiber_cable', 'con_patch_panel_2000': 'fiber_cable', 'twr_lattice_30m': 'cell_4g', 'twr_lattice_45m': 'cell_4g', 'twr_lattice_60m': 'cell_4g', 'twr_lattice_80m': 'cell_4g', 'twr_monopole_15m': 'cell_4g', 'twr_monopole_20m': 'cell_4g', 'twr_monopole_30m': 'cell_4g', 'twr_rooftop_pole_6m': 'cell_4g', 'twr_rooftop_pole_12m': 'cell_4g', 'twr_guyed_50m': 'cell_4g', 'twr_guyed_70m': 'cell_4g', 'twr_camo_tree_25m': 'cell_4g', 'twr_smallcell_pole_8m': 'cell_4g', 'twr_smallcell_pole_12m': 'cell_4g', 'pwr_rectifier_48v_100a': 'backup_power', 'pwr_rectifier_48v_400a': 'backup_power', 'pwr_battery_vrla_400ah': 'backup_power', 'pwr_battery_lithium_200ah': 'backup_power', 'pwr_ups_1kva': 'backup_power', 'pwr_ups_10kva': 'backup_power', 'pwr_ups_30kva': 'backup_power', 'pwr_solar_kit_1kwp': 'backup_power', 'pwr_solar_kit_5kwp': 'backup_power', 'pwr_solar_kit_10kwp': 'backup_power', 'pwr_generator_diesel_10kva': 'backup_power', 'pwr_generator_gas_30kva': 'backup_power', 'pwr_generator_diesel_100kva': 'backup_power', 'pwr_hybrid_solar_diesel_5kwp': 'backup_power', 'pwr_pdu_smart_32a': 'backup_power', 'pwr_grounding_kit_pro': 'backup_power', 'sat_leo_terminal_flat': 'sat_terminal_leo', 'sat_leo_terminal_pro': 'sat_terminal_leo', 'sat_leo_maritime': 'sat_terminal_leo', 'sat_leo_aviation': 'sat_terminal_leo', 'sat_geo_terminal_ku': 'sat_terminal_geo', 'sat_geo_terminal_ka': 'sat_terminal_geo', 'sat_dish_60cm_ku': 'sat_terminal_geo', 'sat_dish_75cm_ku': 'sat_terminal_geo', 'sat_dish_90cm_ka': 'sat_terminal_geo', 'sat_dish_120cm_ka': 'sat_terminal_geo', 'sat_gateway_small': 'sat_gateway', 'sat_gateway_large': 'sat_gateway', 'sat_buc_lnb_kit_ka': 'sat_terminal_geo', 'sat_gateway_modem': 'sat_gateway', 'tool_otdr_pro': 'test_tools_kit', 'tool_otdr_mini': 'test_tools_kit', 'tool_optical_power_meter': 'test_tools_kit', 'tool_light_source': 'test_tools_kit', 'tool_fusion_splicer_core': 'test_tools_kit', 'tool_fusion_splicer_handheld': 'test_tools_kit', 'tool_spectrum_analyzer_handheld': 'test_tools_kit', 'tool_spectrum_analyzer_benchtop': 'test_tools_kit', 'tool_cable_certifier_cat6a': 'test_tools_kit', 'tool_ethernet_tester': 'test_tools_kit', 'tool_vna_8ghz': 'test_tools_kit', 'tool_gps_sync_module': 'test_tools_kit', 'tool_fiber_inspection_scope': 'test_tools_kit', 'tool_pim_tester': 'test_tools_kit', 'tool_drone_survey_kit': 'test_tools_kit', 'tool_tdr_cable_fault': 'test_tools_kit' };
+  const legacyEquipmentMap = { 'sat_terminal_leo': 'fwa_ap', 'sat_terminal_geo': 'fwa_ap', 'sat_gateway': 'aggregation', 'wifi_ap': 'fwa_ap', 'ant_sector_65_900': 'cell_2g', 'ant_sector_90_1800': 'cell_3g', 'ant_sector_33_2600': 'cell_4g', 'ant_sector_120_700': 'cell_2g', 'ant_sector_65_2100': 'cell_3g', 'ant_sector_65_3500': 'cell_5g', 'ant_sector_90_3500': 'cell_5g', 'ant_sector_120_5800': 'cell_5g', 'ant_sector_65_5800': 'cell_5g', 'ant_panel_3500_5g': 'cell_5g', 'ant_panel_2600': 'cell_4g', 'ant_dish_5800_28': 'cell_5g', 'ant_dish_3500_24': 'cell_5g', 'ant_dish_2600_21': 'cell_4g', 'ant_omni_900_8': 'cell_2g', 'ant_omni_1800_10': 'cell_3g', 'ant_omni_5800_12': 'cell_5g', 'ant_yagi_900_12': 'cell_2g', 'ant_yagi_2100_14': 'cell_3g', 'ant_yagi_3500_16': 'cell_5g', 'ant_log_700_2700': 'cell_2g', 'ant_log_1800_5800': 'cell_3g', 'rru_2g_900_40': 'cell_2g', 'rru_2g_1800_80': 'cell_2g', 'rru_3g_2100_220': 'cell_3g', 'rru_3g_900_150': 'cell_3g', 'rru_4g_700_600': 'cell_4g', 'rru_4g_1800_800': 'cell_4g', 'rru_4g_2100_900': 'cell_4g', 'rru_4g_2600_1100': 'cell_4g', 'rru_4g_dual_1800_2600': 'cell_4g', 'rru_4g_carrier_agg': 'cell_4g', 'rru_smallcell_4g_3500': 'cell_4g', 'rru_smallcell_5g_3500': 'cell_5g', 'rru_5g_2600_2800': 'cell_5g', 'rru_5g_3500_3200': 'cell_5g', 'rru_5g_massive_32t32r': 'cell_5g', 'rru_5g_massive_64t64r': 'cell_5g', 'rru_macro_4g5g_dual': 'cell_5g', 'rru_5g_mmwave_26g': 'cell_5g', 'fwa_cpe_lte_1800': 'fwa_ap', 'fwa_cpe_lte_2600': 'fwa_ap', 'fwa_cpe_indoor_3500': 'fwa_ap', 'fwa_cpe_outdoor_3500': 'fwa_ap', 'fwa_cpe_5g_dual': 'fwa_ap', 'fwa_sector_3500_90': 'fwa_ap', 'fwa_sector_5000_120': 'fwa_ap', 'fwa_sector_5800_65': 'fwa_ap', 'fwa_ap_3500_8x8': 'fwa_ap', 'fwa_ap_5000_4x4': 'fwa_ap', 'fwa_ptmp_5800': 'fwa_ap', 'fwa_sector_700': 'fwa_ap', 'fwa_mmwave_26g_ap': 'fwa_ap', 'fwa_mmwave_cpe_26g': 'fwa_ap', 'wifi4_indoor_300': 'fwa_ap', 'wifi4_outdoor_300': 'fwa_ap', 'wifi5_ceiling_867': 'fwa_ap', 'wifi5_wall_1200': 'fwa_ap', 'wifi5_outdoor_1300': 'fwa_ap', 'wifi_mesh_node_5': 'fwa_ap', 'wifi6_ceiling_2400': 'fwa_ap', 'wifi6_wall_1800': 'fwa_ap', 'wifi6_outdoor_2400': 'fwa_ap', 'wifi6_highdensity': 'fwa_ap', 'wifi_mesh_node_6': 'fwa_ap', 'wifi6e_ceiling_3600': 'fwa_ap', 'wifi6e_outdoor_3600': 'fwa_ap', 'wifi7_wall_3600': 'fwa_ap', 'wifi7_ceiling_5800': 'fwa_ap', 'wifi7_outdoor': 'fwa_ap', 'mw_6ghz_300': 'ptp_link', 'mw_11ghz_500': 'ptp_link', 'mw_11ghz_1000': 'ptp_link', 'mw_13ghz_1000': 'ptp_link', 'mw_18ghz_1000': 'ptp_link', 'mw_18ghz_2000': 'ptp_link', 'mw_23ghz_2000': 'ptp_link', 'mw_23ghz_4000': 'ptp_link', 'mw_38ghz_4000': 'ptp_link', 'mw_38ghz_8000': 'ptp_link', 'mw_60ghz_5000': 'ptp_link', 'mw_60ghz_10000': 'ptp_link', 'mw_80ghz_10000': 'ptp_link', 'mw_80ghz_5000': 'ptp_link', 'mw_6ghz_1000_long': 'ptp_link', 'rt_edge_1g_500': 'router', 'rt_edge_1g_1000': 'router', 'rt_edge_10g_5000': 'router', 'rt_agg_10g_10000': 'aggregation', 'rt_agg_25g_20000': 'aggregation', 'rt_agg_40g_30000': 'aggregation', 'rt_core_100g_40000': 'core_router', 'rt_core_100g_60000': 'core_router', 'rt_core_400g_60000': 'core_router', 'rt_branch_1g_800': 'router', 'rt_vpn_10g_8000': 'router', 'sw_access_24g_500': 'switch', 'sw_access_48g_1000': 'switch', 'sw_access_24g_poe_1000': 'switch', 'sw_access_48g_poe_2000': 'switch', 'sw_agg_10g_10000': 'aggregation', 'sw_agg_25g_20000': 'aggregation', 'sw_core_100g_40000': 'switch', 'sw_core_40g_30000': 'switch', 'sw_industrial_1g_800': 'switch', 'fw_edge_400': 'router', 'fw_edge_2000': 'router', 'fw_agg_8000': 'aggregation', 'fw_core_20000': 'router', 'fw_core_30000': 'router', 'olt_gpon_4_2000': 'aggregation', 'olt_gpon_8_4000': 'aggregation', 'olt_gpon_16_8000': 'aggregation', 'olt_xgs_4_5000': 'aggregation', 'olt_xgs_8_10000': 'aggregation', 'olt_xgs_16_20000': 'aggregation', 'olt_combo_8_6000': 'aggregation', 'ont_gpon_1ge_100': 'ftth', 'ont_gpon_4ge_300': 'ftth', 'ont_gpon_wifi_500': 'ftth', 'ont_xgs_1ge_1000': 'ftth', 'ont_xgs_wifi_1000': 'ftth', 'ont_gpon_2ge_200': 'ftth', 'ont_business_1000': 'ftth', 'spl_plc_1x4_500': 'fiber_cable', 'spl_plc_1x8_1000': 'fiber_cable', 'spl_plc_1x16_2000': 'fiber_cable', 'spl_plc_1x32_3000': 'fiber_cable', 'spl_plc_1x64_5000': 'fiber_cable', 'cab_street_500': 'router', 'cab_street_2000': 'router', 'cab_odf_4000': 'router', 'cab_splice_1000': 'router', 'cab_outdoor_8000': 'router', 'cbl_os2_12_5000': 'fiber_cable', 'cbl_os2_48_10000': 'fiber_cable', 'cbl_os2_96_20000': 'fiber_cable', 'cbl_om4_1000': 'fiber_cable', 'cbl_cat6a_1000': 'copper_cable', 'cbl_drop_500': 'fiber_cable', 'cbl_rg11_800': 'fiber_cable', 'con_sc_apc_500': 'fiber_cable', 'con_lc_duplex_1000': 'fiber_cable', 'con_mpo_trunk_10000': 'fiber_cable', 'con_patch_panel_2000': 'fiber_cable', 'twr_lattice_30m': 'cell_4g', 'twr_lattice_45m': 'cell_4g', 'twr_lattice_60m': 'cell_4g', 'twr_lattice_80m': 'cell_4g', 'twr_monopole_15m': 'cell_4g', 'twr_monopole_20m': 'cell_4g', 'twr_monopole_30m': 'cell_4g', 'twr_rooftop_pole_6m': 'cell_4g', 'twr_rooftop_pole_12m': 'cell_4g', 'twr_guyed_50m': 'cell_4g', 'twr_guyed_70m': 'cell_4g', 'twr_camo_tree_25m': 'cell_4g', 'twr_smallcell_pole_8m': 'cell_4g', 'twr_smallcell_pole_12m': 'cell_4g', 'pwr_rectifier_48v_100a': 'backup_power', 'pwr_rectifier_48v_400a': 'backup_power', 'pwr_battery_vrla_400ah': 'backup_power', 'pwr_battery_lithium_200ah': 'backup_power', 'pwr_ups_1kva': 'backup_power', 'pwr_ups_10kva': 'backup_power', 'pwr_ups_30kva': 'backup_power', 'pwr_solar_kit_1kwp': 'backup_power', 'pwr_solar_kit_5kwp': 'backup_power', 'pwr_solar_kit_10kwp': 'backup_power', 'pwr_generator_diesel_10kva': 'backup_power', 'pwr_generator_gas_30kva': 'backup_power', 'pwr_generator_diesel_100kva': 'backup_power', 'pwr_hybrid_solar_diesel_5kwp': 'backup_power', 'pwr_pdu_smart_32a': 'backup_power', 'pwr_grounding_kit_pro': 'backup_power', 'sat_leo_terminal_flat': 'fwa_ap', 'sat_leo_terminal_pro': 'fwa_ap', 'sat_leo_maritime': 'fwa_ap', 'sat_leo_aviation': 'fwa_ap', 'sat_geo_terminal_ku': 'fwa_ap', 'sat_geo_terminal_ka': 'fwa_ap', 'sat_dish_60cm_ku': 'fwa_ap', 'sat_dish_75cm_ku': 'fwa_ap', 'sat_dish_90cm_ka': 'fwa_ap', 'sat_dish_120cm_ka': 'fwa_ap', 'sat_gateway_small': 'aggregation', 'sat_gateway_large': 'aggregation', 'sat_buc_lnb_kit_ka': 'fwa_ap', 'sat_gateway_modem': 'fwa_ap', 'tool_otdr_pro': 'test_tools_kit', 'tool_otdr_mini': 'test_tools_kit', 'tool_optical_power_meter': 'test_tools_kit', 'tool_light_source': 'test_tools_kit', 'tool_fusion_splicer_core': 'test_tools_kit', 'tool_fusion_splicer_handheld': 'test_tools_kit', 'tool_spectrum_analyzer_handheld': 'test_tools_kit', 'tool_spectrum_analyzer_benchtop': 'test_tools_kit', 'tool_cable_certifier_cat6a': 'test_tools_kit', 'tool_ethernet_tester': 'test_tools_kit', 'tool_vna_8ghz': 'test_tools_kit', 'tool_gps_sync_module': 'test_tools_kit', 'tool_fiber_inspection_scope': 'test_tools_kit', 'tool_pim_tester': 'test_tools_kit', 'tool_drone_survey_kit': 'test_tools_kit', 'tool_tdr_cable_fault': 'test_tools_kit' };
 
   // ---------- درخت فناوری ----------
   const techList = [
@@ -175,10 +166,7 @@ const GAME_DATA = (() => {
     { id: 'lte',           name: 'فناوری LTE (4G)',       cost: 30000, requires: [],                 unlocks: ['cell_4g'] },
     { id: 'ftth',          name: 'فیبر تا خانه',          cost: 45000, requires: ['fiber'],          unlocks: ['ftth'] },
     { id: '5g',            name: 'نسل پنجم (5G)',         cost: 80000, requires: ['lte'],            unlocks: ['cell_5g'] },
-    { id: 'satellite_leo', name: 'ماهواره مدار پایین',    cost: 90000, requires: [],                 unlocks: ['sat_terminal_leo', 'sat_gateway'] },
-    { id: 'satellite_geo', name: 'ماهواره زمین‌آهنگ',     cost: 70000, requires: ['satellite_leo'],  unlocks: ['sat_terminal_geo'] },
     { id: 'smart_mgmt',    name: 'مدیریت هوشمند شبکه',    cost: 40000, requires: ['fiber'],          unlocks: [] },
-    { id: 'own_satellite', name: 'صورت فلکی ماهواره‌ای اختصاصی', cost: 120000, requires: ['satellite_leo'], unlocks: [] },
   ];
   // تکمیل unlocks هر فناوری از روی فیلد unlock تجهیزات کاتالوگ
   techList.forEach((t) => { t.unlocks = Array.from(new Set([...(t.unlocks || []), ...equipmentList.filter((e) => e.unlock === t.id).map((e) => e.id)])); });
@@ -191,7 +179,6 @@ const GAME_DATA = (() => {
     { id: 'business',   name: 'تجاری',        speedMbps: 200,  price: 450,  serviceLevel: 'priority', kind: 'standard', expectFa: 'سرعت و پایداری بالا برای کسب‌وکار' },
     { id: 'fwa',        name: 'TD-LTE',       speedMbps: 100,  price: 180,  serviceLevel: 'standard', kind: 'standard', expectFa: 'اینترنت ثابت سیم‌کارتی روی پوشش 4G و بالاتر، بدون کابل‌کشی' },
     { id: 'enterprise', name: 'سازمانی',      speedMbps: 1000, price: 3000, serviceLevel: 'premium',  kind: 'standard', expectFa: 'ظرفیت و اطمینان سازمانی با اولویت بالا' },
-    { id: 'satellite',  name: 'ماهواره‌ای',   speedMbps: 300,  price: 900,  serviceLevel: 'priority', kind: 'standard', expectFa: 'پوشش در مناطق دورافتاده بدون زیرساخت زمینی' },
     { id: 'gaming',     name: 'گیمینگ (پینگ پایین)', speedMbps: 100, price: 600, serviceLevel: 'priority', kind: 'gaming', expectFa: 'تأخیر کم برای بازی آنلاین' },
     { id: 'streaming',  name: 'استریم (تماشای آنلاین)', speedMbps: 300, price: 700, serviceLevel: 'priority', kind: 'streaming', expectFa: 'پهنای باند پایدار برای پخش ویدیو' },
   ];
@@ -199,24 +186,24 @@ const GAME_DATA = (() => {
   packageList.forEach((p) => { packages[p.id] = p; });
 
   // ---------- سهم تقاضای هر فناوری در هر نوع منطقه (جمع هر ردیف = ۱) ----------
-  // کلیدها: fiber=فیبر/مسی، cellular=سلولار، fwa=TD-LTE، satellite=ماهواره (وای‌فای داخل ساختمانِ مشترک است و سهم جدا ندارد)
+  // کلیدها: fiber=فیبر/مسی، cellular=سلولار، fwa=TD-LTE (وای‌فای داخل ساختمانِ مشترک است و سهم جدا ندارد)
   const techDemandSplit = {
-    dense:       { fiber: 0.29, cellular: 0.50, fwa: 0.14, satellite: 0.07 },
-    residential: { fiber: 0.38, cellular: 0.31, fwa: 0.25, satellite: 0.06 },
-    commercial:  { fiber: 0.59, cellular: 0.27, fwa: 0.07, satellite: 0.07 },
-    industrial:  { fiber: 0.57, cellular: 0.16, fwa: 0.11, satellite: 0.16 },
-    landmark:    { fiber: 0.50, cellular: 0.36, fwa: 0.07, satellite: 0.07 },
-    sparse:      { fiber: 0.06, cellular: 0.28, fwa: 0.38, satellite: 0.28 },
-    academic:    { fiber: 0.50, cellular: 0.36, fwa: 0.07, satellite: 0.07 },
-    medical:     { fiber: 0.57, cellular: 0.25, fwa: 0.06, satellite: 0.12 },
-    heavy_industrial: { fiber: 0.62, cellular: 0.11, fwa: 0.11, satellite: 0.16 },
-    tourism:     { fiber: 0.36, cellular: 0.43, fwa: 0.14, satellite: 0.07 },
-    transport:   { fiber: 0.40, cellular: 0.40, fwa: 0.13, satellite: 0.07 },
-    villa:       { fiber: 0.46, cellular: 0.24, fwa: 0.24, satellite: 0.06 },
-    slum:        { fiber: 0.06, cellular: 0.35, fwa: 0.35, satellite: 0.24 },
-    government:  { fiber: 0.63, cellular: 0.25, fwa: 0.06, satellite: 0.06 },
+    dense:       { fiber: 0.31, cellular: 0.54, fwa: 0.15 },
+    residential: { fiber: 0.40, cellular: 0.33, fwa: 0.27 },
+    commercial:  { fiber: 0.63, cellular: 0.29, fwa: 0.08 },
+    industrial:  { fiber: 0.68, cellular: 0.19, fwa: 0.13 },
+    landmark:    { fiber: 0.54, cellular: 0.39, fwa: 0.07 },
+    sparse:      { fiber: 0.08, cellular: 0.39, fwa: 0.53 },
+    academic:    { fiber: 0.54, cellular: 0.39, fwa: 0.07 },
+    medical:     { fiber: 0.65, cellular: 0.28, fwa: 0.07 },
+    heavy_industrial: { fiber: 0.74, cellular: 0.13, fwa: 0.13 },
+    tourism:     { fiber: 0.39, cellular: 0.46, fwa: 0.15 },
+    transport:   { fiber: 0.43, cellular: 0.43, fwa: 0.14 },
+    villa:       { fiber: 0.49, cellular: 0.26, fwa: 0.25 },
+    slum:        { fiber: 0.08, cellular: 0.46, fwa: 0.46 },
+    government:  { fiber: 0.67, cellular: 0.27, fwa: 0.06 },
   };
-  const techDemandSplitDefault = { fiber: 0.31, cellular: 0.38, fwa: 0.19, satellite: 0.12 };
+  const techDemandSplitDefault = { fiber: 0.35, cellular: 0.43, fwa: 0.22 };
 
   // ---------- راهنمای فناوری‌ها (نمای کلی در منوی راهنما) ----------
   const techGuides = [
@@ -245,13 +232,9 @@ const GAME_DATA = (() => {
       whenToUse: 'وقتی کابل‌کشی بین دو گره سخت یا گران است، یا برای ساخت مسیر پشتیبان دوم.',
       equipmentIds: ['ptp_link'] },
     { id: 'wifi', name: 'وای‌فای داخل ساختمان (مشترک)',
-      desc: 'وای‌فای را خود مشترک‌ها داخل ساختمانشان راه می‌اندازند: هر ساختمانِ دارای اشتراک فعال (فیبر، سیم مسی، TD-LTE، سلولار یا ماهواره) اکسس‌پوینت خودش را دارد و کاربران ساختمان از همان اشتراک سرویس می‌گیرند. شما اکسس‌پوینت وای‌فای نمی‌سازید؛ کار شما رساندن اشتراک به ساختمان است.',
+      desc: 'وای‌فای را خود مشترک‌ها داخل ساختمانشان راه می‌اندازند: هر ساختمانِ دارای اشتراک فعال (فیبر، سیم مسی، TD-LTE یا سلولار) اکسس‌پوینت خودش را دارد و کاربران ساختمان از همان اشتراک سرویس می‌گیرند. شما اکسس‌پوینت وای‌فای نمی‌سازید؛ کار شما رساندن اشتراک به ساختمان است.',
       whenToUse: 'خودکار است: ساختمانِ مشترک که به شبکه وصل است (انشعاب سیمی یا پوشش دکل متصل) وای‌فای داخلی فعال دارد. بدون اشتراک، یا وقتی ساختمان به شبکه وصل نیست و در برد هیچ دکل متصلی هم نیست، وای‌فایی هم نیست.',
       equipmentIds: [] },
-    { id: 'satellite', name: 'ماهواره (LEO و GEO)',
-      desc: 'اینترنت از ماهواره: پایانه مشتری یا سایت ← ماهواره ← دروازه زمینی ← هسته. LEO تأخیر کمتر و ظرفیت بیشتری دارد (حدود ۳۰۰ مگابیت، مثل استارلینک)؛ GEO پوشش وسیع‌تر ولی کندتر است (حدود ۱۵۰ مگابیت). هزینه تجهیزات و ماهانه بالاست.',
-      whenToUse: 'برای مناطق دورافتاده بدون زیرساخت زمینی و به‌عنوان مسیر پشتیبان هنگام قطع فیبر؛ جایگزین همیشگی فیبر نیست.',
-      equipmentIds: ['sat_terminal_leo', 'sat_terminal_geo', 'sat_gateway'] },
     { id: 'core', name: 'هسته و تجمیع',
       desc: 'روتر هسته و دروازه اینترنت قلب شبکه‌اند؛ گره‌های تجمیع ترافیک مناطق را جمع و به هسته می‌رسانند. هر دستگاه دسترسی باید مسیری تا هسته و دروازه داشته باشد.',
       whenToUse: 'تجمیع را وقتی بسازید که چند دستگاه دسترسی در یک ناحیه دارید تا بار هسته کم و مسیرها کوتاه شود.',
@@ -267,7 +250,6 @@ const GAME_DATA = (() => {
     { id: 'm_tech',        name: 'تحقیق و توسعه',    description: 'یک فناوری جدید باز کنید.',                        goal: { type: 'unlock_tech', count: 1 },         reward: 10000 },
     { id: 'm_coverage',    name: 'پوشش شهر',         description: 'در ۴ منطقه کیفیت سرویس بالای ۶۰٪ بگیرید.',         goal: { type: 'district_qos', qos: 0.6, count: 4 }, reward: 40000 },
     { id: 'm_subs_5000',   name: '۵۰۰۰ مشترک',       description: 'به ۵۰۰۰ مشترک فعال برسید.',                       goal: { type: 'subscribers', count: 5000 },      reward: 60000 },
-    { id: 'm_satellite',   name: 'اتصال ماهواره‌ای', description: 'یک پایانه ماهواره‌ای را به دروازه وصل کنید.',      goal: { type: 'satellite_path', count: 1 },      reward: 50000 },
     { id: 'm_profit',      name: 'ماه سودده',        description: 'یک ماه با سود خالص مثبت تمام کنید.',               goal: { type: 'monthly_profit', count: 1 },      reward: 30000 },
   ];
 
@@ -319,8 +301,6 @@ const GAME_DATA = (() => {
     { id: 'cash_1m',        name: 'میلیونر شبکه',        desc: 'نقدینگی شرکت را به ۱٬۰۰۰٬۰۰۰ تومان برسانید.',          icon: 'cash',      metric: 'cash',              target: 1000000 },
     { id: 'revenue_500k',   name: 'نیم‌میلیون درآمد',    desc: 'مجموع درآمد شرکت را به ۵۰۰٬۰۰۰ تومان برسانید.',        icon: 'cash',      metric: 'totalRevenue',      target: 500000 },
     { id: 'monthly_rev_100k', name: 'درآمد ماهانه صدهزار', desc: 'درآمد یک ماه را به ۱۰۰٬۰۰۰ تومان برسانید.',         icon: 'cash',      metric: 'monthlyRevenue',    target: 100000 },
-    { id: 'sat_path',       name: 'مسیر ماهواره‌ای',     desc: 'یک مسیر فعال ماهواره‌ای تا هسته برقرار کنید.',         icon: 'satellite', metric: 'satellitePath',     target: 1 },
-    { id: 'sat_launch',     name: 'نخستین پرتاب',        desc: 'اولین ماهواره اختصاصی شرکت را پرتاب کنید.',            icon: 'rocket',    metric: 'satellitesLaunched', target: 1 },
     { id: 'contracts_3',    name: 'سه قرارداد سازمانی',  desc: '۳ قرارداد سازمانی را با موفقیت به پایان برسانید.',     icon: 'shield',    metric: 'contractsDone',     target: 3 },
     { id: 'campaign_1',     name: 'نخستین کمپین تبلیغاتی', desc: 'اولین کمپین تبلیغاتی شرکت را اجرا کنید.',            icon: 'star',      metric: 'campaignsRun',      target: 1 },
     { id: 'satisfaction_80', name: 'رضایت هشتاد درصدی',  desc: 'رضایت مشترکان را به ۸۰٪ برسانید.',                     icon: 'star',      metric: 'satisfaction',      target: 80 },
@@ -374,14 +354,6 @@ const GAME_DATA = (() => {
     fwa:      { count: 4, labels: ['کانال ۱', 'کانال ۲', 'کانال ۳', 'کانال ۴'] },
   };
 
-  // ---------- پرتاب ماهواره اختصاصی (نیازمند تحقیق «صورت فلکی ماهواره‌ای اختصاصی») ----------
-  const satelliteLaunch = {
-    leo: { name: 'ماهواره مدار پایین (LEO)', cost: 450000, buildDays: 0.75, capacity: 2000, lifetimeDays: 720, monthlyCost: 3000,
-      guide: 'ماهواره اختصاصی مدار پایین با تأخیر کم و ظرفیت بالا؛ پایانه‌های LEO شما را بدون وابستگی به ظرفیت اجاره‌ای تغذیه می‌کند. عمر مفید آن حدود دو سال است و پس از پایان عمر باید جایگزین شود. برای شبکه‌های بزرگ با چند پایانه ماهواره‌ای در بلندمدت به‌صرفه‌تر از اجاره ظرفیت است.' },
-    geo: { name: 'ماهواره زمین‌آهنگ (GEO)', cost: 300000, buildDays: 1, capacity: 1000, lifetimeDays: 1500, monthlyCost: 2000,
-      guide: 'ماهواره اختصاصی زمین‌آهنگ با پوشش ثابت و عمر مفید طولانی (حدود چهار سال)، ولی تأخیر بیشتر و ظرفیت کمتر از LEO. برای پوشش پایدار مناطق دورافتاده و مسیر پشتیبان طولانی‌مدت مناسب است. ساخت و پرتاب آن از LEO طولانی‌تر ولی ارزان‌تر است.' },
-  };
-
   // ---------- پهنای پرتو آنتن‌ها (استخراج خودکار از کاتالوگ تجهیزات) ----------
   // سکتورها: عدد پیش از «درجه» در نام تجهیز؛ پنل‌ها: «پرتو افقی N درجه» در متن راهنما
   const _faDigitMap = { '۰': '0', '۱': '1', '۲': '2', '۳': '3', '۴': '4', '۵': '5', '۶': '6', '۷': '7', '۸': '8', '۹': '9', '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4', '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9' };
@@ -401,10 +373,10 @@ const GAME_DATA = (() => {
 
   // ---------- آب‌وهوا و فصل‌ها ----------
   const weatherKinds = {
-    clear: { name: 'صاف',    wirelessFactor: 1,    mmwaveFactor: 1,    satFactor: 1 },
-    rain:  { name: 'بارانی', wirelessFactor: 0.85, mmwaveFactor: 0.45, satFactor: 0.8 },
-    storm: { name: 'طوفانی', wirelessFactor: 0.6,  mmwaveFactor: 0.25, satFactor: 0.5 },
-    snow:  { name: 'برفی',   wirelessFactor: 0.8,  mmwaveFactor: 0.6,  satFactor: 0.85 },
+    clear: { name: 'صاف',    wirelessFactor: 1,    mmwaveFactor: 1 },
+    rain:  { name: 'بارانی', wirelessFactor: 0.85, mmwaveFactor: 0.45 },
+    storm: { name: 'طوفانی', wirelessFactor: 0.6,  mmwaveFactor: 0.25 },
+    snow:  { name: 'برفی',   wirelessFactor: 0.8,  mmwaveFactor: 0.6 },
   };
   const seasons = [
     { id: 'spring', name: 'بهار',     demandFactor: 1.0,  weather: { clear: 0.68, rain: 0.18, storm: 0.04, snow: 0.02 } },
@@ -458,7 +430,6 @@ const GAME_DATA = (() => {
     enterpriseTemplates,
     campaignTypes,
     channelSets,
-    satelliteLaunch,
     beamwidthByEq,
     weatherKinds,
     seasons,
@@ -469,7 +440,6 @@ const GAME_DATA = (() => {
       copper:    { name: 'مسی',        capacity: 100,   latency: 5 },
       ethernet:  { name: 'اترنت',      capacity: 1000,  latency: 1 },
       ptp:       { name: 'نقطه‌به‌نقطه', capacity: 5000, latency: 8, maxRange: 1800 },
-      satellite: { name: 'ماهواره‌ای', capacity: 600,   latency: 45 },
     },
     // همان رسانه‌ها به‌صورت آرایه (برای انتخاب‌گر UI)
     media: [
@@ -477,7 +447,6 @@ const GAME_DATA = (() => {
       { id: 'copper',    name: 'مسی',          costPerUnit: 3, capacity: 100,   latency: 5 },
       { id: 'ethernet',  name: 'اترنت',        costPerUnit: 2, capacity: 1000,  latency: 1 },
       { id: 'ptp',       name: 'نقطه‌به‌نقطه', costPerUnit: 5, capacity: 5000,  latency: 8, maxRange: 1800 },
-      { id: 'satellite', name: 'ماهواره‌ای',   costPerUnit: 20, capacity: 600,  latency: 45 },
     ],
     linkTypes: null, // در ادامه برابر media می‌شود
   };
