@@ -18,6 +18,15 @@ function keepAlive(s) { // تعمیر خرابی‌های تصادفی تا تس
   s.links.forEach(l => { if (l.status === 'cut') l.status = 'active'; });
 }
 function withLTE(s) { s.cash = Math.max(s.cash, 900000); GameSim.unlockTech(s, 'lte'); return s; }
+function feed4G(s, x, y) { // دکل 4G متصل نزدیک نقطه تا TD-LTE تغذیه شود؛ نقدینگی آزمون دست‌نخورده می‌ماند
+  const cash0 = s.cash;
+  s.cash = Math.max(s.cash, 999999);
+  if (!s.techsUnlocked.includes('lte')) GameSim.unlockTech(s, 'lte');
+  const g4 = GameSim.buildNode(s, 'cell_4g', x, y);
+  if (g4) { finishBuild(s, g4); GameSim.connect(s, g4.id, coreOf(s).id, 'fiber'); }
+  s.cash = cash0;
+  return g4;
+}
 
 // ---------- 9) فناوری‌های پیشرفته در شروع قفل‌اند و با R&D باز می‌شوند ----------
 {
@@ -230,7 +239,7 @@ let s1, cell1, link1;
   function runServed(seed, connectIt) {
     const s = GameSim.newGame(seed);
     const d = s.districts.find(x => x.id === 'north') || s.districts[0];
-    const node = GameSim.buildNode(s, 'fwa_ap', d.x, d.y);
+    const node = GameSim.buildNode(s, 'cell_2g', d.x, d.y);
     finishBuild(s, node);
     if (connectIt) GameSim.connect(s, node.id, coreOf(s).id, 'ethernet');
     const cashAfterBuild = s.cash;
@@ -251,7 +260,8 @@ let s1, cell1, link1;
   const s = GameSim.newGame(404);
   check('13a رضایت شروع بازی صفر است (بدون شبکه)', s.satisfaction === 0 && s.districts.every(d => d.satisfaction === 0), 'sat=' + s.satisfaction);
   const d = s.districts.find(x => x.id === 'north') || s.districts[0];
-  const node = GameSim.buildNode(s, 'fwa_ap', d.x, d.y);
+  withLTE(s); // دکل 4G به‌عنوان گره سرویس‌دهندهٔ عمومی آزمون (TD-LTE فقط روی پوشش 4G کار می‌کند)
+  const node = GameSim.buildNode(s, 'cell_4g', d.x, d.y);
   finishBuild(s, node);
   GameSim.connect(s, node.id, coreOf(s).id, 'ethernet');
   for (let i = 0; i < 30; i++) { GameSim.tick(s, 1); keepAlive(s); }
@@ -308,9 +318,9 @@ let s1, cell1, link1;
   check('15b ذخیرهٔ بدون سرعت با سرعت پیش‌فرض پر می‌شود', migrated.packages.every(p => p.speedMbps > 0),
     migrated.packages.map(p => p.id + ':' + p.speedMbps).join(' '));
   function satWithSpeed(speed) {
-    const s = GameSim.newGame(707);
+    const s = withLTE(GameSim.newGame(707)); // دکل 4G به‌عنوان گره سرویس‌دهندهٔ عمومی آزمون
     const d = s.districts.find(x => x.id === 'north') || s.districts[0];
-    const node = GameSim.buildNode(s, 'fwa_ap', d.x, d.y);
+    const node = GameSim.buildNode(s, 'cell_4g', d.x, d.y);
     finishBuild(s, node);
     GameSim.connect(s, node.id, coreOf(s).id, 'ethernet');
     if (speed != null) GameSim.updatePackage(s, 'home', { speed: speed });
@@ -336,6 +346,7 @@ let s1, cell1, link1;
   const node = GameSim.buildNode(s, 'fwa_ap', d.x, d.y);
   finishBuild(s, node);
   GameSim.connect(s, node.id, coreOf(s).id, 'ethernet');
+  feed4G(s, d.x, d.y); // TD-LTE فقط روی پوشش 4G سرویس می‌دهد
   for (let i = 0; i < 10; i++) { GameSim.tick(s, 1); keepAlive(s); } // keepAlive: خرابی تصادفی گره نباید تست تقاضای فناوری را خراب کند
   const td = d.techDemand || {};
   const sum = Object.values(td).reduce((a, e) => a + e.demand, 0);
@@ -351,7 +362,7 @@ let s1, cell1, link1;
   check('16c منطقه بدون اتصال در همه فناوری‌ها صفر سرویس دارد',
     !!unserved && Object.values(unserved.techDemand || {}).every(e => e.served === 0),
     unserved ? JSON.stringify(unserved.techDemand) : 'no unserved district');
-  check('16d فناوری سرویس‌دهنده (وایرلس ثابت) سرویس مثبت دارد و وای‌فای سهم جدا ندارد', (td.fwa || {}).served > 0 && !td.wifi, JSON.stringify(td.fwa));
+  check('16d فناوری سرویس‌دهنده (TD-LTE) سرویس مثبت دارد و وای‌فای سهم جدا ندارد', (td.fwa || {}).served > 0 && !td.wifi, JSON.stringify(td.fwa));
 }
 
 // ---------- 17) راهنمای همه تجهیزات و فناوری‌ها ----------
@@ -378,7 +389,7 @@ let s1, cell1, link1;
       const d = s.districts.find(x => x.id === id);
       if (!d) continue;
       for (let k = 0; k < 3; k++) {
-        const node = GameSim.buildNode(s, 'fwa_ap', d.x + k * 40, d.y);
+        const node = GameSim.buildNode(s, 'cell_3g', d.x + k * 40, d.y);
         finishBuild(s, node);
         GameSim.connect(s, node.id, coreOf(s).id, 'ethernet');
       }
@@ -404,9 +415,10 @@ let s1, cell1, link1;
   check('19a نقطه زیر پوشش گره متصل‌نشده: سرعت صفر با علت «متصل نیست»',
     rUnconn.fwa.speed === 0 && rUnconn.fwa.reason === 'unconnected', JSON.stringify(rUnconn.fwa));
   GameSim.connect(s, node.id, coreOf(s).id, 'ethernet');
-  for (let i = 0; i < 5; i++) GameSim.tick(s, 1);
+  feed4G(s, d.x, d.y); // TD-LTE فقط روی پوشش 4G سرویس می‌دهد
+  for (let i = 0; i < 5; i++) { GameSim.tick(s, 1); keepAlive(s); } // خرابی تصادفی لینک نباید تست علت سرعت را خراب کند
   const rServed = GameSim.speedTestAt(s, d.x, d.y);
-  check('19b نقطه سرویس‌گرفته: سرعت وایرلس ثابت مثبت است', rServed.fwa.speed > 0, JSON.stringify(rServed.fwa));
+  check('19b نقطه سرویس‌گرفته: سرعت TD-LTE مثبت است', rServed.fwa.speed > 0, JSON.stringify(rServed.fwa));
   check('19b2 وای‌فای داخل ساختمان فقط با اشتراک: نقطهٔ بدون ساختمانِ مشترک صفر با علت «اشتراک ندارد»',
     rServed.wifi.speed === 0 && rServed.wifi.reason === 'no_subscription', JSON.stringify(rServed.wifi));
   const rFar = GameSim.speedTestAt(s, 60, 60);
@@ -423,7 +435,7 @@ let s1, cell1, link1;
       && GameSim.staffEffects(s).monthlySalaryTotal === 0,
     'staff=' + s.staff.length + ' salaryTotal=' + GameSim.staffEffects(s).monthlySalaryTotal);
   const d = s.districts.find(x => x.id === 'north') || s.districts[0];
-  const node = GameSim.buildNode(s, 'fwa_ap', d.x, d.y);
+  const node = GameSim.buildNode(s, 'cell_2g', d.x, d.y); // شروع واقعی بازی: 2G (TD-LTE به پوشش 4G نیاز دارد)
   finishBuild(s, node);
   GameSim.connect(s, node.id, coreOf(s).id, 'ethernet');
   const cashAfterBuild = s.cash;
@@ -468,7 +480,7 @@ let s1, cell1, link1;
     const g = GameSim.newGame(504); g.cash = 999999;
     for (let i = 0; i < sales; i++) GameSim.hireStaff(g, 'sales');
     const dd = g.districts.find(x => x.id === 'north') || g.districts[0];
-    const w = GameSim.buildNode(g, 'fwa_ap', dd.x, dd.y);
+    const w = GameSim.buildNode(g, 'cell_3g', dd.x, dd.y);
     finishBuild(g, w);
     GameSim.connect(g, w.id, coreOf(g).id, 'ethernet');
     for (let i = 0; i < 30; i++) { GameSim.tick(g, 1); keepAlive(g); }
@@ -491,9 +503,9 @@ let s1, cell1, link1;
   const g6 = GameSim.newGame(506); g6.cash = 999999;
   const fx0 = GameSim.staffEffects(g6);
   const d6 = g6.districts.find(x => x.id === 'north') || g6.districts[0];
-  const w6 = GameSim.buildNode(g6, 'fwa_ap', d6.x, d6.y);
+  const w6 = GameSim.buildNode(g6, 'cell_3g', d6.x, d6.y);
   finishBuild(g6, w6);
-  GameSim.connect(g6, w6.id, coreOf(g6).id, 'copper'); // لینک مسی ۱۰۰ مگ < ظرفیت وای‌فای ۳۲۰ → ازدحام
+  GameSim.connect(g6, w6.id, coreOf(g6).id, 'copper'); // لینک مسی ۱۰۰ مگ < ظرفیت دکل ۲۵۰ → ازدحام
   for (let i = 0; i < 5; i++) { GameSim.tick(g6, 1); keepAlive(g6); }
   const servedNoEng = d6.servedDemand;
   for (let i = 0; i < 5; i++) GameSim.hireStaff(g6, 'engineer');
@@ -509,8 +521,8 @@ let s1, cell1, link1;
   // 21a: حذف گرهٔ میانی → لینک‌هایش می‌روند و وابسته‌ها سرویس را از دست می‌دهند + بازپرداخت ۵۰٪
   const s = GameSim.newGame(601); s.cash = 999999;
   const d = s.districts.find(x => x.id === 'north') || s.districts[0];
-  const a = GameSim.buildNode(s, 'fwa_ap', d.x, d.y);
-  const b = GameSim.buildNode(s, 'fwa_ap', d.x + 60, d.y + 40);
+  const a = GameSim.buildNode(s, 'cell_3g', d.x, d.y);
+  const b = GameSim.buildNode(s, 'cell_3g', d.x + 60, d.y + 40);
   finishBuild(s, a); finishBuild(s, b);
   GameSim.connect(s, a.id, coreOf(s).id, 'ethernet');
   GameSim.connect(s, b.id, a.id, 'ethernet');
@@ -521,14 +533,14 @@ let s1, cell1, link1;
   const cashAfterDel = s.cash; // بلافاصله بعد از حذف (قبل از تیک‌ها که درآمد/هزینه نقدینگی را عوض می‌کند)
   for (let i = 0; i < 3; i++) GameSim.tick(s, 1);
   check('21a حذف گره میانی: لینک‌ها حذف و سرویس وابسته قطع می‌شود',
-    del.ok && del.refund === 7500 && cashAfterDel === cashBefore + 7500 &&
+    del.ok && del.refund === 16000 && cashAfterDel === cashBefore + 16000 &&
     !s.links.some(l => l.from === a.id || l.to === a.id) && b.connected === false && d.servedDemand < servedBefore,
     'refund=' + del.refund + ' served ' + servedBefore + '->' + d.servedDemand + ' bConn=' + b.connected);
 
   // 21b: جابه‌جایی → موقعیت عوض می‌شود، لینک‌ها می‌مانند، بعد از نصب مجدد سرویس برمی‌گردد
   const s2 = GameSim.newGame(602); s2.cash = 999999;
   const d2 = s2.districts.find(x => x.id === 'north') || s2.districts[0];
-  const w2 = GameSim.buildNode(s2, 'fwa_ap', d2.x, d2.y);
+  const w2 = GameSim.buildNode(s2, 'cell_3g', d2.x, d2.y);
   finishBuild(s2, w2);
   GameSim.connect(s2, w2.id, coreOf(s2).id, 'ethernet');
   for (let i = 0; i < 5; i++) GameSim.tick(s2, 1);
@@ -550,7 +562,7 @@ let s1, cell1, link1;
   // 21c: حذف دروازه → کل سرویس می‌خوابد؛ ساخت دروازهٔ جدید + اتصال → سرویس برمی‌گردد
   const s3 = GameSim.newGame(603); s3.cash = 9999999;
   const d3 = s3.districts.find(x => x.id === 'north') || s3.districts[0];
-  const w3 = GameSim.buildNode(s3, 'fwa_ap', d3.x, d3.y);
+  const w3 = GameSim.buildNode(s3, 'cell_3g', d3.x, d3.y);
   finishBuild(s3, w3);
   GameSim.connect(s3, w3.id, coreOf(s3).id, 'ethernet');
   for (let i = 0; i < 5; i++) { GameSim.tick(s3, 1); keepAlive(s3); }
@@ -610,7 +622,7 @@ let s1, cell1, link1;
   // پس از ۳۰۰ روز بازی با سرویس فعال، اندازهٔ پویا هم نباید هم‌پوشانی بسازد
   const s = GameSim.newGame(42); s.cash = 99999999;
   s.districts.slice(0, 4).forEach(d => {
-    const w = GameSim.buildNode(s, 'fwa_ap', d.x, d.y);
+    const w = GameSim.buildNode(s, 'cell_3g', d.x, d.y);
     if (w) { finishBuild(s, w); GameSim.connect(s, w.id, coreOf(s).id, 'fiber'); }
   });
   for (let i = 0; i < 300; i++) { GameSim.tick(s, 1); keepAlive(s); }
@@ -703,7 +715,7 @@ let s1, cell1, link1;
   check('27a بدون پوشش، ساختمان پراکنده مشترک نمی‌گیرد', ctrl.scattered && ctrl.scattered.subscribers === 0, 'subs=' + (ctrl.scattered && ctrl.scattered.subscribers));
   const s = GameSim.newGame(31); s.cash = 99999999;
   const ob = s.buildings.find(b => !b.districtId);
-  const w = GameSim.buildNode(s, 'fwa_ap', Math.round(ob.x + ob.w / 2), Math.round(ob.y + ob.h / 2));
+  const w = GameSim.buildNode(s, 'cell_3g', Math.round(ob.x + ob.w / 2), Math.round(ob.y + ob.h / 2));
   finishBuild(s, w);
   GameSim.connect(s, w.id, coreOf(s).id, 'fiber');
   for (let i = 0; i < 40; i++) { GameSim.tick(s, 1); keepAlive(s); }
@@ -773,7 +785,7 @@ let s1, cell1, link1;
 {
   const s = GameSim.newGame(99);
   const d = s.districts.find(x => x.id === 'north') || s.districts[0];
-  const node = GameSim.buildNode(s, 'fwa_ap', d.x, d.y);
+  const node = GameSim.buildNode(s, 'cell_2g', d.x, d.y);
   finishBuild(s, node);
   GameSim.connect(s, node.id, coreOf(s).id, 'ethernet');
   for (let i = 0; i < 10; i++) { GameSim.tick(s, 1); keepAlive(s); }
@@ -885,7 +897,7 @@ let s1, cell1, link1;
   function campGame(withCamp) {
     const s = GameSim.newGame(88); s.cash = 999999;
     const d = s.districts.find(x => x.id === 'north') || s.districts[0];
-    const n = GameSim.buildNode(s, 'fwa_ap', d.x, d.y);
+    const n = GameSim.buildNode(s, 'cell_3g', d.x, d.y);
     finishBuild(s, n);
     GameSim.connect(s, n.id, coreOf(s).id, 'ethernet');
     let camp = null;
@@ -958,6 +970,7 @@ let s1, cell1, link1;
   finishBuild(s, a); finishBuild(s, b);
   GameSim.connect(s, a.id, coreOf(s).id, 'ethernet');
   GameSim.connect(s, b.id, coreOf(s).id, 'ethernet');
+  feed4G(s, d.x, d.y); // TD-LTE فقط روی پوشش 4G سرویس می‌دهد
   GameSim.setNodeChannel(s, a.id, 1); GameSim.setNodeChannel(s, b.id, 1);
   GameSim.computeFlow(s);
   const servedSame = d.servedDemand, effSame = a._effCap;
@@ -982,7 +995,7 @@ let s1, cell1, link1;
 {
   const s = GameSim.newGame(31); s.cash = 999999;
   const d = s.districts.find(x => x.id === 'north') || s.districts[0];
-  const n = GameSim.buildNode(s, 'fwa_ap', d.x + 150, d.y);
+  const n = GameSim.buildNode(s, 'cell_3g', d.x + 150, d.y);
   finishBuild(s, n);
   GameSim.connect(s, n.id, coreOf(s).id, 'ethernet');
   // قرارداد جهت: ۰=شرق، مثبت پادساعتگرد؛ زاویهٔ نقطه با atan2(-dy, dx) گرفته می‌شود
@@ -1004,6 +1017,7 @@ let s1, cell1, link1;
   const d = s.districts.find(x => x.id === 'north') || s.districts[0];
   const n = GameSim.buildNode(s, 'fwa_ap', d.x, d.y);
   finishBuild(s, n);
+  feed4G(s, n.x - 285, n.y); // تغذیهٔ TD-LTE از دورترین نقطهٔ پوشش 4G تا سیگنال سلولار در نقاط آزمون ناچیز بماند
   s.buildings.forEach(b => { b.height = 5; }); // ساختمان‌های موجود دید را نبندند تا اثر ساختمان آزمایشی جدا سنجیده شود
   const atNode = GameSim.signalAt(s, n.x, n.y);
   check('38a سیگنال در محل گرهٔ فعال قوی است (>۰٫۵)', atNode.signal > 0.5 && atNode.nodeId === n.id,
@@ -1023,6 +1037,8 @@ let s1, cell1, link1;
 {
   const s = GameSim.newGame(42);
   const eq = DATA.equipmentList.find(e => e.id === 'fwa_ap');
+  const centerD = s.districts.find(x => x.id === 'center') || s.districts[0];
+  feed4G(s, centerD.x, centerD.y); // پیشنهاد TD-LTE فقط داخل پوشش 4G معنا دارد
   const r = GameSim.suggestPlacements(s, 'fwa_ap');
   check('39a پیشنهاد مکان ۱ تا ۵ نقطهٔ معتبر برمی‌گرداند',
     r.length >= 1 && r.length <= 5 && r.every(x => GameSim.isValidPlacement(s, x.x, x.y).ok),
@@ -1094,7 +1110,7 @@ let s1, cell1, link1;
     h0 === 10 && h1 === 15 && h2 === 1 && s.hour === 1,
     h0 + ' -> ' + h1 + ' -> ' + h2);
   const d = s.districts.find(x => x.id === 'north') || s.districts[0];
-  const n = GameSim.buildNode(s, 'fwa_ap', d.x, d.y);
+  const n = GameSim.buildNode(s, 'cell_3g', d.x, d.y);
   finishBuild(s, n);
   GameSim.connect(s, n.id, coreOf(s).id, 'ethernet');
   d.subscribers = 2000; // مشترکِ موجود تا ترافیک ساعت اوج/نیمه‌شب قابل مقایسه باشد
@@ -1131,6 +1147,7 @@ let s1, cell1, link1;
   const n = GameSim.buildNode(s, 'fwa_ap', d.x, d.y);
   finishBuild(s, n);
   GameSim.connect(s, n.id, coreOf(s).id, 'ethernet');
+  feed4G(s, d.x, d.y); // TD-LTE فقط روی پوشش 4G سرویس می‌دهد
   d.subscribers = 2000; // ترافیک بیشتر از ظرفیت تا افت طوفان در سرویس دیده شود
   s.weather = { kind: 'clear', untilDay: 9999 };
   GameSim.computeFlow(s);
@@ -1444,6 +1461,7 @@ let s1, cell1, link1;
   const fwa = GameSim.buildNode(s2, 'fwa_ap', A2.x, A2.y);
   finishBuild(s2, fwa);
   GameSim.connect(s2, fwa.id, core2.id, 'fiber');
+  feed4G(s2, A2.x - 285, A2.y); // تغذیهٔ TD-LTE؛ سیگنال سلولار به B2 نمی‌رسد (۴۸۵ > ۲۹۰)
   GameSim.tick(s2, 1); keepAlive(s2);
   s2.buildings.push({ id: 'ft1', x: core2.x - 333, y: core2.y - 10, w: 26, h: 20, height: 15, type: 'commercial', districtId: null });
   const sigF = GameSim.signalAt(s2, B2.x, B2.y);
@@ -1469,14 +1487,14 @@ let s1, cell1, link1;
     cap('cell_5g') === 2500 && cap('cell_4g') === 900 && cap('cell_3g') === 250 && cap('cell_2g') === 60 &&
     cap('ftth') === 2500 && cap('fwa_ap') === 600 && !GameSim.getEq('wifi_ap'),
     '2g=' + cap('cell_2g') + ' 3g=' + cap('cell_3g') + ' 4g=' + cap('cell_4g') + ' 5g=' + cap('cell_5g'));
-  // شروع بازی: وای‌فای در مرکز شهر مشترک می‌گیرد و درآمد می‌سازد
+  // شروع بازی: دکل 2G (استارتر واقعی؛ TD-LTE به پوشش 4G نیاز دارد) در مرکز شهر مشترک می‌گیرد و درآمد می‌سازد
   const s = GameSim.newGame(42);
   const d = s.districts.find(x => x.id === 'center');
-  const w = GameSim.buildNode(s, 'fwa_ap', d.x, d.y);
+  const w = GameSim.buildNode(s, 'cell_2g', d.x, d.y);
   finishBuild(s, w);
   GameSim.connect(s, w.id, coreOf(s).id, 'ethernet');
   for (let i = 0; i < 10; i++) { GameSim.tick(s, 1); keepAlive(s); }
-  check('55b شروع با وای‌فای: مشترک و درآمد در چند روز اول',
+  check('55b شروع با دکل 2G: مشترک و درآمد در چند روز اول',
     d.subscribers > 100 && d.revenue > 0,
     'subs=' + d.subscribers + ' revenue=' + d.revenue);
   // دکل 4G میان‌بازی هزاران مشترک خانگی را بدون اشباع فوری سرویس می‌دهد
@@ -1498,6 +1516,7 @@ let s1, cell1, link1;
   const n = GameSim.buildNode(s, 'fwa_ap', d.x, d.y);
   finishBuild(s, n);
   GameSim.connect(s, n.id, coreOf(s).id, 'ethernet');
+  feed4G(s, d.x, d.y); // TD-LTE فقط روی پوشش 4G سرویس می‌دهد
   GameSim.refreshConnectivity(s); // بدون اثرات روزانه: هنوز مشترکی نیست
   check('56a منطقهٔ تحت پوشش با صفر مشترک: ترافیک و درآمد و مصرف ظرفیت صفر',
     d.subscribers === 0 && d.demand === 0 && d.servedDemand === 0 && d.revenue === 0 && (n.usage || 0) === 0,
@@ -1526,6 +1545,7 @@ let s1, cell1, link1;
   const w2 = GameSim.buildNode(s2, 'fwa_ap', d2.x, d2.y);
   finishBuild(s2, w2);
   GameSim.connect(s2, w2.id, coreOf(s2).id, 'ethernet');
+  feed4G(s2, d2.x, d2.y); // TD-LTE فقط روی پوشش 4G سرویس می‌دهد
   for (let i = 0; i < 5; i++) { GameSim.tick(s2, 1); keepAlive(s2); }
   check('56d رضایت با نفوذ کم پایین می‌ماند (نه ۱۰۰٪ با چند مشترک)',
     d2.qos >= 0.9 && d2.satisfaction < 10,
@@ -1590,21 +1610,28 @@ let s1, cell1, link1;
       if (!s.techsUnlocked.includes(tid) && s.cash >= need) { GameSim.unlockTech(s, tid); break; }
     }
     const acc = accNodes();
+    const has4G = acc.some(n => n.type === 'cell_4g');
     if (acc.length === 0) {
+      // شروع واقعی بازی: دکل 2G (TD-LTE فقط روی پوشش 4G کار می‌کند)
       const d = biggestUnserved();
-      const n = GameSim.buildNode(s, 'fwa_ap', d.x, d.y);
+      const n = GameSim.buildNode(s, 'cell_2g', d.x, d.y);
       if (n) GameSim.connect(s, n.id, coreOf(s).id, 'ethernet');
-    } else if (s.techsUnlocked.includes('lte') && !acc.some(n => n.type === 'cell_4g') && s.cash >= 75000) {
+    } else if (s.techsUnlocked.includes('lte') && !has4G && s.cash >= 75000) {
       const d = biggestUnserved();
       const n = GameSim.buildNode(s, 'cell_4g', d.x, d.y);
       if (n) GameSim.connect(s, n.id, coreOf(s).id, 'fiber');
-    } else if (s.cash >= 25000) {
+    } else if (acc.length < 3 && s.cash >= 16000) {
       const d = biggestUnserved();
-      if (d) {
-        const type = (s.techsUnlocked.includes('lte') && s.cash >= 75000) ? 'cell_4g' : 'fwa_ap';
-        const n = GameSim.buildNode(s, type, d.x, d.y);
-        if (n) GameSim.connect(s, n.id, coreOf(s).id, type === 'cell_4g' ? 'fiber' : 'ethernet');
-      }
+      const n = GameSim.buildNode(s, 'cell_2g', d.x, d.y);
+      if (n) GameSim.connect(s, n.id, coreOf(s).id, 'ethernet');
+    } else if (has4G && s.cash >= 75000) {
+      const d = biggestUnserved();
+      const n = GameSim.buildNode(s, 'cell_4g', d.x, d.y);
+      if (n) GameSim.connect(s, n.id, coreOf(s).id, 'fiber');
+    } else if (has4G && s.cash >= 35000) {
+      // TD-LTE فقط داخل پوشش 4G: روی منطقه‌ای که دکل 4G دارد ظرفیت اضافه می‌کند
+      const d4 = s.districts.find(d => acc.some(n => n.type === 'cell_4g' && Math.hypot(n.x - d.x, n.y - d.y) <= 290));
+      if (d4) { const n = GameSim.buildNode(s, 'fwa_ap', d4.x, d4.y); if (n) GameSim.connect(s, n.id, coreOf(s).id, 'ethernet'); }
     }
     GameSim.tick(s, 1);
     if (firstIncome == null && s.totalRevenue > 0) firstIncome = s.day;
@@ -1929,6 +1956,7 @@ let s1, cell1, link1;
   GameSim.connect(s, agg.id, coreOf(s).id, 'fiber');
   const fwa = GameSim.buildNode(s, 'fwa_ap', d.x, d.y);
   GameSim.connect(s, fwa.id, agg.id, 'fiber');
+  const feeder = feed4G(s, fwa.x - 285, fwa.y); // تغذیهٔ TD-LTE از دورترین نقطهٔ پوشش 4G
   const g2 = GameSim.buildNode(s, 'cell_2g', d.x + 500, d.y + 300);
   GameSim.connect(s, g2.id, agg.id, 'fiber');
   for (let i = 0; i < 5; i++) { GameSim.tick(s, 1); keepAlive(s); }
@@ -1950,6 +1978,7 @@ let s1, cell1, link1;
   // جابه‌جایی گره در میدان تازه دیده می‌شود؛ خرابی گره پوشش را حذف می‌کند
   const before = GameSim.signalFieldAt(GameSim.prepareSignalField(s), fwa.x, fwa.y);
   GameSim.moveNode(s, fwa.id, fwa.x + 900, fwa.y);
+  GameSim.moveNode(s, feeder.id, feeder.x + 900, feeder.y); // دکل تغذیه‌کننده هم همراهش می‌رود تا TD-LTE تغذیه بماند
   const afterMove = GameSim.signalFieldAt(GameSim.prepareSignalField(s), fwa.x - 900, fwa.y);
   const movedNode = s.nodes.find(n => n.id === fwa.id);
   const atNew = GameSim.signalFieldAt(GameSim.prepareSignalField(s), movedNode.x, movedNode.y);
@@ -1968,7 +1997,7 @@ let s1, cell1, link1;
   const core = coreOf(s);
   const router = GameSim.buildNode(s, 'router', core.x + 250, core.y);
   const agg = GameSim.buildNode(s, 'aggregation', core.x + 500, core.y);
-  const fwa = GameSim.buildNode(s, 'fwa_ap', d.x, d.y);
+  const fwa = GameSim.buildNode(s, 'cell_3g', d.x, d.y); // گره دسترسی عمومی زنجیره (TD-LTE به پوشش 4G نیاز دارد و زنجیره را دور می‌زند)
   GameSim.connect(s, fwa.id, router.id, 'fiber');
   GameSim.connect(s, router.id, agg.id, 'fiber');
   GameSim.connect(s, agg.id, core.id, 'fiber');
@@ -2126,6 +2155,140 @@ let s1, cell1, link1;
     }
   }
   check('70b خروجی تست سرعت برای نقاط نمونه هیچ فیلد undefined ندارد', ok70, bad70);
+}
+
+// ---------- 71: TD-LTE فقط روی پوشش 4G و بالاتر ----------
+{
+  // 71a: TD-LTE داخل پوشش 4G سرویس می‌دهد (4G خودش به منطقه نمی‌رسد؛ سرویس فقط از TD-LTE است)
+  const s = GameSim.newGame(42); s.cash = 9999999;
+  const d = s.districts.find(x => x.id === 'center');
+  const fwa = GameSim.buildNode(s, 'fwa_ap', d.x + 400, d.y);
+  finishBuild(s, fwa);
+  GameSim.connect(s, fwa.id, coreOf(s).id, 'fiber');
+  feed4G(s, d.x + 654, d.y); // فاصله از TD-LTE = ۲۵۴ ≤ ۲۹۰ (تغذیه)؛ فاصله از مرکز منطقه ۶۵۴ > ۵۵۴ (خودش سرویس نمی‌دهد)
+  for (let i = 0; i < 10; i++) { GameSim.tick(s, 1); keepAlive(s); }
+  const tdA = d.techDemand || {};
+  check('71a TD-LTE داخل پوشش 4G سرویس می‌دهد و مشترک می‌گیرد',
+    GameSim.tdlteFed(s, fwa) === true && d.subscribers > 0 && d.servedDemand > 0 &&
+    (tdA.fwa || {}).served > 0 && (tdA.cellular || {}).served === 0,
+    'fed=' + GameSim.tdlteFed(s, fwa) + ' subs=' + d.subscribers + ' served=' + d.servedDemand + ' fwaServed=' + (tdA.fwa || {}).served + ' cellServed=' + (tdA.cellular || {}).served);
+  const stA = GameSim.speedTestAt(s, fwa.x, fwa.y).fwa;
+  check('71a2 تست سرعت TD-LTE داخل پوشش 4G مثبت است', stA.speed > 0, JSON.stringify(stA));
+
+  // 71b: بدون پوشش 4G (فقط TD-LTE تنها یا کنار 3G) هیچ سرویسی از TD-LTE نیست
+  const s2 = GameSim.newGame(43); s2.cash = 9999999;
+  const d2 = s2.districts.find(x => x.id === 'north') || s2.districts[0];
+  const fwa2 = GameSim.buildNode(s2, 'fwa_ap', d2.x, d2.y);
+  finishBuild(s2, fwa2);
+  GameSim.connect(s2, fwa2.id, coreOf(s2).id, 'fiber');
+  for (let i = 0; i < 10; i++) { GameSim.tick(s2, 1); keepAlive(s2); }
+  check('71b1 TD-LTE تنها (بدون 4G): مشترک و سرویس صفر',
+    GameSim.tdlteFed(s2, fwa2) === false && d2.subscribers === 0 && d2.servedDemand === 0,
+    'subs=' + d2.subscribers + ' served=' + d2.servedDemand);
+  const g3 = GameSim.buildNode(s2, 'cell_3g', d2.x, d2.y);
+  finishBuild(s2, g3);
+  GameSim.connect(s2, g3.id, coreOf(s2).id, 'fiber');
+  for (let i = 0; i < 10; i++) { GameSim.tick(s2, 1); keepAlive(s2); }
+  const stB = GameSim.speedTestAt(s2, d2.x, d2.y).fwa;
+  const tdB = d2.techDemand || {};
+  check('71b2 کنار 3G هم TD-LTE سرویس نمی‌دهد (تست سرعت صفر با علت خارج از پوشش 4G)',
+    stB.speed === 0 && stB.reason === 'no_4g_coverage' && (tdB.fwa || {}).served === 0 && (tdB.cellular || {}).served > 0,
+    JSON.stringify(stB) + ' fwaServed=' + (tdB.fwa || {}).served + ' cellServed=' + (tdB.cellular || {}).served);
+
+  // 71c: نام نمایشی کامل عوض شده (بدون «وایرلس ثابت»/«بی‌سیم ثابت»/FWA در کد و صفحه)
+  const fs = require('fs');
+  const srcAll = ['data.js', 'sim.js', 'ui.js', 'map.js', 'main.js'].map(f => fs.readFileSync(__dirname + '/../js/' + f, 'utf8')).join('\n') +
+    fs.readFileSync(__dirname + '/../index.html', 'utf8');
+  const eqFwa = (DATA.equipmentList || []).find(e => e.id === 'fwa_ap');
+  const pkgFwa = (DATA.packageList || []).find(p => p.id === 'fwa');
+  check('71c تغییر نام کامل: TD-LTE در تجهیز و بسته؛ هیچ رشتهٔ قدیمی نمایشی نمانده',
+    !srcAll.includes('وایرلس ثابت') && !srcAll.includes('بی‌سیم ثابت') && !/\bFWA\b/.test(srcAll) &&
+    !!eqFwa && eqFwa.name.includes('TD-LTE') && !!pkgFwa && pkgFwa.name === 'TD-LTE',
+    'eq=' + (eqFwa && eqFwa.name) + ' pkg=' + (pkgFwa && pkgFwa.name));
+
+  // 71d: ذخیره/بارگذاری گره TD-LTE (از جمله نام قدیمی در ذخیرهٔ قبلی) رفتار جدید را حفظ می‌کند
+  const raw = JSON.parse(GameSim.saveGame(s));
+  const rawFwa = raw.nodes.find(n => n.type === 'fwa_ap');
+  rawFwa.name = 'آنتن دسترسی ثابت بی‌سیم ۱'; // نام قدیمیِ ذخیره‌های قبلی
+  const s3 = GameSim.loadGame(JSON.stringify(raw));
+  const fwa3 = s3.nodes.find(n => n.type === 'fwa_ap');
+  GameSim.tick(s3, 1); keepAlive(s3);
+  check('71d بارگذاری ذخیرهٔ قدیمی: نام به TD-LTE به‌روز و تغذیهٔ 4G حفظ می‌شود',
+    !!fwa3 && fwa3.name.includes('TD-LTE') && GameSim.tdlteFed(s3, fwa3) === true,
+    'name=' + (fwa3 && fwa3.name) + ' fed=' + (fwa3 && GameSim.tdlteFed(s3, fwa3)));
+
+  // 71e: سیگنال TD-LTE بدون پوشش 4G صفر است و با آمدن 4G برمی‌گردد
+  const s4 = GameSim.newGame(44); s4.cash = 9999999;
+  const d4 = s4.districts.find(x => x.id === 'north') || s4.districts[0];
+  const fwa4 = GameSim.buildNode(s4, 'fwa_ap', d4.x, d4.y);
+  finishBuild(s4, fwa4);
+  GameSim.connect(s4, fwa4.id, coreOf(s4).id, 'fiber');
+  const sig0 = GameSim.signalAt(s4, fwa4.x, fwa4.y).signal;
+  feed4G(s4, fwa4.x - 285, fwa4.y);
+  const sig1 = GameSim.signalAt(s4, fwa4.x, fwa4.y).signal;
+  check('71e سیگنال TD-LTE بدون 4G صفر و با پوشش 4G مثبت است', sig0 === 0 && sig1 > 0.5,
+    'sig0=' + sig0.toFixed(2) + ' sig1=' + sig1.toFixed(2));
+}
+
+// ---------- 72: ترجیح نوع اینترنت ساختمان و منطقه ----------
+{
+  const s = GameSim.newGame(42);
+  const keys = ['fiber', 'cellular', 'fwa', 'satellite'];
+  const sumPref = (p) => keys.reduce((a, t) => a + (p[t] || 0), 0);
+  // 72a: ترجیح هر ساختمان جمعش ۱۰۰٪ است
+  const allSum = s.buildings.every(b => { const p = GameSim.buildingPreference(s, b); return Math.abs(sumPref(p) - 1) < 1e-6 && keys.every(t => p[t] >= 0 && p[t] <= 1); });
+  check('72a ترجیح هر ساختمان جمعش ۱۰۰٪ و همه سهم‌ها بین ۰ و ۱ است', allSum, 'buildings=' + s.buildings.length);
+  // 72b: ترجیح منطقه = میانگین موزون ساختمان‌هایش (وزن حجم)
+  let aggOk = true, aggBad = '';
+  for (const d of s.districts) {
+    const bs = s.buildings.filter(b => b.districtId === d.id);
+    if (!bs.length) continue;
+    const acc = { fiber: 0, cellular: 0, fwa: 0, satellite: 0 }; let wSum = 0;
+    for (const b of bs) {
+      const w = (b.w || 10) * (b.h || 10) * (b.height || 1);
+      const p = GameSim.buildingPreference(s, b);
+      for (const t of keys) acc[t] += p[t] * w;
+      wSum += w;
+    }
+    const dp = GameSim.districtPreference(s, d);
+    for (const t of keys) if (Math.abs(dp[t] - acc[t] / wSum) > 1e-9) { aggOk = false; aggBad = d.id + ':' + t; }
+    if (Math.abs(sumPref(dp) - 1) > 1e-6) { aggOk = false; aggBad = d.id + ':sum'; }
+  }
+  check('72b ترجیح کلی منطقه دقیقاً میانگین موزون ساختمان‌هایش است', aggOk, aggBad);
+  // 72c: قطعی بودن — ذخیره/بارگذاری و بازی تازه با همان بذر، همان ترجیح
+  const sample = s.buildings.slice(0, 25).map(b => ({ id: b.id, p: GameSim.buildingPreference(s, b) }));
+  const sLoad = GameSim.loadGame(GameSim.saveGame(s));
+  const sFresh = GameSim.newGame(42);
+  const detOk = sample.every(({ id, p }) => {
+    const bl = sLoad.buildings.find(b => b.id === id), bf = sFresh.buildings.find(b => b.id === id);
+    if (!bl || !bf) return false;
+    const pl = GameSim.buildingPreference(sLoad, bl), pf = GameSim.buildingPreference(sFresh, bf);
+    return keys.every(t => Math.abs(pl[t] - p[t]) < 1e-12 && Math.abs(pf[t] - p[t]) < 1e-12);
+  });
+  check('72c ترجیح ساختمان قطعی است (ذخیره/بارگذاری و بذر یکسان = همان نتیجه)', detOk);
+  // 72d: آشتی با «تقاضا به تفکیک فناوری» — سهم تقاضای هر فناوری = ترجیح کلی منطقه
+  const s2 = GameSim.newGame(42); s2.cash = 9999999;
+  const d2 = s2.districts.find(x => x.id === 'center');
+  d2.subscribers = 1000;
+  GameSim.computeFlow(s2, { dailyAvg: true, noDailyEffects: true });
+  const pref2 = GameSim.districtPreference(s2, d2);
+  const td2 = d2.techDemand || {};
+  const recOk = d2.demand > 0 && keys.every(t => Math.abs(((td2[t] || {}).demand || 0) / d2.demand - pref2[t]) <= 0.02);
+  check('72d سهم تقاضای فناوری‌ها با ترجیح کلی منطقه یکی است (دو پنل تناقض ندارند)', recOk,
+    'demand=' + Math.round(d2.demand) + ' td=' + JSON.stringify(td2) + ' pref=' + JSON.stringify(pref2));
+  // 72e: شکل‌دهی plausible — اداری‌ها فیبرپسندتر از مسکونی‌ها؛ منطقهٔ کم‌تراکم TD-LTE/ماهواره‌پسندتر از تجاری
+  const avgShare = (bs, t) => bs.length ? bs.reduce((a, b) => a + GameSim.buildingPreference(s, b)[t], 0) / bs.length : 0;
+  const offices = s.buildings.filter(b => b.type === 'office');
+  const homes = s.buildings.filter(b => b.type === 'residential');
+  const sparseD = s.districts.find(d => d.type === 'sparse');
+  const commD = s.districts.find(d => d.type === 'commercial');
+  const sparsePref = sparseD ? GameSim.districtPreference(s, sparseD) : null;
+  const commPref = commD ? GameSim.districtPreference(s, commD) : null;
+  check('72e شکل‌دهی ترجیح: اداری فیبرپسندتر از مسکونی؛ کم‌تراکم TD-LTE/ماهواره‌پسندتر از تجاری',
+    offices.length > 0 && homes.length > 0 && avgShare(offices, 'fiber') > avgShare(homes, 'fiber') &&
+    !!sparsePref && !!commPref && (sparsePref.fwa + sparsePref.satellite) > (commPref.fwa + commPref.satellite),
+    'officeFiber=' + avgShare(offices, 'fiber').toFixed(2) + ' homeFiber=' + avgShare(homes, 'fiber').toFixed(2) +
+    ' sparse=' + (sparsePref && (sparsePref.fwa + sparsePref.satellite).toFixed(2)) + ' comm=' + (commPref && (commPref.fwa + commPref.satellite).toFixed(2)));
 }
 
 console.log('\nنتیجه: ' + pass + ' پاس، ' + fail + ' رد');
