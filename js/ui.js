@@ -21,7 +21,7 @@
 
   var TUTORIAL = [
     { title: 'گام ۱: بررسی نقشه', text: 'به «شبکه‌ساز: شهر متصل» خوش آمدید! روی نقشه مناطق و ساختمان‌ها را ببینید. روی یک ساختمان کلیک کنید تا نیاز آن (کاربران و پهنای باند) نمایش داده شود. با دکمه‌های + و − یا کلیدهای + و − بزرگ‌نمایی کنید.' },
-    { title: 'گام ۲: نصب دستگاه دسترسی', text: 'از پنل «ابزار ساخت» یک دستگاه دسترسی مثل دکل سلولی 2G یا آنتن دسترسی ثابت انتخاب کنید و روی نقشه نزدیک ساختمان‌ها قرار دهید. دستگاه بدون اتصال به شبکه هیچ سرویسی نمی‌دهد! وای‌فای داخل ساختمان را خود مشترک‌ها راه می‌اندازند؛ کار شما رساندن اشتراک به ساختمان‌هاست.' },
+    { title: 'گام ۲: نصب دستگاه دسترسی', text: 'از پنل «ابزار ساخت» یک دستگاه دسترسی مثل دکل سلولی 2G انتخاب کنید و روی نقشه نزدیک ساختمان‌ها قرار دهید. دستگاه بدون اتصال به شبکه هیچ سرویسی نمی‌دهد! اینترنت ثابت سیم‌کارتی TD-LTE هم فقط داخل پوشش شبکهٔ 4G و بالاتر کار می‌کند؛ پس در شروع بازی با دکل 2G شروع کنید و TD-LTE را بعد از ساخت دکل 4G داخل پوشش آن بگذارید. وای‌فای داخل ساختمان را خود مشترک‌ها راه می‌اندازند؛ کار شما رساندن اشتراک به ساختمان‌هاست.' },
     { title: 'گام ۳: اتصال انتقال', text: 'ابزار «اتصال» را انتخاب کنید، روی دستگاه دسترسی و سپس روی یک گره تجمیع کلیک کنید و رسانه (فیبر/مسی/نقطه‌به‌نقطه) را انتخاب کنید تا لینک انتقال ساخته شود.' },
     { title: 'گام ۴: اتصال هسته و دروازه', text: 'زنجیره باید کامل باشد: مشتری ← دسترسی ← تجمیع ← هسته ← دروازه اینترنت. گره تجمیع را به هسته و هسته را به دروازه وصل کنید تا اینترنت به شهر برسد.' },
     { title: 'گام ۵: فعال‌سازی سرویس', text: 'حالا مسیر کامل است و مشتریان آنلاین می‌شوند. از پنل «بسته‌ها» قیمت و سرعت بسته‌ها را تنظیم کنید؛ قیمت بالاتر درآمد بیشتر اما تقاضای کمتر می‌دهد.' },
@@ -300,12 +300,13 @@
     no_coverage: 'خارج از پوشش', unconnected: 'گره متصل نیست', congestion: 'ازدحام مسیر',
     distance: 'فاصله زیاد', los: 'ساختمان‌های مسیر سیگنال را ضعیف کرده‌اند', no_path: 'مسیر تا دروازه نیست', no_fiber_drop: 'به فیبر متصل نیست',
     no_subscription: 'اشتراک ندارد (وای‌فای داخل ساختمان فقط با اشتراک فعال می‌شود)',
-    no_network: 'بدون اتصال به شبکه (ساختمان به شبکه وصل نیست و در برد دکل متصلی هم نیست)'
+    no_network: 'بدون اتصال به شبکه (ساختمان به شبکه وصل نیست و در برد دکل متصلی هم نیست)',
+    no_4g_coverage: 'خارج از پوشش 4G (TD-LTE فقط روی پوشش شبکهٔ 4G و بالاتر کار می‌کند)'
   };
   function runSpeedTest(wx, wy) {
     if (!window.GameSim || !GameSim.speedTestAt || !state) return;
     var res = GameSim.speedTestAt(state, wx, wy);
-    var TECH_FA = { fiber: 'فیبر/مسی', cellular: 'سلولار', fwa: 'وایرلس ثابت', wifi: 'وای‌فای داخل ساختمان', satellite: 'ماهواره' };
+    var TECH_FA = { fiber: 'فیبر/مسی', cellular: 'سلولار', fwa: 'TD-LTE', wifi: 'وای‌فای داخل ساختمان', satellite: 'ماهواره' };
     var html = '<p class="muted">سرعت بالقوه در این نقطه (با اشتراک)، به تفکیک فناوری:</p>';
     ['fiber', 'cellular', 'fwa', 'wifi', 'satellite'].forEach(function (t) {
       var e = res[t] || { speed: 0, reason: 'no_coverage' };
@@ -396,10 +397,14 @@
     var list = equipList();
     var c4 = list.find(function (i) { return i.id === 'cell_4g'; });
     if (c4 && isUnlocked(c4)) return 'cell_4g';
-    var fw = list.find(function (i) { return i.id === 'fwa_ap'; });
-    if (fw && isUnlocked(fw)) return 'fwa_ap';
     var c2 = list.find(function (i) { return i.id === 'cell_2g'; });
     if (c2 && isUnlocked(c2)) return 'cell_2g';
+    // TD-LTE فقط داخل پوشش 4G+ کار می‌کند: بدون دکل 4G/5G متصل پیشنهادش نده
+    var has4G = state && (state.nodes || []).some(function (n) {
+      return (n.type === 'cell_4g' || n.type === 'cell_5g') && n.connected && (n.status === 'active' || n.status === 'unconnected');
+    });
+    var fw = list.find(function (i) { return i.id === 'fwa_ap'; });
+    if (fw && isUnlocked(fw) && has4G) return 'fwa_ap';
     var anyAccess = list.find(function (i) { return (i.category === 'access') && isUnlocked(i); });
     return anyAccess ? anyAccess.id : null;
   }
@@ -704,6 +709,23 @@
     });
   }
 
+  // ردیف‌های ترجیح نوع اینترنت (رتبه‌بندی‌شده با درصد و نوار) — رنگ‌ها همان لایهٔ تقاضای فناوری روی نقشه
+  function prefHtml(pref) {
+    if (!pref) return '';
+    var TECH_FA = { fiber: 'فیبر/مسی', cellular: 'سلولار', fwa: 'TD-LTE', satellite: 'ماهواره' };
+    var TECH_COLOR = { fiber: '#22d3ee', cellular: '#3fb950', fwa: '#fb923c', satellite: '#e879f9' };
+    var rows = ['fiber', 'cellular', 'fwa', 'satellite'].map(function (t) {
+      return { t: t, pct: Math.round((pref[t] || 0) * 100) };
+    }).sort(function (a, b) { return b.pct - a.pct; });
+    var out = '';
+    rows.forEach(function (r) {
+      out += '<div class="tech-row"><div class="tech-head"><span><span class="tech-dot" style="background:' + (TECH_COLOR[r.t] || '#888') + '"></span>' + esc(TECH_FA[r.t] || r.t) + '</span>' +
+        '<span class="muted">' + fmt(r.pct) + '٪</span></div>' +
+        '<div class="cap-bar"><div class="cap-fill" style="width:' + r.pct + '%;background:' + (TECH_COLOR[r.t] || '#888') + '"></div></div></div>';
+    });
+    return out;
+  }
+
   function renderDetail() {
     var box = $('detail-content'); if (!box) return;
     if (selectedId == null) { box.innerHTML = '<p class="muted">یک گره یا ساختمان را انتخاب کنید.</p>'; return; }
@@ -722,7 +744,7 @@
         '<dt>نوع ساختمان</dt><dd>' + esc(BTYPE_FA[n.type] || 'ساختمانی') + '</dd>' +
         '<dt>طبقات</dt><dd>' + fmt(n.height || 1) + '</dd>' +
         '<dt>منطقه</dt><dd>' + esc(bDist ? bDist.name : 'خارج از مناطق (پراکنده)') + '</dd>' +
-        (n.height >= 10 ? '<dt>اثر بر پوشش</dt><dd>ساختمان بلند است؛ فقط دید لینک‌های نقطه‌به‌نقطه (PtP) را مخدوش می‌کند (روی سیگنال سلولار اثری ندارد؛ برای FWA/وای‌فای فقط چند درصد افت سیگنال)</dd>' : '') +
+        (n.height >= 10 ? '<dt>اثر بر پوشش</dt><dd>ساختمان بلند است؛ فقط دید لینک‌های نقطه‌به‌نقطه (PtP) را مخدوش می‌کند (روی سیگنال سلولار اثری ندارد؛ برای TD-LTE/وای‌فای فقط چند درصد افت سیگنال)</dd>' : '') +
         '</dl>';
       if (!n.districtId && state.scattered) {
         html += '<p class="muted">این ساختمان خارج از مناطق است. مشترکان ساختمان‌های پراکنده: ' + fmt(state.scattered.subscribers || 0) +
@@ -745,6 +767,9 @@
         else wifiHtml = 'غیرفعال — فقط با اشتراک و اتصال ساختمان به شبکه فعال می‌شود';
         html += '<p class="muted">وای‌فای داخلی ساختمان: ' + wifiHtml + '</p>';
       }
+      var bPref = null;
+      try { bPref = (window.GameSim && GameSim.buildingPreference) ? GameSim.buildingPreference(state, n) : null; } catch (e) { bPref = null; }
+      if (bPref) html += '<h5>ترجیح اینترنت ساکنان</h5>' + prefHtml(bPref);
       var bIndiv = (state.individuals || []).filter(function (p) { return String(p.buildingId) === String(n.id); });
       html += '<h5>ساکنان ساختمان</h5>' + individualsHtml(bIndiv, 'ساکنی برای این ساختمان ثبت نشده است.', { key: 'b:' + n.id });
       // انشعاب سیمی دستی (فیبر یا سیم مسی از راه کابینت خیابانی؛ هر ساختمان فقط یکی از این دو)
@@ -880,9 +905,9 @@
       html += '<div class="cap-bar"><div class="cap-fill ' + (qosPct < 30 ? 'hot' : qosPct < 60 ? 'warm' : '') + '" style="width:' + qosPct + '%"></div></div>';
       // تقاضا به تفکیک فناوری: سهم هر فناوری از تقاضا و بخش سرویس‌گرفته‌اش
       var td = n.techDemand;
-      if (!td && window.GameSim && GameSim.computeTechDemand) td = GameSim.computeTechDemand(n, [], 1);
+      if (!td && window.GameSim && GameSim.computeTechDemand) td = GameSim.computeTechDemand(n, [], 1, null, state);
       if (td) {
-        var TECH_FA = { fiber: 'فیبر/مسی', cellular: 'سلولار', fwa: 'وایرلس ثابت', satellite: 'ماهواره' };
+        var TECH_FA = { fiber: 'فیبر/مسی', cellular: 'سلولار', fwa: 'TD-LTE', satellite: 'ماهواره' };
         // همان رنگ‌های لایهٔ «تقاضای فناوری» روی نقشه (map.js TECH_TINT)
         var TECH_COLOR = { fiber: '#22d3ee', cellular: '#3fb950', fwa: '#fb923c', satellite: '#e879f9' };
         var totalD = Math.max(1, n.demand || 0);
@@ -896,6 +921,10 @@
             '<div class="cap-bar"><div class="cap-fill ' + (pct < 30 ? 'hot' : pct < 60 ? 'warm' : '') + '" style="width:' + pct + '%"></div></div></div>';
         });
       }
+      // ترجیح کلی اینترنت در منطقه = میانگین موزون ترجیح ساختمان‌ها؛ همان منبع سهم‌های «ترافیک به تفکیک فناوری»
+      var dPref = null;
+      try { dPref = (window.GameSim && GameSim.districtPreference) ? GameSim.districtPreference(state, n) : null; } catch (e) { dPref = null; }
+      if (dPref) html += '<h5>ترجیح کلی اینترنت در منطقه</h5>' + prefHtml(dPref);
       var dIndiv = (state.individuals || []).filter(function (p) { return String(p.districtId) === String(n.id); });
       html += '<h5>مشترکان فردی منطقه</h5>' + individualsHtml(dIndiv, 'مشترک فردی در این منطقه ثبت نشده است.', { key: 'd:' + n.id, showBuilding: true });
       box.innerHTML = html;
@@ -910,6 +939,14 @@
       html += connected
         ? '<p class="status-ok"><span class="dot-ok"></span>متصل به شبکه</p>'
         : '<div class="warn-box">' + ICONS.warn + ' متصل نیست — این دستگاه به هسته/دروازه مسیر ندارد و هیچ سرویسی ارائه نمی‌دهد. با دکمهٔ «اتصال» آن را وصل کنید.</div>';
+      // TD-LTE فقط روی پوشش شبکهٔ 4G و بالاتر سرویس می‌دهد
+      if (n.type === 'fwa_ap') {
+        var fed = null;
+        try { fed = (window.GameSim && GameSim.tdlteFed) ? GameSim.tdlteFed(state, n) : n._tdlteFed; } catch (e) { fed = n._tdlteFed; }
+        html += fed
+          ? '<p class="status-ok"><span class="dot-ok"></span>TD-LTE: داخل پوشش 4G — سرویس می‌دهد</p>'
+          : '<div class="warn-box">' + ICONS.warn + ' خارج از پوشش 4G — سرویس نمی‌دهد. TD-LTE فقط داخل پوشش شبکهٔ 4G و بالاتر کار می‌کند؛ نزدیک این آنتن یک دکل 4G یا 5G متصل بسازید یا آنتن را به داخل پوشش 4G جابه‌جا کنید.</div>';
+      }
       html += '<button class="btn primary connect-from-btn" data-connect-from="' + esc(n.id) + '">' + ICONS.backhaul + ' اتصال</button>';
     }
     if (n.status) html += '<p>وضعیت: ' + esc(STATUS_FA[n.status] || n.status) + '</p>';
@@ -1564,7 +1601,7 @@
     ];
     var html = subsHtml + charts.map(function (c) { return '<div class="stats-chart"><canvas id="chart-' + c.id + '" class="chart-canvas"></canvas></div>'; }).join('');
     html += '<div class="stats-chart"><canvas id="chart-bytech" class="chart-canvas"></canvas></div>' +
-      '<p class="muted">مشترکان به تفکیک فناوری: فیبر (فیروزه‌ای)، سلولار (سبز)، وایرلس ثابت (نارنجی)، وای‌فای (بنفش)، ماهواره (صورتی).</p>';
+      '<p class="muted">مشترکان به تفکیک فناوری: فیبر (فیروزه‌ای)، سلولار (سبز)، TD-LTE (نارنجی)، وای‌فای (بنفش)، ماهواره (صورتی).</p>';
     body.innerHTML = html;
     charts.forEach(function (c) {
       var cv = $('chart-' + c.id);
