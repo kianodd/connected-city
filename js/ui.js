@@ -41,9 +41,11 @@
     core: svgIcon('<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>'),
     info: svgIcon('<circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/>'),
     trash: svgIcon('<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/><path d="M10 11v6M14 11v6"/>'),
-    move: svgIcon('<path d="M12 3v18M3 12h18"/><path d="m8 7 4-4 4 4M8 17l4 4 4-4M7 8 3 12l4 4M17 8l4 4-4 4"/>')
+    move: svgIcon('<path d="M12 3v18M3 12h18"/><path d="m8 7 4-4 4 4M8 17l4 4 4-4M7 8 3 12l4 4M17 8l4 4-4 4"/>'),
+    bolt: svgIcon('<path d="M13 2 4.5 13.5H11L9.5 22 19 10h-6.5z"/>'),
+    wrench: svgIcon('<path d="M14.5 6.5a4 4 0 0 1 5.6-3.6l-2.7 2.7 1.4 1.4 2.7-2.7a4 4 0 0 1-5.3 4.9L8 17.3a2.1 2.1 0 0 1-3-3l8.2-8.2a4 4 0 0 1 1.3.4z"/>')
   };
-  var CAT_ICONS = { cable: ICONS.cable, access: ICONS.antenna, backhaul: ICONS.backhaul, satellite: ICONS.satellite, core: ICONS.core };
+  var CAT_ICONS = { cable: ICONS.cable, access: ICONS.antenna, antenna: ICONS.antenna, backhaul: ICONS.backhaul, satellite: ICONS.satellite, core: ICONS.core, power: ICONS.bolt, tools: ICONS.wrench };
 
   /* ---------- Mobile panels (drawer / bottom sheet, one at a time) ---------- */
   function isMobile() { return window.innerWidth <= 900; }
@@ -118,16 +120,27 @@
     return !item.unlockTech && !item.tech;
   }
 
-  var CAT_FA = { cable: 'کابل‌ها', access: 'دسترسی', backhaul: 'انتقال', satellite: 'ماهواره‌ای', core: 'هسته و تجمیع' };
+  var CAT_FA = { cable: 'کابل‌ها و اتصالات', access: 'دسترسی', antenna: 'آنتن‌ها', backhaul: 'انتقال', satellite: 'ماهواره‌ای', core: 'هسته و تجمیع', power: 'برق و پشتیبان', tools: 'ابزار و اندازه‌گیری' };
+  var CAT_ORDER = ['access', 'antenna', 'cable', 'backhaul', 'core', 'satellite', 'power', 'tools'];
+  var buildQuery = '';
   function renderBuildMenu() {
     var menu = $('build-menu'); if (!menu) return;
+    var q = (buildQuery || '').trim();
     var groups = {};
     equipList().forEach(function (it) {
+      if (q) {
+        var hay = ((it.name || '') + ' ' + (it.id || '') + ' ' + (CAT_FA[it.category] || '') + ' ' + (it.guide || '')).toLowerCase();
+        if (hay.indexOf(q.toLowerCase()) < 0) return;
+      }
       var cat = it.category || it.type || 'سایر';
       (groups[cat] = groups[cat] || []).push(it);
     });
     var html = '';
-    Object.keys(groups).forEach(function (cat) {
+    var cats = Object.keys(groups).sort(function (a, b) {
+      var ia = CAT_ORDER.indexOf(a), ib = CAT_ORDER.indexOf(b);
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+    });
+    cats.forEach(function (cat) {
       html += '<div class="build-cat">' + esc(CAT_FA[cat] || cat) + '</div>';
       groups[cat].forEach(function (it) {
         var locked = !isUnlocked(it);
@@ -140,7 +153,7 @@
           '</button>';
       });
     });
-    menu.innerHTML = html || '<p class="muted">کاتالوگ تجهیزات بارگذاری نشده است.</p>';
+    menu.innerHTML = html || (q ? '<p class="muted">تجهیزی با این جست‌وجو پیدا نشد.</p>' : '<p class="muted">کاتالوگ تجهیزات بارگذاری نشده است.</p>');
     menu.querySelectorAll('[data-equip]').forEach(function (btn) {
       btn.addEventListener('click', function () { selectTool(btn.getAttribute('data-equip')); });
     });
@@ -384,8 +397,25 @@
     var found = findNode(selectedId);
     if (!found) { box.innerHTML = '<p class="muted">مورد انتخاب‌شده یافت نشد.</p>'; return; }
     var n = found.node;
-    var name = n.name || (equipList().find(function (e) { return e.id === n.type || e.id === n.equipId; }) || {}).name || n.type || ('گره ' + n.id);
+    var BTYPE_FA = (window.GAME_DATA && GAME_DATA.buildingTypeFa) || { residential: 'مسکونی', commercial: 'تجاری', office: 'اداری', industrial: 'صنعتی' };
+    var name = n.name || (equipList().find(function (e) { return e.id === n.type || e.id === n.equipId; }) || {}).name ||
+      (found.kind === 'building' ? ('ساختمان ' + (BTYPE_FA[n.type] || '')) : null) || n.type || ('گره ' + n.id);
     var html = '<h4>' + esc(name) + '</h4>';
+    if (found.kind === 'building') {
+      var bDist = n.districtId ? (state.districts || []).find(function (d) { return d.id === n.districtId; }) : null;
+      html += '<dl class="kv">' +
+        '<dt>نوع ساختمان</dt><dd>' + esc(BTYPE_FA[n.type] || 'ساختمانی') + '</dd>' +
+        '<dt>طبقات</dt><dd>' + fmt(n.height || 1) + '</dd>' +
+        '<dt>منطقه</dt><dd>' + esc(bDist ? bDist.name : 'خارج از مناطق (پراکنده)') + '</dd>' +
+        (n.height >= 10 ? '<dt>اثر بر پوشش</dt><dd>ساختمان بلند است؛ دید مستقیم بی‌سیم را می‌بندد</dd>' : '') +
+        '</dl>';
+      if (!n.districtId && state.scattered) {
+        html += '<p class="muted">این ساختمان خارج از مناطق است. مشترکان ساختمان‌های پراکنده: ' + fmt(state.scattered.subscribers || 0) +
+          ' از ' + fmt(state.scattered.potentialSubs || 0) + ' ممکن (پوشش: ' + fmt(state.scattered.coveredCount || 0) + ' ساختمان).</p>';
+      }
+      box.innerHTML = html;
+      return;
+    }
     if (found.kind === 'district') {
       var TYPE_FA = { commercial: 'تجاری', residential: 'مسکونی', dense: 'پرتراکم', sparse: 'کم‌تراکم', industrial: 'صنعتی', landmark: 'مرکز مهم',
         academic: 'دانشگاهی', medical: 'درمانی', heavy_industrial: 'صنعتی سنگین', tourism: 'گردشگری', transport: 'حمل‌ونقل', villa: 'ویلایی', slum: 'حاشیه‌نشین', government: 'اداری' };
@@ -409,13 +439,15 @@
       if (!td && window.GameSim && GameSim.computeTechDemand) td = GameSim.computeTechDemand(n, [], 1);
       if (td) {
         var TECH_FA = { fiber: 'فیبر/مسی', cellular: 'سلولار', fwa: 'وایرلس ثابت', wifi: 'وای‌فای', satellite: 'ماهواره' };
+        // همان رنگ‌های لایهٔ «تقاضای فناوری» روی نقشه (map.js TECH_TINT)
+        var TECH_COLOR = { fiber: '#22d3ee', cellular: '#3fb950', fwa: '#fb923c', wifi: '#a78bfa', satellite: '#e879f9' };
         var totalD = Math.max(1, n.demand || 0);
         html += '<h5>تقاضا به تفکیک فناوری</h5>';
         ['fiber', 'cellular', 'fwa', 'wifi', 'satellite'].forEach(function (t) {
           var e = td[t] || { demand: 0, served: 0 };
           var share = Math.round((e.demand || 0) / totalD * 100);
           var pct = e.demand > 0 ? Math.min(100, Math.round((e.served || 0) / e.demand * 100)) : 0;
-          html += '<div class="tech-row"><div class="tech-head"><span>' + TECH_FA[t] + '</span>' +
+          html += '<div class="tech-row"><div class="tech-head"><span><span class="tech-dot" style="background:' + TECH_COLOR[t] + '"></span>' + TECH_FA[t] + '</span>' +
             '<span class="muted">' + fmt(e.served || 0) + ' از ' + fmt(e.demand || 0) + ' Mbps (' + fmt(share) + '٪ تقاضا)</span></div>' +
             '<div class="cap-bar"><div class="cap-fill ' + (pct < 30 ? 'hot' : pct < 60 ? 'warm' : '') + '" style="width:' + pct + '%"></div></div></div>';
         });
@@ -703,8 +735,14 @@
       cb.addEventListener('change', function () {
         if (window.CityMap && CityMap.setLayer) CityMap.setLayer(cb.getAttribute('data-layer'), cb.checked);
         else if (window.CityMap && CityMap.layers) CityMap.layers[cb.getAttribute('data-layer')] = cb.checked;
+        // راهنمای رنگ‌های لایهٔ تقاضای فناوری فقط وقتی آن لایه فعال است دیده شود
+        if (cb.getAttribute('data-layer') === 'techdemand') {
+          var lg = $('tech-legend'); if (lg) lg.classList.toggle('hidden', !cb.checked);
+        }
       });
     });
+    var bs = $('build-search');
+    if (bs) bs.addEventListener('input', function () { buildQuery = bs.value || ''; renderBuildMenu(); });
     document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape') { setMode('select'); selectedTool = null; pendingDeleteId = null; $('build-confirm').classList.add('hidden'); $('delete-confirm').classList.add('hidden'); $('medium-picker').classList.add('hidden'); $('guide-popover').classList.add('hidden'); $('speedtest-popover').classList.add('hidden'); $('layers-popover').classList.add('hidden'); closeModals(); closePanels(); closeSideMenu(); }
     });
