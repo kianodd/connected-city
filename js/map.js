@@ -1,7 +1,10 @@
 /* ============================================================
    شبکه‌ساز: شهر متصل — CityMap
    Vanilla JS + Canvas 2D map renderer.
-   World: 1600 x 1200 world units. No build step.
+   World size comes from GAME_DATA.world (3200 x 2400). No build step.
+   Rendering: static city layer (ground/roads/districts/buildings) is
+   cached on an offscreen canvas and blitted with offset while panning;
+   only dynamic elements (coverage, links, nodes, pulses) redraw per frame.
    Reads sim state defensively; only assumes:
      state.nodes[]  {id,x,y,type,status,direction,angle,...}
      state.links[]  {id,from,to,medium,status,usage,capacity,...}
@@ -11,7 +14,8 @@
 'use strict';
 
 (function (global) {
-  var WORLD_W = 1600, WORLD_H = 1200;
+  var WORLD_W = (global.GAME_DATA && global.GAME_DATA.world && global.GAME_DATA.world.width) || 3200;
+  var WORLD_H = (global.GAME_DATA && global.GAME_DATA.world && global.GAME_DATA.world.height) || 2400;
 
   /* ---------- helpers ---------- */
   function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
@@ -54,8 +58,8 @@
     if (typeof node.radius === 'number' && node.radius > 0) return node.radius;
     if (typeof node.coverage === 'number' && node.coverage > 0) return node.coverage;
     var k = nodeKind(node.type);
-    if (k === 'cell') return 220;
-    if (k === 'fwa') return 170;
+    if (k === 'cell') return 290;
+    if (k === 'fwa') return 255;
     if (k === 'wifi') return 90;
     if (k === 'ptp') return 60;
     return 0;
@@ -65,8 +69,21 @@
     if (c <= 0) return 0;
     return clamp(u / c, 0, 2);
   }
+  /* cached id -> node map (rebuilt when the nodes array identity/length changes) */
+  var _nodeMap = null, _nodeMapSrc = null, _nodeMapLen = -1;
+  function nodeMapOf(st) {
+    var ns = (st && st.nodes) || [];
+    if (_nodeMapSrc !== ns || _nodeMapLen !== ns.length) {
+      _nodeMap = {};
+      for (var i = 0; i < ns.length; i++) _nodeMap[ns[i].id] = ns[i];
+      _nodeMapSrc = ns; _nodeMapLen = ns.length;
+    }
+    return _nodeMap;
+  }
   function nodeById(state, id) {
     if (!state || !state.nodes) return null;
+    var m = nodeMapOf(state);
+    if (m[id]) return m[id];
     for (var i = 0; i < state.nodes.length; i++) if (state.nodes[i].id === id) return state.nodes[i];
     return null;
   }
@@ -82,13 +99,21 @@
   }
 
   /* ---------- static scenery (roads + river), deterministic ---------- */
-  var ROADS_V = [120, 320, 520, 720, 920, 1120, 1320, 1480];
-  var ROADS_H = [110, 280, 450, 620, 790, 960, 1110];
-  var RIVER = [ // gentle S-curve, top -> bottom
-    { x: 1080, y: -20 }, { x: 1040, y: 180 }, { x: 1100, y: 400 },
-    { x: 1050, y: 620 }, { x: 1110, y: 850 }, { x: 1060, y: 1040 }, { x: 1100, y: 1220 }
+  /* avenues every 400, side streets every 200 (avenues are a subset) */
+  function roadLines(max, step, offset) {
+    var out = [];
+    for (var v = offset; v < max; v += step) out.push(v);
+    return out;
+  }
+  var AVENUES_V = roadLines(WORLD_W, 400, 200);
+  var AVENUES_H = roadLines(WORLD_H, 400, 200);
+  var ROADS_V = roadLines(WORLD_W, 200, 200);
+  var ROADS_H = roadLines(WORLD_H, 200, 200);
+  var RIVER = [ // gentle S-curve, top -> bottom (scaled to the bigger world)
+    { x: 2160, y: -40 }, { x: 2080, y: 360 }, { x: 2200, y: 800 },
+    { x: 2100, y: 1240 }, { x: 2220, y: 1700 }, { x: 2120, y: 2080 }, { x: 2200, y: 2440 }
   ];
-  var BRIDGES = [280, 620, 960]; // y positions where horizontal roads cross river
+  var BRIDGES = [600, 1000, 1800]; // y positions (avenues) where roads cross the river
 
   /* landmark Persian labels + icon glyphs (shapes drawn, glyph is fallback text) */
   var LANDMARKS = {
@@ -122,6 +147,35 @@
     demand: false, traffic: false, failures: true, revenue: false, qos: false
   };
 
+  /* ---------- perf: frame cache, viewport culling, static layer ---------- */
+  var _frame = 0;
+  var _distCache = null, _distCacheFrame = -1;
+  var _sortedBuildings = null, _sortedSrc = null;
+  var cullRect = { x0: -1e9, y0: -1e9, x1: 1e9, y1: 1e9 };
+  function visibleRect(m) {
+    var hw = viewW / 2 / cam.z, hh = viewH / 2 / cam.z;
+    return { x0: cam.x - hw - m, y0: cam.y - hh - m, x1: cam.x + hw + m, y1: cam.y + hh + m };
+  }
+  function inRect(x, y, r) { return x >= r.x0 && x <= r.x1 && y >= r.y0 && y <= r.y1; }
+  function circleInRect(x, y, rad, r) { return x + rad >= r.x0 && x - rad <= r.x1 && y + rad >= r.y0 && y - rad <= r.y1; }
+  function segInRect(x1, y1, x2, y2, r) {
+    return Math.max(x1, x2) >= r.x0 && Math.min(x1, x2) <= r.x1 && Math.max(y1, y2) >= r.y0 && Math.min(y1, y2) <= r.y1;
+  }
+  var STATIC_MARGIN = 320; // css px of pre-rendered margin around the viewport
+  var staticCanvas = null, staticCtx = null, staticCam = null, staticViewW = 0, staticViewH = 0;
+  var _prevCamZ = 0, _lastZoomChangeTs = 0;
+  var canStatic = typeof document !== 'undefined' && !!document.createElement;
+  var hatchPattern = null;
+  function getHatchPattern() {
+    if (hatchPattern || !canStatic) return hatchPattern;
+    var c = document.createElement('canvas'); c.width = c.height = 24;
+    var g = c.getContext('2d');
+    g.strokeStyle = 'rgba(239,68,68,0.45)'; g.lineWidth = 2;
+    g.beginPath(); g.moveTo(-6, 30); g.lineTo(30, -6); g.stroke();
+    hatchPattern = ctx.createPattern(c, 'repeat');
+    return hatchPattern;
+  }
+
   /* ---------- coordinate transforms ---------- */
   function worldToScreen(wx, wy) {
     return { x: (wx - cam.x) * cam.z + viewW / 2, y: (wy - cam.y) * cam.z + viewH / 2 };
@@ -140,6 +194,7 @@
 
   /* ---------- data accessors (defensive) ---------- */
   function getDistricts() {
+    if (_distCache && _distCacheFrame === _frame) return _distCache;
     var gd = (global.GAME_DATA && global.GAME_DATA.districts) || [];
     var rt = (state && state.districts) || [];
     var map = {};
@@ -155,11 +210,20 @@
       if (typeof d.satisfaction === 'number' && map[d.id].qos == null) map[d.id].qos = d.satisfaction;
     }
     var out = []; for (var k in map) out.push(map[k]);
+    _distCache = out; _distCacheFrame = _frame;
     return out;
   }
   function getBuildings() {
     if (state && state.buildings && state.buildings.length) return state.buildings;
     return (global.GAME_DATA && global.GAME_DATA.buildings) || [];
+  }
+  function sortedBuildings() {
+    var bs = getBuildings();
+    if (_sortedSrc !== bs) {
+      _sortedSrc = bs;
+      _sortedBuildings = bs.slice().sort(function (a, b) { return (a.height || 1) - (b.height || 1); });
+    }
+    return _sortedBuildings;
   }
   function getInstallPoints() {
     if (state && state.installPoints && state.installPoints.length) return state.installPoints;
@@ -201,10 +265,44 @@
   }
 
   /* ============================================================
-     DRAW
+     DRAW — static city layer is cached offscreen and blitted;
+     only dynamic elements are redrawn every frame.
      ============================================================ */
+  function drawStaticScene() {
+    drawGround();
+    drawRoadsAndRiver();
+    drawDistricts();
+    drawBuildings();
+  }
+  function ensureStatic(force) {
+    if (!canStatic) return;
+    var need = force || !staticCanvas || !staticCam || staticViewW !== viewW || staticViewH !== viewH ||
+      Math.abs(cam.x - staticCam.x) * cam.z > STATIC_MARGIN * 0.6 ||
+      Math.abs(cam.y - staticCam.y) * cam.z > STATIC_MARGIN * 0.6;
+    if (!need) return;
+    var w = viewW + STATIC_MARGIN * 2, h = viewH + STATIC_MARGIN * 2;
+    if (!staticCanvas) { staticCanvas = document.createElement('canvas'); staticCtx = staticCanvas.getContext('2d'); }
+    staticCanvas.width = Math.round(w * dpr);
+    staticCanvas.height = Math.round(h * dpr);
+    var savedCtx = ctx, savedSel = selected, savedCull = cullRect;
+    ctx = staticCtx; selected = null; // selection outlines are dynamic, never baked in
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    ctx.save();
+    ctx.translate(w / 2, h / 2);
+    ctx.scale(cam.z, cam.z);
+    ctx.translate(-cam.x, -cam.y);
+    cullRect = visibleRect(STATIC_MARGIN / cam.z + 200);
+    drawStaticScene();
+    ctx.restore();
+    ctx = savedCtx; selected = savedSel; cullRect = savedCull;
+    staticCam = { x: cam.x, y: cam.y, z: cam.z };
+    staticViewW = viewW; staticViewH = viewH;
+  }
+
   function draw() {
     if (!ctx) return;
+    _frame++;
     // smooth camera
     cam.x = lerp(cam.x, camT.x, 0.25);
     cam.y = lerp(cam.y, camT.y, 0.25);
@@ -216,20 +314,39 @@
     ctx.fillStyle = '#10151d';
     ctx.fillRect(0, 0, viewW, viewH);
 
+    if (canStatic) {
+      // zoom handling: blit the cached layer scaled during a zoom gesture (cheap),
+      // re-render crisply once the zoom settles or jumps too far.
+      if (cam.z !== _prevCamZ) { _prevCamZ = cam.z; _lastZoomChangeTs = Date.now(); }
+      if (staticCanvas && staticCam) {
+        var s0 = cam.z / staticCam.z;
+        if (s0 > 1.35 || s0 < 0.7) ensureStatic(true);
+        else if (s0 !== 1 && Date.now() - _lastZoomChangeTs > 150) ensureStatic(true);
+        else ensureStatic(false);
+      } else ensureStatic(false);
+      if (staticCanvas && staticCam) {
+        var s = cam.z / staticCam.z;
+        var sw = (viewW + STATIC_MARGIN * 2) * s, sh = (viewH + STATIC_MARGIN * 2) * s;
+        var dx = (staticCam.x - cam.x) * cam.z + viewW / 2 - (viewW / 2 + STATIC_MARGIN) * s;
+        var dy = (staticCam.y - cam.y) * cam.z + viewH / 2 - (viewH / 2 + STATIC_MARGIN) * s;
+        ctx.drawImage(staticCanvas, dx, dy, sw, sh);
+      }
+    }
+
     ctx.save();
     ctx.translate(viewW / 2, viewH / 2);
     ctx.scale(cam.z, cam.z);
     ctx.translate(-cam.x, -cam.y);
+    cullRect = visibleRect(140);
 
-    drawGround();
-    drawRoadsAndRiver();
-    drawDistricts();
+    if (!canStatic) drawStaticScene(); // fallback: no offscreen canvas available
+    drawRiverFlow();
     var srcs = coverageSources();
     if (layers.qos) drawQosTint();
     drawCoverage(srcs);
     drawDeadZones(srcs);
     if (layers.demand) drawDemandHeat();
-    drawBuildings();
+    drawBuildingSelection();
     drawInstallPoints();
     drawLinks();
     drawNodes();
@@ -246,23 +363,45 @@
     // base
     ctx.fillStyle = '#1b2330';
     ctx.fillRect(0, 0, WORLD_W, WORLD_H);
-    // subtle park blocks (deterministic pseudo-random greens)
-    ctx.fillStyle = 'rgba(46,90,60,0.35)';
+    // park blocks + tree clusters (deterministic pseudo-random greens)
     var seed = 42;
     function rnd() { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; }
-    for (var i = 0; i < 26; i++) {
-      var x = rnd() * (WORLD_W - 120), y = rnd() * (WORLD_H - 90), w = 40 + rnd() * 90, h = 30 + rnd() * 60;
-      ctx.fillRect(x, y, w, h);
+    var parks = [];
+    for (var i = 0; i < 70; i++) {
+      parks.push({ x: rnd() * (WORLD_W - 200), y: rnd() * (WORLD_H - 160), w: 60 + rnd() * 150, h: 45 + rnd() * 100 });
     }
+    // a few large named-style parks
+    parks.push({ x: 1780, y: 880, w: 330, h: 220 });
+    parks.push({ x: 420, y: 1450, w: 280, h: 200 });
+    parks.push({ x: 2380, y: 1950, w: 360, h: 240 });
+    ctx.fillStyle = 'rgba(46,90,60,0.35)';
+    for (var p = 0; p < parks.length; p++) {
+      var pk = parks[p];
+      if (!segInRect(pk.x, pk.y, pk.x + pk.w, pk.y + pk.h, cullRect)) continue;
+      ctx.fillRect(pk.x, pk.y, pk.w, pk.h);
+    }
+    // trees: small darker circles scattered inside parks (one batched path)
+    ctx.fillStyle = 'rgba(34,80,48,0.55)';
+    ctx.beginPath();
+    for (var q = 0; q < parks.length; q++) {
+      var pp = parks[q];
+      if (!segInRect(pp.x, pp.y, pp.x + pp.w, pp.y + pp.h, cullRect)) continue;
+      var trees = 3 + Math.floor(rnd() * 6);
+      for (var t = 0; t < trees; t++) {
+        var tx = pp.x + 8 + rnd() * Math.max(10, pp.w - 16), ty = pp.y + 8 + rnd() * Math.max(10, pp.h - 16);
+        var tr = 4 + rnd() * 4;
+        ctx.moveTo(tx + tr, ty);
+        ctx.arc(tx, ty, tr, 0, Math.PI * 2);
+      }
+    }
+    ctx.fill();
     // world border
     ctx.strokeStyle = 'rgba(255,255,255,0.18)';
     ctx.lineWidth = 2 / cam.z;
     ctx.strokeRect(0, 0, WORLD_W, WORLD_H);
   }
 
-  function drawRoadsAndRiver() {
-    // river (under roads' bridges, over ground)
-    ctx.save();
+  function riverPath() {
     ctx.beginPath();
     ctx.moveTo(RIVER[0].x, RIVER[0].y);
     for (var i = 1; i < RIVER.length - 1; i++) {
@@ -270,43 +409,66 @@
       ctx.quadraticCurveTo(RIVER[i].x, RIVER[i].y, mx, my);
     }
     ctx.lineTo(RIVER[RIVER.length - 1].x, RIVER[RIVER.length - 1].y);
-    ctx.strokeStyle = '#1f4e79'; ctx.lineWidth = 46; ctx.lineCap = 'round'; ctx.stroke();
-    ctx.strokeStyle = '#2e6ea8'; ctx.lineWidth = 34; ctx.stroke();
-    ctx.strokeStyle = 'rgba(160,210,255,0.5)'; ctx.lineWidth = 4;
+  }
+  function drawRiverFlow() {
+    // animated flow dashes (cheap: one path, drawn dynamically over the static river)
+    ctx.save();
+    riverPath();
+    ctx.strokeStyle = 'rgba(160,210,255,0.5)'; ctx.lineWidth = 4; ctx.lineCap = 'round';
     ctx.setLineDash([14, 22]); ctx.lineDashOffset = -animT * 20; ctx.stroke();
     ctx.setLineDash([]);
     ctx.restore();
+  }
 
-    // roads
+  function drawRoadsAndRiver() {
+    // river (under roads' bridges, over ground)
+    ctx.save();
+    riverPath();
+    ctx.strokeStyle = '#1f4e79'; ctx.lineWidth = 64; ctx.lineCap = 'round'; ctx.stroke();
+    ctx.strokeStyle = '#2e6ea8'; ctx.lineWidth = 48; ctx.stroke();
+    ctx.restore();
+
+    // roads: side streets first (narrow), then avenues (wide) with center dashes
     ctx.save();
     ctx.lineCap = 'butt';
     var j;
-    ctx.strokeStyle = '#2c3542'; ctx.lineWidth = 16;
+    ctx.strokeStyle = '#262f3c'; ctx.lineWidth = 11;
     ctx.beginPath();
-    for (j = 0; j < ROADS_V.length; j++) { ctx.moveTo(ROADS_V[j], 0); ctx.lineTo(ROADS_V[j], WORLD_H); }
-    for (j = 0; j < ROADS_H.length; j++) { ctx.moveTo(0, ROADS_H[j]); ctx.lineTo(WORLD_W, ROADS_H[j]); }
+    for (j = 0; j < ROADS_V.length; j++) { if (ROADS_V[j] < cullRect.x0 || ROADS_V[j] > cullRect.x1) continue; ctx.moveTo(ROADS_V[j], 0); ctx.lineTo(ROADS_V[j], WORLD_H); }
+    for (j = 0; j < ROADS_H.length; j++) { if (ROADS_H[j] < cullRect.y0 || ROADS_H[j] > cullRect.y1) continue; ctx.moveTo(0, ROADS_H[j]); ctx.lineTo(WORLD_W, ROADS_H[j]); }
     ctx.stroke();
-    // center dashes
-    ctx.strokeStyle = 'rgba(255,255,255,0.22)'; ctx.lineWidth = 1.6;
-    ctx.setLineDash([10, 12]);
+    ctx.strokeStyle = '#2e3847'; ctx.lineWidth = 22;
     ctx.beginPath();
-    for (j = 0; j < ROADS_V.length; j++) { ctx.moveTo(ROADS_V[j], 0); ctx.lineTo(ROADS_V[j], WORLD_H); }
-    for (j = 0; j < ROADS_H.length; j++) { ctx.moveTo(0, ROADS_H[j]); ctx.lineTo(WORLD_W, ROADS_H[j]); }
+    for (j = 0; j < AVENUES_V.length; j++) { if (AVENUES_V[j] < cullRect.x0 || AVENUES_V[j] > cullRect.x1) continue; ctx.moveTo(AVENUES_V[j], 0); ctx.lineTo(AVENUES_V[j], WORLD_H); }
+    for (j = 0; j < AVENUES_H.length; j++) { if (AVENUES_H[j] < cullRect.y0 || AVENUES_H[j] > cullRect.y1) continue; ctx.moveTo(0, AVENUES_H[j]); ctx.lineTo(WORLD_W, AVENUES_H[j]); }
+    ctx.stroke();
+    // center dashes on avenues
+    ctx.strokeStyle = 'rgba(255,255,255,0.22)'; ctx.lineWidth = 1.6;
+    ctx.setLineDash([12, 14]);
+    ctx.beginPath();
+    for (j = 0; j < AVENUES_V.length; j++) { if (AVENUES_V[j] < cullRect.x0 || AVENUES_V[j] > cullRect.x1) continue; ctx.moveTo(AVENUES_V[j], 0); ctx.lineTo(AVENUES_V[j], WORLD_H); }
+    for (j = 0; j < AVENUES_H.length; j++) { if (AVENUES_H[j] < cullRect.y0 || AVENUES_H[j] > cullRect.y1) continue; ctx.moveTo(0, AVENUES_H[j]); ctx.lineTo(WORLD_W, AVENUES_H[j]); }
     ctx.stroke();
     ctx.setLineDash([]);
-    // intersections
+    // intersections (one batched path)
     ctx.fillStyle = '#333e4e';
+    ctx.beginPath();
     for (var a = 0; a < ROADS_V.length; a++) for (var b = 0; b < ROADS_H.length; b++) {
-      ctx.fillRect(ROADS_V[a] - 9, ROADS_H[b] - 9, 18, 18);
+      if (!inRect(ROADS_V[a], ROADS_H[b], cullRect)) continue;
+      var big = (AVENUES_V.indexOf(ROADS_V[a]) >= 0 && AVENUES_H.indexOf(ROADS_H[b]) >= 0);
+      var s = big ? 13 : 7;
+      ctx.rect(ROADS_V[a] - s, ROADS_H[b] - s, s * 2, s * 2);
     }
+    ctx.fill();
     // bridges over river
     for (var q = 0; q < BRIDGES.length; q++) {
       var by = BRIDGES[q], bx = riverXatY(by);
+      if (!inRect(bx, by, cullRect)) continue;
       ctx.fillStyle = '#3d4a5e';
-      ctx.fillRect(bx - 34, by - 11, 68, 22);
-      ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1.4;
-      ctx.beginPath(); ctx.moveTo(bx - 34, by - 11); ctx.lineTo(bx + 34, by - 11);
-      ctx.moveTo(bx - 34, by + 11); ctx.lineTo(bx + 34, by + 11); ctx.stroke();
+      ctx.fillRect(bx - 46, by - 14, 92, 28);
+      ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.moveTo(bx - 46, by - 14); ctx.lineTo(bx + 46, by - 14);
+      ctx.moveTo(bx - 46, by + 14); ctx.lineTo(bx + 46, by + 14); ctx.stroke();
     }
     ctx.restore();
   }
@@ -324,6 +486,7 @@
     ctx.save();
     for (var i = 0; i < ds.length; i++) {
       var d = ds[i], c = districtCenter(d), r = districtRadius(d);
+      if (!circleInRect(c.x, c.y, r, cullRect)) continue;
       ctx.fillStyle = d.color || DISTRICT_TINTS[i % DISTRICT_TINTS.length];
       ctx.beginPath();
       if (typeof d.w === 'number') ctx.rect(d.x, d.y, d.w, d.h || d.w);
@@ -331,7 +494,7 @@
       ctx.fill();
       ctx.strokeStyle = 'rgba(255,255,255,0.14)'; ctx.lineWidth = 1.2 / cam.z; ctx.stroke();
       // Persian label
-      ctx.font = 'bold ' + Math.max(13, 15 / Math.sqrt(cam.z)) + 'px Vazirmatn, Tahoma, sans-serif';
+      ctx.font = 'bold ' + Math.max(14, 17 / Math.sqrt(cam.z)) + 'px Vazirmatn, Tahoma, sans-serif';
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillStyle = 'rgba(0,0,0,0.45)';
       var label = String(d.name || d.id || '');
@@ -362,6 +525,7 @@
     ctx.save();
     for (var i = 0; i < srcs.length; i++) {
       var s = srcs[i], n = s.node;
+      if (!circleInRect(n.x, n.y, s.r, cullRect)) continue;
       var fill, stroke;
       if (s.kind === 'cell') { fill = 'rgba(56,189,248,0.14)'; stroke = 'rgba(56,189,248,0.55)'; }
       else if (s.kind === 'fwa') { fill = 'rgba(52,211,153,0.13)'; stroke = 'rgba(52,211,153,0.55)'; }
@@ -392,19 +556,18 @@
       var d = ds[i];
       if (!(Number(d.demand) > 0)) continue;
       var c = districtCenter(d), r = districtRadius(d);
+      if (!circleInRect(c.x, c.y, r, cullRect)) continue;
       // sample center + ring points; dead if center uncovered
       if (pointCovered(c.x, c.y, srcs)) continue;
       ctx.save();
       ctx.beginPath(); ctx.arc(c.x, c.y, r * 0.92, 0, Math.PI * 2); ctx.clip();
       ctx.fillStyle = 'rgba(239,68,68,0.10)';
       ctx.fillRect(c.x - r, c.y - r, r * 2, r * 2);
-      ctx.strokeStyle = 'rgba(239,68,68,0.45)'; ctx.lineWidth = 1.3 / cam.z;
-      ctx.beginPath();
-      var step = 22;
-      for (var x = c.x - r * 2; x < c.x + r * 2; x += step) {
-        ctx.moveTo(x, c.y - r); ctx.lineTo(x + r, c.y + r);
+      var pat = getHatchPattern();
+      if (pat) {
+        ctx.fillStyle = pat;
+        ctx.fillRect(c.x - r, c.y - r, r * 2, r * 2);
       }
-      ctx.stroke();
       ctx.restore();
       ctx.strokeStyle = 'rgba(239,68,68,0.7)'; ctx.lineWidth = 1.6 / cam.z;
       ctx.setLineDash([8, 6]);
@@ -444,31 +607,71 @@
   function drawBuildings() {
     var bs = getBuildings();
     ctx.save();
-    // sort by height so tall drawn last (on top)
-    var sorted = bs.slice().sort(function (a, b) { return (a.height || 1) - (b.height || 1); });
+    // pre-sorted by height so tall drawn last (on top); sorted once, not per frame
+    var sorted = sortedBuildings();
+    // all shadows in one batched path first (taller = longer shadow)
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.beginPath();
+    for (var si = 0; si < sorted.length; si++) {
+      var sb = sorted[si], sw2 = sb.w || 26, sh2 = sb.h || 20;
+      if (sb.x + sw2 < cullRect.x0 || sb.x > cullRect.x1 || sb.y + sh2 < cullRect.y0 || sb.y > cullRect.y1) continue;
+      var sht = clamp(Number(sb.height) || 1, 1, 12);
+      ctx.rect(sb.x + sht * 1.6, sb.y + sht * 2.2, sw2, sh2);
+    }
+    ctx.fill();
+    // bodies batched by fill color (per-building color when provided, else taller = darker shade)
+    var byColor = {}, colorOrder = [], landmarks = [];
     for (var i = 0; i < sorted.length; i++) {
       var b = sorted[i];
       var w = b.w || 26, h = b.h || 20, ht = clamp(Number(b.height) || 1, 1, 12);
-      var shade = clamp(0.35 + ht * 0.05, 0.35, 0.85);
+      if (b.x + w < cullRect.x0 || b.x > cullRect.x1 || b.y + h < cullRect.y0 || b.y > cullRect.y1) continue;
       var lm = b.landmark || (b.type && LANDMARKS[String(b.type).toLowerCase()] ? b.type : null);
-      // shadow (taller = longer)
-      ctx.fillStyle = 'rgba(0,0,0,0.35)';
-      ctx.fillRect(b.x + ht * 1.6, b.y + ht * 2.2, w, h);
-      // body: taller = darker
-      var v = Math.round(90 - shade * 45);
-      ctx.fillStyle = lm ? '#7c5a2e' : 'rgb(' + v + ',' + (v + 8) + ',' + (v + 20) + ')';
-      ctx.fillRect(b.x, b.y, w, h);
-      ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 1 / cam.z;
-      ctx.strokeRect(b.x, b.y, w, h);
-      // roof highlight
-      ctx.fillStyle = 'rgba(255,255,255,0.10)';
-      ctx.fillRect(b.x, b.y, w, Math.min(5, h * 0.25));
-      if (lm) drawLandmark(b, String(lm).toLowerCase(), w, h);
-      if (selected && selected.kind === 'building' && selected.id === b.id) {
-        ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 2.4 / cam.z;
-        ctx.strokeRect(b.x - 3, b.y - 3, w + 6, h + 6);
+      var col;
+      if (lm) col = '#7c5a2e';
+      else if (b.color) col = b.color;
+      else {
+        var shade = clamp(0.35 + ht * 0.05, 0.35, 0.85);
+        var v = Math.round(90 - shade * 45);
+        col = 'rgb(' + v + ',' + (v + 8) + ',' + (v + 20) + ')';
       }
+      if (!byColor[col]) { byColor[col] = []; colorOrder.push(col); }
+      byColor[col].push(b);
+      if (lm) landmarks.push({ b: b, key: String(lm).toLowerCase(), w: w, h: h });
     }
+    for (var ci = 0; ci < colorOrder.length; ci++) {
+      ctx.fillStyle = colorOrder[ci];
+      ctx.beginPath();
+      var group = byColor[colorOrder[ci]];
+      for (var gi = 0; gi < group.length; gi++) ctx.rect(group[gi].x, group[gi].y, group[gi].w || 26, group[gi].h || 20);
+      ctx.fill();
+    }
+    // outlines + roof highlights + tall-building roof edges, each one batched path
+    ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 1 / cam.z;
+    ctx.beginPath();
+    for (var oi = 0; oi < sorted.length; oi++) {
+      var ob = sorted[oi], ow = ob.w || 26, oh = ob.h || 20;
+      if (ob.x + ow < cullRect.x0 || ob.x > cullRect.x1 || ob.y + oh < cullRect.y0 || ob.y > cullRect.y1) continue;
+      ctx.rect(ob.x, ob.y, ow, oh);
+    }
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.10)';
+    ctx.beginPath();
+    for (var ri = 0; ri < sorted.length; ri++) {
+      var rb = sorted[ri], rw = rb.w || 26, rh = rb.h || 20;
+      if (rb.x + rw < cullRect.x0 || rb.x > cullRect.x1 || rb.y + rh < cullRect.y0 || rb.y > cullRect.y1) continue;
+      ctx.rect(rb.x, rb.y, rw, Math.min(5, rh * 0.25));
+    }
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.16)';
+    ctx.beginPath();
+    for (var ti = 0; ti < sorted.length; ti++) {
+      var tb = sorted[ti], tw = tb.w || 26, th = tb.h || 20;
+      if (clamp(Number(tb.height) || 1, 1, 12) < 10) continue;
+      if (tb.x + tw < cullRect.x0 || tb.x > cullRect.x1 || tb.y + th < cullRect.y0 || tb.y > cullRect.y1) continue;
+      ctx.rect(tb.x, tb.y, tw, 3);
+    }
+    ctx.fill();
+    for (var li = 0; li < landmarks.length; li++) drawLandmark(landmarks[li].b, landmarks[li].key, landmarks[li].w, landmarks[li].h);
     // synthesized landmarks if data provides none: بازار، دانشگاه، بیمارستان (district centers) + ایستگاه قطار، ورزشگاه (fixed)
     var hasLm = false;
     for (var q = 0; q < bs.length; q++) if (bs[q].landmark) { hasLm = true; break; }
@@ -484,13 +687,28 @@
         ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.strokeRect(fake.x, fake.y, fake.w, fake.h);
         drawLandmark(fake, key, fake.w, fake.h);
       };
-      lmAt('bazaar', 'bazaar', 560, 780);
-      lmAt('university', 'university', 340, 330);
-      lmAt('hospital', 'hospital', 1160, 390);
-      lmAt('station', 'station', 800, 1080);
-      lmAt('stadium', 'stadium', 1300, 250);
+      lmAt('bazaar', 'bazaar', 1120, 1560);
+      lmAt('university', 'university', 680, 660);
+      lmAt('hospital', 'hospital', 2320, 780);
+      lmAt('station', 'station', 1600, 2180);
+      lmAt('stadium', 'stadium', 2650, 420);
     }
     ctx.restore();
+  }
+
+  function drawBuildingSelection() {
+    if (!selected || selected.kind !== 'building') return;
+    var bs = getBuildings();
+    for (var i = 0; i < bs.length; i++) {
+      if (bs[i].id === selected.id) {
+        var b = bs[i], w = b.w || 26, h = b.h || 20;
+        ctx.save();
+        ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 2.4 / cam.z;
+        ctx.strokeRect(b.x - 3, b.y - 3, w + 6, h + 6);
+        ctx.restore();
+        return;
+      }
+    }
   }
 
   function drawLandmark(b, key, w, h) {
@@ -530,6 +748,7 @@
     ctx.save();
     for (var i = 0; i < pts.length; i++) {
       var p = pts[i];
+      if (!inRect(p.x, p.y, cullRect)) continue;
       var occupied = p.occupied === true || p.used === true || (p.nodeId != null);
       var pulse = 0.5 + 0.5 * Math.sin(animT * 3 + i);
       ctx.strokeStyle = occupied ? 'rgba(148,163,184,0.5)' : 'rgba(250,204,21,' + (0.55 + 0.4 * pulse).toFixed(2) + ')';
@@ -561,12 +780,27 @@
     if (med === 'ptp' && !(layers.fwa || layers.cellular)) return false;
     return true;
   }
-  function satellitePos() { return { x: 1450, y: 120 }; }
+  function satellitePos() { return { x: WORLD_W - 220, y: 220 }; }
+
+  function linkPath(a, b, st) {
+    ctx.beginPath();
+    if (st.arc) {
+      // satellite: arc up to satellite icon position (midpoint lifted)
+      var sp = satellitePos();
+      ctx.moveTo(a.x, a.y);
+      ctx.quadraticCurveTo((a.x + sp.x) / 2, Math.min(a.y, sp.y) - 120, sp.x, sp.y);
+      ctx.moveTo(sp.x, sp.y);
+      ctx.quadraticCurveTo((b.x + sp.x) / 2, Math.min(b.y, sp.y) - 120, b.x, b.y);
+    } else {
+      ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+    }
+  }
 
   function drawLinks() {
     var links = (state && state.links) || [];
     ctx.save();
     ctx.lineCap = 'round';
+    var sqrtZ = Math.sqrt(cam.z);
     for (var i = 0; i < links.length; i++) {
       var l = links[i];
       var a = endPoint(state, l.from != null ? l.from : l.a);
@@ -575,6 +809,7 @@
       var med = linkMedium(l.medium || l.type);
       if (!layerAllowsLink(med, l)) continue;
       var st = LINK_STYLES[med] || LINK_STYLES.ethernet;
+      if (!segInRect(a.x, a.y, b.x, b.y, cullRect) && !(st.arc && inRect(satellitePos().x, satellitePos().y, cullRect))) continue;
       var cg = congestion(l);
       var col = st.color;
       if (cg > 0.85) col = '#ef4444';
@@ -582,34 +817,24 @@
       if (isFailed(l) && layers.failures) col = '#ef4444';
       var w = st.width;
       if (layers.traffic) w = 1.2 + clamp(cg, 0, 1) * 5;
-      ctx.strokeStyle = col;
-      ctx.lineWidth = w / Math.sqrt(cam.z);
-      ctx.setLineDash(st.dash.map(function (v) { return v / Math.sqrt(cam.z); }));
-      if (layers.traffic) ctx.lineDashOffset = -animT * 30;
 
       var isSel = selected && selected.kind === 'link' && selected.id === l.id;
       var inPath = highlightPath.length && (highlightPath.indexOf(a.id) >= 0 && highlightPath.indexOf(b.id) >= 0);
-      if (isSel || inPath) { ctx.shadowColor = '#fbbf24'; ctx.shadowBlur = 10; }
-      else ctx.shadowBlur = 0;
-
-      ctx.beginPath();
-      if (st.arc) {
-        // satellite: arc up to satellite icon position (midpoint lifted)
-        var sp = satellitePos();
-        var mx = (a.x + sp.x) / 2, my = Math.min(a.y, sp.y) - 120;
-        ctx.moveTo(a.x, a.y);
-        ctx.quadraticCurveTo(mx, my, sp.x, sp.y);
-        ctx.stroke();
-        ctx.beginPath();
-        var mx2 = (b.x + sp.x) / 2, my2 = Math.min(b.y, sp.y) - 120;
-        ctx.moveTo(sp.x, sp.y);
-        ctx.quadraticCurveTo(mx2, my2, b.x, b.y);
-        ctx.stroke();
-      } else {
-        ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-        if (st.arrow) drawArrow(a.x, a.y, b.x, b.y, col);
+      if (isSel || inPath) {
+        // highlight glow as a wide translucent underlay (shadowBlur is far too slow per frame)
+        ctx.strokeStyle = 'rgba(251,191,36,0.35)';
+        ctx.lineWidth = (w * 2.4 + 3) / sqrtZ;
+        ctx.setLineDash([]);
+        linkPath(a, b, st); ctx.stroke();
       }
-      ctx.setLineDash([]); ctx.shadowBlur = 0;
+
+      ctx.strokeStyle = col;
+      ctx.lineWidth = w / sqrtZ;
+      ctx.setLineDash(st.dash.map(function (v) { return v / sqrtZ; }));
+      if (layers.traffic) ctx.lineDashOffset = -animT * 30;
+      linkPath(a, b, st); ctx.stroke();
+      if (st.arrow) drawArrow(a.x, a.y, b.x, b.y, col);
+      ctx.setLineDash([]);
       // failed link mark
       if (isFailed(l) && layers.failures) {
         var mx3 = (a.x + b.x) / 2, my3 = (a.y + b.y) / 2;
@@ -671,6 +896,7 @@
     ctx.save();
     for (var i = 0; i < nodes.length; i++) {
       var n = nodes[i], k = nodeKind(n.type);
+      if (!inRect(n.x, n.y, cullRect)) continue;
       var col = NODE_COLORS[k] || NODE_COLORS.generic;
       var conn = isConnected(n), failed = isFailed(n), bld = isBuilding(n);
       if (!conn) col = '#6b7280';
@@ -1002,7 +1228,7 @@
      ============================================================ */
   function resize() {
     if (!canvas) return;
-    dpr = clamp(global.devicePixelRatio || 1, 1, 2.5);
+    dpr = clamp(global.devicePixelRatio || 1, 1, 2); // cap at 2: higher DPR oversizes the canvas and costs fill rate
     var r = canvas.getBoundingClientRect();
     viewW = Math.max(50, Math.round(r.width));
     viewH = Math.max(50, Math.round(r.height));
@@ -1047,7 +1273,7 @@
       return CityMap;
     },
 
-    setState: function (s) { state = s || state; },
+    setState: function (s) { state = s || state; staticCam = null; _distCache = null; },
     getState: function () { return state; },
 
     setLayers: function (obj) {
