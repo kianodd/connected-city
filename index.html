@@ -120,6 +120,7 @@
         <label><input type="checkbox" data-layer="labels" checked> برچسب‌ها</label>
         <label><input type="checkbox" data-layer="techdemand"> تقاضای فناوری</label>
         <label><input type="checkbox" data-layer="signal"> نقشه حرارتی سیگنال</label>
+        <label><input type="checkbox" data-layer="speed"> سرعت اتصال</label>
         <label><input type="checkbox" data-layer="indivsubs" checked> مشترکان فردی</label>
         <label><input type="checkbox" data-layer="weather" checked> آب‌وهوا</label>
         <label><input type="checkbox" data-layer="fiber" checked> لینک فیبر</label>
@@ -127,6 +128,7 @@
         <label><input type="checkbox" data-layer="satellite" checked> لینک ماهواره‌ای</label>
       </div>
     </div>
+    <div id="legend-dock">
     <div id="tech-legend" class="hidden" role="note" aria-label="راهنمای رنگ‌های تقاضای فناوری">
       <div class="tech-legend-title">رنگ هر منطقه = فناوری با بیشترین تقاضا</div>
       <div class="tech-legend-item"><span class="tech-dot" style="background:#22d3ee"></span>فیبر/مسی</div>
@@ -139,6 +141,13 @@
       <div class="tech-legend-title">قدرت سیگنال</div>
       <div class="signal-bar"></div>
       <div class="signal-labels"><span>ضعیف</span><span>قوی</span></div>
+    </div>
+    <div id="speed-legend" class="hidden" role="note" aria-label="راهنمای لایه سرعت اتصال">
+      <div class="tech-legend-title">سرعت اتصال (Mbps)</div>
+      <div class="speed-bar"></div>
+      <div class="signal-labels"><span>کمترین سرعت</span><span>بیشترین سرعت</span></div>
+      <div class="speed-ticks"><span>۱</span><span>۱۰</span><span>۱۰۰</span><span>۱۰۰۰+</span></div>
+    </div>
     </div>
     <div id="map-hint" class="map-hint hidden"></div>
     <button id="btn-connect-cancel" class="btn connect-cancel hidden">لغو اتصال</button>
