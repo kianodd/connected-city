@@ -99,15 +99,21 @@ let s1, cell1, link1;
 {
   const s = withLTE(GameSim.newGame(17));
   const d = s.districts.find(x => x.id === 'hospital') || s.districts[0];
+  const core = coreOf(s);
   const cell = GameSim.buildNode(s, 'cell_4g', d.x, d.y);
   finishBuild(s, cell);
-  const primary = GameSim.connect(s, cell.id, coreOf(s).id, 'fiber');
-  const backup = GameSim.connect(s, cell.id, coreOf(s).id, 'ptp', { isBackup: true });
+  const primary = GameSim.connect(s, cell.id, core.id, 'fiber');
+  // فاصلهٔ منطقه تا هسته (۳۱۹۹) از برد PtP (۱۸۰۰) بیشتر است؛ مسیر پشتیبان از گره واسط می‌گذرد
+  const relay = GameSim.buildNode(s, 'cell_4g', Math.round((d.x + core.x) / 2), Math.round((d.y + core.y) / 2));
+  finishBuild(s, relay);
+  const backup1 = GameSim.connect(s, cell.id, relay.id, 'ptp', { isBackup: true });
+  const backup2 = GameSim.connect(s, relay.id, core.id, 'ptp', { isBackup: true });
   GameSim.computeFlow(s);
-  check('6a مسیر پشتیبان ساخته شد', !!backup);
+  check('6a مسیر پشتیبان ساخته شد', !!backup1 && !!backup2);
   // بدون خرابی، فیل‌اور نباید ترافیک را روی پشتیبان ببرد
-  const bLink = s.links.find(l => l.id === (backup.id || backup));
-  check('6b در حالت سالم ترافیک روی پشتیبان نیست', (bLink.usage || 0) === 0, 'usage=' + bLink.usage);
+  const bLink1 = s.links.find(l => l.id === (backup1.id || backup1));
+  const bLink2 = s.links.find(l => l.id === (backup2.id || backup2));
+  check('6b در حالت سالم ترافیک روی پشتیبان نیست', (bLink1.usage || 0) === 0 && (bLink2.usage || 0) === 0, 'usage=' + bLink1.usage + '/' + bLink2.usage);
   // قطع اصلی + فیل‌اور خاموش => بدون سرویس
   const pLink = s.links.find(l => l.id === (primary.id || primary));
   pLink.status = 'cut';
@@ -541,6 +547,28 @@ let s1, cell1, link1;
   check('21c حذف دروازه سرویس را قطع و بازسازی‌اش برمی‌گرداند',
     served3 > 0 && deadOk && d3.servedDemand > 0,
     'served ' + served3 + ' -> 0 -> ' + d3.servedDemand);
+}
+
+// ---------- 22) برد لینک نقطه‌به‌نقطه (PtP) محدود است ----------
+{
+  const s = GameSim.newGame(23);
+  const core = coreOf(s);
+  const maxRange = (DATA.linkMedia && DATA.linkMedia.ptp && DATA.linkMedia.ptp.maxRange) || 1500;
+  // گره نزدیک: در برد
+  const near = GameSim.buildNode(s, 'wifi_ap', core.x + 200, core.y);
+  finishBuild(s, near);
+  const okLink = GameSim.connect(s, near.id, core.id, 'ptp');
+  check('22a لینک PtP در برد مجاز برقرار می‌شود', !!okLink);
+  // گره دور: بیرون از برد
+  const far = GameSim.buildNode(s, 'wifi_ap', core.x + maxRange + 800, core.y);
+  finishBuild(s, far);
+  const linksBefore = s.links.length;
+  const badLink = GameSim.connect(s, far.id, core.id, 'ptp');
+  check('22b لینک PtP بیرون از برد رد می‌شود و لینکی ساخته نمی‌شود',
+    badLink === null && s.links.length === linksBefore);
+  // فیبر در همان فاصلهٔ دور همچنان ممکن است
+  const fiberLink = GameSim.connect(s, far.id, core.id, 'fiber');
+  check('22c فیبر در فاصلهٔ دور محدودیت برد ندارد', !!fiberLink);
 }
 
 console.log('\nنتیجه: ' + pass + ' پاس، ' + fail + ' رد');
