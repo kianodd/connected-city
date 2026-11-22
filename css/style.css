@@ -387,3 +387,14 @@ input[type=number]{background:var(--bg);color:var(--text);border:1px solid var(-
   .neg-form input{width:100%}
   .neg-form label{flex:1 1 42%}
 }
+
+/* ---------- بازطراحی ۱۴۰۵: سال، ماژول‌ها، لایه‌ها، مناطق قفل‌شده ---------- */
+#layer-toggles { max-height: min(62vh, 520px); overflow-y: auto; }
+.module-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border, rgba(255,255,255,.12)); }
+.module-row > div:first-child { flex: 1; min-width: 0; }
+.module-row .btn { flex-shrink: 0; }
+.module-reason { flex: 1 1 100%; font-size: 11px; }
+@media (max-width: 900px) {
+  #topbar .stat.secondary { display: none; }
+  #topbar .tb-group.stats { overflow-x: auto; }
+}
