@@ -11,39 +11,56 @@ const GAME_DATA = (() => {
     return _s / 0x7fffffff;
   };
 
-  // ---------- مناطق شهر (مختصات دنیای 1600×1200) ----------
+  // ---------- مناطق شهر (مختصات دنیای 3200×2400 — نقشهٔ بزرگ‌تر، ۱۴ منطقه) ----------
   const districts = [
-    { id: 'center',     name: 'مرکز شهر',      type: 'commercial',  x: 800,  y: 600,  radius: 220, population: 18000, demandBase: 4200, priceSensitivity: 0.6, potentialRevenue: 95000 },
-    { id: 'bazaar',     name: 'بازار',          type: 'commercial',  x: 560,  y: 780,  radius: 160, population: 9000,  demandBase: 2600, priceSensitivity: 0.8, potentialRevenue: 52000 },
-    { id: 'university', name: 'دانشگاه',        type: 'landmark',    x: 340,  y: 330,  radius: 185, population: 6500,  demandBase: 2400, priceSensitivity: 0.9, potentialRevenue: 38000 },
-    { id: 'hospital',   name: 'بیمارستان',      type: 'landmark',    x: 1160, y: 390,  radius: 150, population: 4200,  demandBase: 1800, priceSensitivity: 0.2, potentialRevenue: 46000 },
-    { id: 'industrial', name: 'منطقه صنعتی',   type: 'industrial',  x: 1310, y: 910,  radius: 245, population: 3200,  demandBase: 3200, priceSensitivity: 0.3, potentialRevenue: 88000 },
-    { id: 'north',      name: 'حاشیه شمالی',   type: 'sparse',      x: 820,  y: 150,  radius: 265, population: 5200,  demandBase: 1100, priceSensitivity: 1.0, potentialRevenue: 21000 },
-    { id: 'residential',name: 'کوی مسکونی',    type: 'residential', x: 290,  y: 910,  radius: 225, population: 14500, demandBase: 3400, priceSensitivity: 0.7, potentialRevenue: 61000 },
-    { id: 'dense',      name: 'محله پرتراکم',  type: 'dense',       x: 1060, y: 670,  radius: 175, population: 16500, demandBase: 3900, priceSensitivity: 0.85, potentialRevenue: 72000 },
+    { id: 'center',     name: 'مرکز شهر',      type: 'commercial',  x: 1600, y: 1200, radius: 440, population: 18000, demandBase: 4200, priceSensitivity: 0.6, potentialRevenue: 95000 },
+    { id: 'bazaar',     name: 'بازار',          type: 'commercial',  x: 1120, y: 1560, radius: 320, population: 9000,  demandBase: 2600, priceSensitivity: 0.8, potentialRevenue: 52000 },
+    { id: 'university', name: 'دانشگاه',        type: 'landmark',    x: 680,  y: 660,  radius: 370, population: 6500,  demandBase: 2400, priceSensitivity: 0.9, potentialRevenue: 38000 },
+    { id: 'hospital',   name: 'بیمارستان',      type: 'landmark',    x: 2320, y: 780,  radius: 300, population: 4200,  demandBase: 1800, priceSensitivity: 0.2, potentialRevenue: 46000 },
+    { id: 'industrial', name: 'منطقه صنعتی',   type: 'industrial',  x: 2620, y: 1820, radius: 490, population: 3200,  demandBase: 3200, priceSensitivity: 0.3, potentialRevenue: 88000 },
+    { id: 'north',      name: 'حاشیه شمالی',   type: 'sparse',      x: 1640, y: 300,  radius: 480, population: 5200,  demandBase: 1100, priceSensitivity: 1.0, potentialRevenue: 21000 },
+    { id: 'residential',name: 'کوی مسکونی',    type: 'residential', x: 580,  y: 1820, radius: 450, population: 14500, demandBase: 3400, priceSensitivity: 0.7, potentialRevenue: 61000 },
+    { id: 'dense',      name: 'محله پرتراکم',  type: 'dense',       x: 2120, y: 1340, radius: 350, population: 16500, demandBase: 3900, priceSensitivity: 0.85, potentialRevenue: 72000 },
+    { id: 'station',    name: 'ایستگاه قطار',   type: 'landmark',    x: 1600, y: 2180, radius: 300, population: 5000,  demandBase: 2100, priceSensitivity: 0.5, potentialRevenue: 40000 },
+    { id: 'stadium',    name: 'ورزشگاه',        type: 'landmark',    x: 2650, y: 420,  radius: 280, population: 3000,  demandBase: 1600, priceSensitivity: 0.6, potentialRevenue: 35000 },
+    { id: 'east_res',   name: 'کوی شرقی',       type: 'residential', x: 2780, y: 1180, radius: 380, population: 12000, demandBase: 3000, priceSensitivity: 0.7, potentialRevenue: 55000 },
+    { id: 'south_sparse',name: 'حاشیه جنوبی',  type: 'sparse',      x: 900,  y: 2240, radius: 380, population: 4200,  demandBase: 950,  priceSensitivity: 1.0, potentialRevenue: 18000 },
+    { id: 'west_town',  name: 'شهرک غربی',      type: 'residential', x: 320,  y: 1180, radius: 360, population: 10500, demandBase: 2700, priceSensitivity: 0.75, potentialRevenue: 50000 },
+    { id: 'old_town',   name: 'بافت قدیم',      type: 'dense',       x: 1350, y: 780,  radius: 280, population: 13500, demandBase: 3300, priceSensitivity: 0.8, potentialRevenue: 58000 },
   ];
 
-  // ---------- ساختمان‌ها (~60) — ساختمان‌های بلند (height>=10) دید مستقیم را می‌بندند ----------
+  // ---------- ساختمان‌ها (~190) — ساختمان‌های بلند (height>=10) دید مستقیم را می‌بندند ----------
   const buildings = [];
   const bTypes = ['residential', 'commercial', 'office', 'industrial'];
+  const bColors = {
+    residential: ['#5b6b82', '#64748b', '#55677d', '#6b7a90', '#5f7186'],
+    commercial:  ['#7a6a4f', '#8a7a5c', '#6e5f45', '#837257'],
+    office:      ['#4f6a7a', '#557a8a', '#47626f', '#5d7f8f'],
+    industrial:  ['#6b5a4a', '#75624f', '#5f5044', '#6f5d4c'],
+  };
   let bIdx = 0;
   districts.forEach((d) => {
-    const count = d.type === 'dense' || d.type === 'commercial' ? 9 : 7;
+    const count = (d.type === 'dense' || d.type === 'commercial') ? 16
+      : d.type === 'sparse' ? 7
+      : d.type === 'landmark' ? 10 : 12;
     for (let i = 0; i < count; i++) {
       bIdx++;
       const ang = rnd() * Math.PI * 2;
-      const dist = rnd() * d.radius * 0.75;
+      const dist = rnd() * d.radius * 0.78;
       const tall = (d.type === 'dense' || d.type === 'commercial' || d.type === 'office') && rnd() > 0.45;
       const height = tall ? 10 + Math.floor(rnd() * 18) : 2 + Math.floor(rnd() * 7);
+      const bType = d.type === 'industrial' ? 'industrial' : bTypes[Math.floor(rnd() * 3)];
+      const palette = bColors[bType] || bColors.residential;
       buildings.push({
         id: 'b' + bIdx,
         districtId: d.id,
         x: Math.round(d.x + Math.cos(ang) * dist),
         y: Math.round(d.y + Math.sin(ang) * dist),
-        w: 18 + Math.floor(rnd() * 26),
-        h: 18 + Math.floor(rnd() * 26),
+        w: 26 + Math.floor(rnd() * 42),
+        h: 26 + Math.floor(rnd() * 42),
         height, // طبقه
-        type: d.type === 'industrial' ? 'industrial' : bTypes[Math.floor(rnd() * 3)],
+        type: bType,
+        color: palette[Math.floor(rnd() * palette.length)],
         name: height >= 15 ? 'برج ' + d.name + ' ' + i : undefined,
       });
     }
@@ -51,18 +68,25 @@ const GAME_DATA = (() => {
 
   // ---------- نقاط نصب ----------
   const installPoints = [
-    { id: 'ip_hq',      x: 800,  y: 600,  kind: 'datacenter',    name: 'مرکز دادهٔ مرکزی (HQ)' },
-    { id: 'ip_t1',      x: 620,  y: 480,  kind: 'tower',         name: 'دکل غربی' },
-    { id: 'ip_t2',      x: 1010, y: 520,  kind: 'tower',         name: 'دکل شرقی' },
-    { id: 'ip_t3',      x: 800,  y: 210,  kind: 'tower',         name: 'دکل شمالی' },
-    { id: 'ip_r1',      x: 810,  y: 590,  kind: 'rooftop',       name: 'بام برج مرکز شهر' },
-    { id: 'ip_r2',      x: 350,  y: 340,  kind: 'rooftop',       name: 'بام ساختمان دانشگاه' },
-    { id: 'ip_r3',      x: 1065, y: 660,  kind: 'rooftop',       name: 'بام برج محله پرتراکم' },
-    { id: 'ip_e1',      x: 560,  y: 770,  kind: 'equipment_room',name: 'اتاق تجهیزات بازار' },
-    { id: 'ip_e2',      x: 1160, y: 400,  kind: 'equipment_room',name: 'اتاق تجهیزات بیمارستان' },
-    { id: 'ip_e3',      x: 1300, y: 900,  kind: 'equipment_room',name: 'اتاق تجهیزات صنعتی' },
-    { id: 'ip_dc2',     x: 420,  y: 700,  kind: 'datacenter',    name: 'مرکز دادهٔ غربی' },
-    { id: 'ip_t4',      x: 300,  y: 920,  kind: 'tower',         name: 'دکل کوی مسکونی' },
+    { id: 'ip_hq',      x: 1600, y: 1200, kind: 'datacenter',    name: 'مرکز دادهٔ مرکزی (HQ)' },
+    { id: 'ip_t1',      x: 1240, y: 960,  kind: 'tower',         name: 'دکل غربی' },
+    { id: 'ip_t2',      x: 2020, y: 1040, kind: 'tower',         name: 'دکل شرقی' },
+    { id: 'ip_t3',      x: 1600, y: 420,  kind: 'tower',         name: 'دکل شمالی' },
+    { id: 'ip_r1',      x: 1620, y: 1180, kind: 'rooftop',       name: 'بام برج مرکز شهر' },
+    { id: 'ip_r2',      x: 700,  y: 680,  kind: 'rooftop',       name: 'بام ساختمان دانشگاه' },
+    { id: 'ip_r3',      x: 2130, y: 1320, kind: 'rooftop',       name: 'بام برج محله پرتراکم' },
+    { id: 'ip_e1',      x: 1120, y: 1540, kind: 'equipment_room',name: 'اتاق تجهیزات بازار' },
+    { id: 'ip_e2',      x: 2320, y: 800,  kind: 'equipment_room',name: 'اتاق تجهیزات بیمارستان' },
+    { id: 'ip_e3',      x: 2600, y: 1800, kind: 'equipment_room',name: 'اتاق تجهیزات صنعتی' },
+    { id: 'ip_dc2',     x: 840,  y: 1400, kind: 'datacenter',    name: 'مرکز دادهٔ غربی' },
+    { id: 'ip_t4',      x: 600,  y: 1840, kind: 'tower',         name: 'دکل کوی مسکونی' },
+    { id: 'ip_t5',      x: 2650, y: 430,  kind: 'tower',         name: 'دکل ورزشگاه' },
+    { id: 'ip_t6',      x: 2780, y: 1180, kind: 'tower',         name: 'دکل کوی شرقی' },
+    { id: 'ip_t7',      x: 320,  y: 1180, kind: 'tower',         name: 'دکل شهرک غربی' },
+    { id: 'ip_t8',      x: 1050, y: 2150, kind: 'tower',         name: 'دکل حاشیه جنوبی' },
+    { id: 'ip_e4',      x: 1600, y: 2180, kind: 'equipment_room',name: 'اتاق تجهیزات ایستگاه قطار' },
+    { id: 'ip_r4',      x: 1350, y: 780,  kind: 'rooftop',       name: 'بام برج بافت قدیم' },
+    { id: 'ip_dc3',     x: 2400, y: 1500, kind: 'datacenter',    name: 'مرکز دادهٔ شرقی' },
   ];
 
   // ---------- کاتالوگ تجهیزات (برندهای خیالی: پارس‌نت، آریاتل، سیمرغ‌لینک) ----------
@@ -70,16 +94,16 @@ const GAME_DATA = (() => {
   const equipmentList = [
     { id: 'fiber_cable',     name: 'کابل فیبر نوری پارس‌نت',   cost: 5000,   monthlyCost: 120,  buildDays: 2,  capacity: 10000, radius: 0,    unlock: null,            category: 'cable' },
     { id: 'copper_cable',    name: 'کابل مسی آریاتل',          cost: 2000,   monthlyCost: 60,   buildDays: 1,  capacity: 100,   radius: 0,    unlock: null,            category: 'cable' },
-    { id: 'ftth',            name: 'فیبر تا خانه (FTTH)',      cost: 16000,  monthlyCost: 300,  buildDays: 5,  capacity: 1000,  radius: 260,  unlock: 'ftth',          category: 'access' },
-    { id: 'cell_2g',         name: 'دکل سلولی 2G آریاتل',      cost: 20000,  monthlyCost: 700,  buildDays: 6,  capacity: 40,    radius: 850,  unlock: null,            category: 'access' },
-    { id: 'cell_3g',         name: 'دکل سلولی 3G آریاتل',      cost: 32000,  monthlyCost: 1000, buildDays: 7,  capacity: 220,   radius: 720,  unlock: null,            category: 'access' },
-    { id: 'cell_4g',         name: 'دکل سلولی 4G پارس‌نت',     cost: 62000,  monthlyCost: 1800, buildDays: 9,  capacity: 1100,  radius: 620,  unlock: 'lte',           category: 'access' },
-    { id: 'cell_5g',         name: 'دکل سلولی 5G سیمرغ‌لینک',  cost: 125000, monthlyCost: 3400, buildDays: 12, capacity: 5200,  radius: 430,  unlock: '5g',            category: 'access' },
-    { id: 'fwa_ap',          name: 'آنتن دسترسی ثابت بی‌سیم',  cost: 25000,  monthlyCost: 800,  buildDays: 4,  capacity: 550,   radius: 520,  unlock: null,            category: 'access' },
-    { id: 'ptp_link',        name: 'لینک نقطه‌به‌نقطه',        cost: 18000,  monthlyCost: 450,  buildDays: 3,  capacity: 1000,  radius: 2200, unlock: null,            category: 'backhaul' },
-    { id: 'wifi_ap',         name: 'اکسس‌پوینت وای‌فای',       cost: 8000,   monthlyCost: 200,  buildDays: 1,  capacity: 320,   radius: 170,  unlock: null,            category: 'access' },
-    { id: 'sat_terminal_leo',name: 'پایانه ماهواره‌ای LEO',    cost: 82000,  monthlyCost: 2600, buildDays: 8,  capacity: 260,   radius: 600,  unlock: 'satellite_leo', category: 'satellite' },
-    { id: 'sat_terminal_geo',name: 'پایانه ماهواره‌ای GEO',    cost: 61000,  monthlyCost: 1900, buildDays: 8,  capacity: 130,   radius: 700,  unlock: 'satellite_geo', category: 'satellite' },
+    { id: 'ftth',            name: 'فیبر تا خانه (FTTH)',      cost: 16000,  monthlyCost: 300,  buildDays: 5,  capacity: 1000,  radius: 140,  unlock: 'ftth',          category: 'access' },
+    { id: 'cell_2g',         name: 'دکل سلولی 2G آریاتل',      cost: 20000,  monthlyCost: 700,  buildDays: 6,  capacity: 40,    radius: 400,  unlock: null,            category: 'access' },
+    { id: 'cell_3g',         name: 'دکل سلولی 3G آریاتل',      cost: 32000,  monthlyCost: 1000, buildDays: 7,  capacity: 220,   radius: 340,  unlock: null,            category: 'access' },
+    { id: 'cell_4g',         name: 'دکل سلولی 4G پارس‌نت',     cost: 62000,  monthlyCost: 1800, buildDays: 9,  capacity: 1100,  radius: 290,  unlock: 'lte',           category: 'access' },
+    { id: 'cell_5g',         name: 'دکل سلولی 5G سیمرغ‌لینک',  cost: 125000, monthlyCost: 3400, buildDays: 12, capacity: 5200,  radius: 205,  unlock: '5g',            category: 'access' },
+    { id: 'fwa_ap',          name: 'آنتن دسترسی ثابت بی‌سیم',  cost: 25000,  monthlyCost: 800,  buildDays: 4,  capacity: 550,   radius: 255,  unlock: null,            category: 'access' },
+    { id: 'ptp_link',        name: 'لینک نقطه‌به‌نقطه',        cost: 18000,  monthlyCost: 450,  buildDays: 3,  capacity: 1000,  radius: 1500, unlock: null,            category: 'backhaul' },
+    { id: 'wifi_ap',         name: 'اکسس‌پوینت وای‌فای',       cost: 8000,   monthlyCost: 200,  buildDays: 1,  capacity: 320,   radius: 90,   unlock: null,            category: 'access' },
+    { id: 'sat_terminal_leo',name: 'پایانه ماهواره‌ای LEO',    cost: 82000,  monthlyCost: 2600, buildDays: 8,  capacity: 260,   radius: 300,  unlock: 'satellite_leo', category: 'satellite' },
+    { id: 'sat_terminal_geo',name: 'پایانه ماهواره‌ای GEO',    cost: 61000,  monthlyCost: 1900, buildDays: 8,  capacity: 130,   radius: 350,  unlock: 'satellite_geo', category: 'satellite' },
     { id: 'sat_gateway',     name: 'دروازه زمینی ماهواره',     cost: 205000, monthlyCost: 6200, buildDays: 20, capacity: 6000,  radius: 0,    unlock: 'satellite_leo', category: 'satellite' },
     { id: 'router',          name: 'روتر لبه پارس‌نت',         cost: 10000,  monthlyCost: 250,  buildDays: 1,  capacity: 1200,  radius: 0,    unlock: null,            category: 'core' },
     { id: 'switch',          name: 'سوئیچ تجمیع محلی',         cost: 6000,   monthlyCost: 150,  buildDays: 1,  capacity: 1200,  radius: 0,    unlock: null,            category: 'core' },
@@ -148,7 +172,7 @@ const GAME_DATA = (() => {
   ];
 
   return {
-    world: { width: 1600, height: 1200 },
+    world: { width: 3200, height: 2400 },
     districts,
     buildings,
     installPoints,
