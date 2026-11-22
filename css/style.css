@@ -332,7 +332,7 @@ input[type=number]{background:var(--bg);color:var(--text);border:1px solid var(-
 .staff-summary{border-top:1px solid var(--border);padding-top:10px;font-size:14px;font-weight:700}
 .btn.danger{border-color:var(--danger);color:var(--danger)}
 
-/* ---- New feature panels (achievements/contracts/campaigns/constellation/stats) ---- */
+/* ---- New feature panels (achievements/contracts/campaigns/stats) ---- */
 .ach-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px}
 .ach-card{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;text-align:center}
 .ach-card.unlocked{border-color:var(--warn);background:rgba(210,153,34,.08)}
