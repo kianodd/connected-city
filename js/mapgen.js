@@ -198,7 +198,20 @@
     });
     ARCHETYPES.forEach((a) => { if (a.id !== 'center' && a.id !== 'north') placeDistrict(a); });
 
-    // ---------- ساختمان‌ها ----------
+    // ---------- بلوک‌های شهری (سلول‌های بین خطوط خیابان) ----------
+    const SETBACK = ROAD_MARGIN + 2; // فاصلهٔ نمای ساختمان از محور خیابان
+    const blocks = [];
+    for (let i = 0; i < roads.v.length - 1; i++) {
+      for (let j = 0; j < roads.h.length - 1; j++) {
+        const x0 = roads.v[i] + SETBACK, x1 = roads.v[i + 1] - SETBACK;
+        const y0 = roads.h[j] + SETBACK, y1 = roads.h[j + 1] - SETBACK;
+        if (x1 - x0 < 60 || y1 - y0 < 60) continue;
+        blocks.push({ x0, y0, x1, y1, cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, used: false, park: false });
+      }
+    }
+    const parks = [];
+
+    // ---------- ساختمان‌ها: ردیف‌های جبهه‌ای رو به خیابان داخل بلوک‌ها ----------
     const bTypes = (DATA && DATA.buildingTypes) || ['residential', 'commercial', 'office', 'industrial'];
     const palettes = (DATA && DATA.buildingColors) || {
       residential: ['#5b6b82', '#64748b', '#55677d', '#6b7a90', '#5f7186'],
@@ -208,15 +221,84 @@
     };
     const buildings = [];
     let bIdx = 0;
+    function addBuilding(d, x, y, w, h, cluster, i) {
+      bIdx++;
+      const inCluster = cluster && Math.hypot(x + w / 2 - cluster.x, y + h / 2 - cluster.y) < 170;
+      const tall = (d.type === 'dense' || d.type === 'commercial' || d.type === 'government' || d.type === 'academic') && rnd() > (inCluster ? 0.25 : 0.55);
+      const height = tall ? 10 + Math.floor(rnd() * 18) : 2 + Math.floor(rnd() * 7);
+      const bType = (d.type === 'industrial' || d.type === 'heavy_industrial') ? 'industrial' : bTypes[Math.floor(rnd() * 3)];
+      const palette = palettes[bType] || palettes.residential;
+      buildings.push({
+        id: 'b' + bIdx,
+        districtId: d.id,
+        x, y, w, h,
+        height,
+        type: bType,
+        color: palette[Math.floor(rnd() * palette.length)],
+        name: height >= 15 ? 'برج ' + d.name + ' ' + i : undefined,
+      });
+    }
     districts.forEach((d) => {
       const count = (d.type === 'dense' || d.type === 'commercial' || d.type === 'slum') ? 16
         : d.type === 'sparse' ? 7
         : d.type === 'villa' ? 8
         : (d.type === 'landmark' || d.type === 'medical' || d.type === 'transport') ? 10 : 12;
-      // خوشهٔ برج‌ها در مناطق متراکم/تجاری/اداری
       const cluster = (d.type === 'dense' || d.type === 'commercial' || d.type === 'government')
         ? { x: d.x + R(-0.35, 0.35) * d.radius, y: d.y + R(-0.35, 0.35) * d.radius } : null;
-      for (let i = 0; i < count; i++) {
+      const myBlocks = blocks.filter((b) => !b.used && Math.hypot(b.cx - d.x, b.cy - d.y) < d.radius * 0.95);
+      for (let i = myBlocks.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); const t = myBlocks[i]; myBlocks[i] = myBlocks[j]; myBlocks[j] = t; }
+      const parkBlocks = (d.type === 'villa' || d.id === 'garden_city') ? 2 : (d.type === 'sparse' ? 0 : 1);
+      let placedCount = 0;
+      myBlocks.forEach((blk, bi) => {
+        if (bi < parkBlocks && !rectHitsRiver(blk.x0, blk.y0, blk.x1 - blk.x0, blk.y1 - blk.y0, river)) {
+          blk.park = true; blk.used = true;
+          parks.push({ x: blk.x0 + 4, y: blk.y0 + 4, w: blk.x1 - blk.x0 - 8, h: blk.y1 - blk.y0 - 8 });
+          return;
+        }
+        if (placedCount >= count) return;
+        blk.used = true;
+        const bw = blk.x1 - blk.x0, bh = blk.y1 - blk.y0;
+        const maxDep = Math.min(58, Math.floor(Math.min(bw, bh) / 2) - 8);
+        // ردیف بالا و پایین (جبهه رو به خیابان افقی): طول جبهه افقی
+        let topDep = 0, botDep = 0;
+        ['top', 'bottom'].forEach((edge) => {
+          if (placedCount >= count) return;
+          let cursor = blk.x0 + R(0, 8);
+          while (cursor < blk.x1 - 24 && placedCount < count) {
+            const fl = 26 + Math.floor(rnd() * 38);
+            const dep = 22 + Math.floor(rnd() * Math.max(6, maxDep - 22));
+            if (cursor + fl > blk.x1) break;
+            const x = Math.round(cursor);
+            const y = Math.round(edge === 'top' ? blk.y0 : blk.y1 - dep);
+            if (!rectHitsRiver(x, y, fl, dep, river) && !rectOverlaps(x, y, fl, dep, buildings)) {
+              addBuilding(d, x, y, fl, dep, cluster, placedCount);
+              placedCount++;
+              if (edge === 'top') topDep = Math.max(topDep, dep); else botDep = Math.max(botDep, dep);
+            }
+            cursor += fl + 4 + rnd() * 8;
+          }
+        });
+        // ردیف چپ و راست (جبهه رو به خیابان عمودی): طول جبهه عمودی، بین دو ردیف افقی
+        const midY0 = blk.y0 + topDep + 6, midY1 = blk.y1 - botDep - 6;
+        ['left', 'right'].forEach((edge) => {
+          if (placedCount >= count || midY1 - midY0 < 26) return;
+          let cursor = midY0 + R(0, 6);
+          while (cursor < midY1 - 24 && placedCount < count) {
+            const fl = 26 + Math.floor(rnd() * 38);
+            const dep = 22 + Math.floor(rnd() * Math.max(6, maxDep - 22));
+            if (cursor + fl > midY1) break;
+            const y = Math.round(cursor);
+            const x = Math.round(edge === 'left' ? blk.x0 : blk.x1 - dep);
+            if (!rectHitsRiver(x, y, dep, fl, river) && !rectOverlaps(x, y, dep, fl, buildings)) {
+              addBuilding(d, x, y, dep, fl, cluster, placedCount);
+              placedCount++;
+            }
+            cursor += fl + 4 + rnd() * 8;
+          }
+        });
+      });
+      // جایگزین: اگر بلوک‌های جبهه‌ای به تعداد هدف نرسیدند، جایگذاری تصادفی داخل منطقه
+      for (let i = placedCount; i < count; i++) {
         let placed = null;
         for (let attempt = 0; attempt < 60 && !placed; attempt++) {
           const w = 26 + Math.floor(rnd() * 42);
@@ -231,40 +313,34 @@
           if (rectOverlaps(x, y, w, h, buildings)) continue;
           placed = { x, y, w, h };
         }
-        if (!placed) continue;
-        bIdx++;
-        const inCluster = cluster && Math.hypot(placed.x + placed.w / 2 - cluster.x, placed.y + placed.h / 2 - cluster.y) < 170;
-        const tall = (d.type === 'dense' || d.type === 'commercial' || d.type === 'government' || d.type === 'academic') && rnd() > (inCluster ? 0.25 : 0.55);
-        const height = tall ? 10 + Math.floor(rnd() * 18) : 2 + Math.floor(rnd() * 7);
-        const bType = (d.type === 'industrial' || d.type === 'heavy_industrial') ? 'industrial' : bTypes[Math.floor(rnd() * 3)];
-        const palette = palettes[bType] || palettes.residential;
-        buildings.push({
-          id: 'b' + bIdx,
-          districtId: d.id,
-          x: placed.x, y: placed.y, w: placed.w, h: placed.h,
-          height,
-          type: bType,
-          color: palette[Math.floor(rnd() * palette.length)],
-          name: height >= 15 ? 'برج ' + d.name + ' ' + i : undefined,
-        });
+        if (placed) { addBuilding(d, placed.x, placed.y, placed.w, placed.h, cluster, i); placedCount++; }
       }
     });
 
-    // ---------- ساختمان‌های پراکندهٔ خارج از مناطق (روستایی/حاشیه‌ای، تراکم کم) ----------
+    // ---------- ساختمان‌های پراکندهٔ خارج از مناطق: کنار خیابان‌ها، رو به خیابان ----------
     const OUTSIDE_COUNT = 130;
     for (let i = 0; i < OUTSIDE_COUNT; i++) {
       let placed = null;
       for (let attempt = 0; attempt < 40 && !placed; attempt++) {
-        const w = 22 + Math.floor(rnd() * 30);
-        const h = 22 + Math.floor(rnd() * 30);
-        const x = Math.round(R(20, WORLD_W - w - 20));
-        const y = Math.round(R(20, WORLD_H - h - 20));
+        const horiz = rnd() < 0.5;
+        const lines = horiz ? roads.h : roads.v;
+        const L = lines[Math.floor(rnd() * lines.length)];
+        const side = rnd() < 0.5 ? 1 : -1;
+        const fl = 22 + Math.floor(rnd() * 30); // طول جبهه در راستای خیابان
+        const dep = 20 + Math.floor(rnd() * 24); // عمق عمود بر خیابان
+        const along = R(30, (horiz ? WORLD_W : WORLD_H) - 60);
+        const off = SETBACK + R(0, 26);
+        let x, y, w, h;
+        if (horiz) { w = fl; h = dep; x = Math.round(along); y = Math.round(side > 0 ? L + off : L - off - h); }
+        else { w = dep; h = fl; y = Math.round(along); x = Math.round(side > 0 ? L + off : L - off - w); }
         const cx = x + w / 2, cy = y + h / 2;
+        if (x < 10 || y < 10 || x + w > WORLD_W - 10 || y + h > WORLD_H - 10) continue;
         // بیرون از همهٔ مناطق (با حاشیه)
         if (districts.some((d) => Math.hypot(cx - d.x, cy - d.y) < d.radius + 30)) continue;
         if (rectHitsRoad(x, y, w, h, roads)) continue;
         if (rectHitsRiver(x, y, w, h, river)) continue;
         if (rectOverlaps(x, y, w, h, buildings)) continue;
+        if (parks.some((p) => x < p.x + p.w && x + w > p.x && y < p.y + p.h && y + h > p.y)) continue;
         placed = { x, y, w, h };
       }
       if (!placed) continue;
@@ -281,17 +357,14 @@
       });
     }
 
-    // ---------- پارک‌ها ----------
-    const parks = [];
-    for (let i = 0; i < 160; i++) {
-      const w = 60 + rnd() * 150, h = 45 + rnd() * 100;
-      const x = rnd() * (WORLD_W - 200), y = rnd() * (WORLD_H - 160);
-      if (Math.abs(x + w / 2 - riverXAtY(river, y + h / 2)) < 90) continue;
-      parks.push({ x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) });
-    }
-    for (let i = 0; i < 5; i++) {
-      parks.push({ x: Math.round(R(200, WORLD_W - 600)), y: Math.round(R(200, WORLD_H - 500)), w: Math.round(R(280, 380)), h: Math.round(R(180, 260)) });
-    }
+    // ---------- پارک‌های پراکنده: بلوک‌های کاملِ بلااستفاده (هرگز روی خیابان نمی‌افتند) ----------
+    const freeBlocks = blocks.filter((b) => !b.used && !rectHitsRiver(b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0, river)
+      && !buildings.some((bb) => bb.x < b.x1 && bb.x + (bb.w || 26) > b.x0 && bb.y < b.y1 && bb.y + (bb.h || 20) > b.y0));
+    for (let i = freeBlocks.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); const t = freeBlocks[i]; freeBlocks[i] = freeBlocks[j]; freeBlocks[j] = t; }
+    freeBlocks.slice(0, 34).forEach((blk) => {
+      blk.park = true; blk.used = true;
+      parks.push({ x: blk.x0 + 4, y: blk.y0 + 4, w: blk.x1 - blk.x0 - 8, h: blk.y1 - blk.y0 - 8 });
+    });
 
     // ---------- نقاط نصب (داده؛ HQ از اینجا خوانده می‌شود) ----------
     const installPoints = [{ id: 'ip_hq', x: hq.x, y: hq.y, kind: 'datacenter', name: 'مرکز دادهٔ مرکزی (HQ)' }];
