@@ -17,6 +17,7 @@ const SHELL = [
   './js/sim.js',
   './js/map.js',
   './js/ui.js',
+  './js/audio.js',
   './js/main.js',
   './manifest.webmanifest',
   './icons/icon-192.png',
