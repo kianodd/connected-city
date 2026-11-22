@@ -46,11 +46,15 @@
     $('btn-fast').classList.toggle('active', s === 3);
   }
 
+  var lastIncomeSoundAt = 0;
   function loop(ts) {
     requestAnimationFrame(loop);
     if (!lastTs) lastTs = ts;
     var dt = ts - lastTs; lastTs = ts;
     if (speed > 0 && state) {
+      if (window.GameSim && typeof GameSim.clockTick === 'function') {
+        try { GameSim.clockTick(state, (dt / 1000) * 8 * speed); } catch (e) { /* ignore */ }
+      }
       acc += dt * speed;
       while (acc >= DAY_MS) {
         acc -= DAY_MS;
@@ -59,7 +63,18 @@
       }
     }
     if (window.CityMap && CityMap.render) CityMap.render(state);
-    if (state && state.day !== lastUiDay) { lastUiDay = state.day; GameUI.refresh(); }
+    if (state && state.day !== lastUiDay) {
+      var prevDay = lastUiDay;
+      lastUiDay = state.day; GameUI.refresh();
+      if (prevDay !== -1) {
+        var inc = (state.finance && state.finance.incomePerDay != null) ? state.finance.incomePerDay : (state.incomePerDay || 0);
+        var nowMs = Date.now();
+        if (inc > 0 && window.GameAudio && nowMs - lastIncomeSoundAt >= 5000) {
+          lastIncomeSoundAt = nowMs;
+          try { GameAudio.play('income'); } catch (e) { /* ignore */ }
+        }
+      }
+    }
     if (Date.now() - lastAutosave > 30000) { lastAutosave = Date.now(); saveGame(); }
   }
 
@@ -78,9 +93,22 @@
     if (window.CityMap && CityMap.init) {
       CityMap.init(canvas, state, {
         onSelect: function (kind, id, wx, wy) { GameUI.onMapSelect(id, kind, wx, wy); },
-        onPlace: function (x, y) { GameUI.onPlace(x, y); }
+        onPlace: function (x, y) { GameUI.onPlace(x, y); },
+        onSectorRotate: function (nodeId, dir) {
+          try {
+            if (window.GameSim && typeof GameSim.setNodeDirection === 'function' && state) {
+              var node = null;
+              var nodes = state.nodes || [];
+              for (var i = 0; i < nodes.length; i++) if (String(nodes[i].id) === String(nodeId)) { node = nodes[i]; break; }
+              var ang = node && node.angle != null ? node.angle : 120;
+              GameSim.setNodeDirection(state, nodeId, dir, ang);
+            }
+          } catch (e) { /* ignore */ }
+          if (window.GameUI && GameUI.refresh) GameUI.refresh();
+        }
       });
     }
+    if (window.GameAudio && GameAudio.init) { try { GameAudio.init(); } catch (e) { /* ignore */ } }
     GameUI.init(function () { return state; });
 
     $('btn-pause').addEventListener('click', function () { setSpeed(0); });
