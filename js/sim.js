@@ -51,6 +51,19 @@
 
   const ACCESS_TYPES = ['cell_2g', 'cell_3g', 'cell_4g', 'cell_5g', 'fwa_ap', 'wifi_ap', 'ftth', 'sat_terminal_leo', 'sat_terminal_geo'];
 
+  // گره دسترسی: انواع کلاسیک + هر تجهیز کاتالوگ با دستهٔ access/antenna و فیلد tech
+  function isAccessNode(n) {
+    if (!n) return false;
+    if (ACCESS_TYPES.includes(n.type)) return true;
+    const eq = getEq(n.type);
+    return !!(eq && eq.tech && (eq.category === 'access' || eq.category === 'antenna'));
+  }
+  // دستهٔ تجهیز گره (برای اثرات برق/ابزار)
+  function nodeCategory(n) {
+    const eq = n ? getEq(n.type) : null;
+    return eq ? eq.category : null;
+  }
+
   // ---------- تقاضا به تفکیک فناوری ----------
   const TECH_KEYS = ['fiber', 'cellular', 'fwa', 'wifi', 'satellite'];
   function techOfNode(type) {
@@ -59,7 +72,8 @@
     if (type === 'fwa_ap') return 'fwa';
     if (type === 'wifi_ap') return 'wifi';
     if (type && type.indexOf('sat_terminal') === 0) return 'satellite';
-    return null;
+    const eq = getEq(type);
+    return (eq && eq.tech) || null;
   }
   // سهم تقاضای هر فناوری از تقاضای کل منطقه + بخش سرویس‌گرفته با ظرفیت همان فناوری
   function computeTechDemand(d, servers, congestionFactor) {
@@ -87,15 +101,17 @@
     const techs = count('technician'), engs = count('engineer'), sups = count('support'), sales = count('sales');
     const nodeCount = (state.nodes || []).filter((n) => n.type !== 'core_router' && n.type !== 'internet_gateway').length;
     const linkCount = (state.links || []).length;
-    const totalSubs = (state.districts || []).reduce((s, d) => s + (d.subscribers || 0), 0);
+    const totalSubs = (state.districts || []).reduce((s, d) => s + (d.subscribers || 0), 0) + ((state.scattered && state.scattered.subscribers) || 0);
     const servedDistricts = (state.districts || []).filter((d) => d.connected).length;
     const reqTechs = Math.max(1, Math.ceil(nodeCount / 8));
     const reqEngs = Math.max(1, Math.ceil(linkCount / 10));
     const reqSups = Math.max(1, Math.ceil(totalSubs / 1500));
     const reqSales = Math.max(1, Math.ceil(servedDistricts / 4));
     const ratio = (c, r) => (r > 0 ? c / r : 1);
-    const buildSpeed = clamp(0.6 + 0.4 * Math.min(1, ratio(techs, reqTechs)) + 0.1 * Math.max(0, techs - reqTechs), 0.6, 2.0);
-    const repairSpeed = clamp(0.3 + 0.7 * Math.min(1, ratio(techs, reqTechs)) + 0.15 * Math.max(0, techs - reqTechs), 0.3, 2.5);
+    // ابزارهای اندازه‌گیری و تست فعال: ساخت و تعمیر را سریع‌تر می‌کنند
+    const toolCount = (state.nodes || []).filter((n) => nodeCategory(n) === 'tools' && isUsableNode(n)).length;
+    const buildSpeed = clamp((0.6 + 0.4 * Math.min(1, ratio(techs, reqTechs)) + 0.1 * Math.max(0, techs - reqTechs)) * (1 + Math.min(0.3, 0.03 * toolCount)), 0.6, 2.6);
+    const repairSpeed = clamp((0.3 + 0.7 * Math.min(1, ratio(techs, reqTechs)) + 0.15 * Math.max(0, techs - reqTechs)) * (1 + Math.min(0.5, 0.06 * toolCount)), 0.3, 3.2);
     const capMult = clamp(0.88 + 0.12 * Math.min(1, ratio(engs, reqEngs)) + 0.04 * Math.max(0, engs - reqEngs), 0.88, 1.35);
     const supR = Math.min(1, ratio(sups, reqSups));
     const satDecayRate = 0.25 * (1 - 0.45 * supR);
@@ -234,13 +250,15 @@
       installPoints: genInstallPoints,
       mapSeed: s,
       map: gen ? { river: gen.river, bridges: gen.bridges, roads: gen.roads, parks: gen.parks } : null,
+      // ساختمان‌های پراکندهٔ خارج از مناطق: تقاضا/مشترک تجمیعی (هر جای نقشه به‌جز رودخانه)
+      scattered: { subscribers: 0, demand: 0, servedDemand: 0, qos: 0, satisfaction: 0, revenue: 0, potentialSubs: 0, buildingCount: 0, coveredCount: 0 },
     };
 
     // مناطق runtime
     const growthCfg = DATA.growth || {};
     const capMult = growthCfg.capMultiplier || {};
     state.districts = genDistricts.map((d) => ({
-      id: d.id, name: d.name, type: d.type, x: d.x, y: d.y, radius: d.radius,
+      id: d.id, name: d.name, type: d.type, x: d.x, y: d.y, radius: d.radius, baseRadius: d.radius,
       buildingCap: Math.max(1, Math.round(genBuildings.filter((b) => b.districtId === d.id).length * (capMult[d.type] || 1.5))),
       population: d.population, demandBase: d.demandBase,
       priceSensitivity: d.priceSensitivity, potentialRevenue: d.potentialRevenue,
@@ -427,7 +445,7 @@
   function servingNodeForDistrict(state, district) {
     let best = null, bestScore = -1;
     for (const n of state.nodes) {
-      if (!ACCESS_TYPES.includes(n.type)) continue;
+      if (!isAccessNode(n)) continue;
       if (!isUsableNode(n)) continue;
       const d = dist(district.x, district.y, n.x, n.y);
       const reach = (n.radius || 0) + district.radius * 0.6;
@@ -535,7 +553,7 @@
       d.demand = d.demandBase * (1 + d.subscribers / Math.max(1, d.population));
       // گره‌های دسترسی متصلِ پوشش‌دهنده
       const servers = state.nodes.filter((n) =>
-        ACCESS_TYPES.includes(n.type) && n.connected && isUsableNode(n) &&
+        isAccessNode(n) && n.connected && isUsableNode(n) &&
         dist(d.x, d.y, n.x, n.y) <= (n.radius || 0) + d.radius * 0.6);
       const cust = (state.customers || []).find((c) => c.districtId === d.id);
       if (!servers.length) {
@@ -610,18 +628,56 @@
       totalRevenue += d.revenue;
     }
 
+    // ---------- ساختمان‌های پراکندهٔ خارج از مناطق ----------
+    // هر جای نقشه به‌جز رودخانه (ساختمان‌ها هرگز در رودخانه ساخته نمی‌شوند) می‌تواند مشترک بگیرد:
+    // ساختمانِ زیر پوشش یک گره دسترسیِ متصل، با همان قواعد ظرفیت/کیفیت مناطق.
+    if (!state.scattered) state.scattered = { subscribers: 0, demand: 0, servedDemand: 0, qos: 0, satisfaction: 0, revenue: 0, potentialSubs: 0, buildingCount: 0, coveredCount: 0 };
+    const sc = state.scattered;
+    const outsideBuildings = (state.buildings || []).filter((b) => !b.districtId);
+    sc.buildingCount = outsideBuildings.length;
+    sc.potentialSubs = outsideBuildings.length * 6; // میانگین خانوار هر ساختمان پراکنده
+    sc.demand = Math.round(sc.potentialSubs * 1.2); // Mbps بالقوه
+    const accessNodes = state.nodes.filter((n) => isAccessNode(n) && n.connected && isUsableNode(n));
+    let coveredCount = 0;
+    const coveringCaps = new Map();
+    for (const b of outsideBuildings) {
+      const cx = b.x + (b.w || 26) / 2, cy = b.y + (b.h || 20) / 2;
+      for (const n of accessNodes) {
+        if (dist(cx, cy, n.x, n.y) <= (n.radius || 0)) { coveredCount++; coveringCaps.set(n.id, n.capacity || 0); break; }
+      }
+    }
+    sc.coveredCount = coveredCount;
+    const coveredFrac = outsideBuildings.length ? coveredCount / outsideBuildings.length : 0;
+    const capSum = Array.from(coveringCaps.values()).reduce((a, b) => a + b, 0);
+    sc.servedDemand = Math.round(Math.min(sc.demand * coveredFrac, capSum));
+    sc.qos = sc.demand > 0 ? clamp(sc.servedDemand / sc.demand, 0, 1) : 0;
+    // رشد مشترک بر اساس کیفیتِ بخشِ تحت پوشش است (نه کل تقاضای پراکنده) تا یک آنتنِ
+    // روستایی هم مشترک بگیرد؛ رضایت اما با نسبت کل سنجیده می‌شود (مثل مناطق بی‌سرویس)
+    const coveredDemand = sc.demand * coveredFrac;
+    const qosCovered = coveredDemand > 0 ? clamp(sc.servedDemand / coveredDemand, 0, 1) : 0;
+    const potentialCovered = coveredCount * 6;
+    if (qosCovered >= 0.12) sc.subscribers = Math.min(potentialCovered, sc.subscribers + Math.max(1, Math.ceil(potentialCovered * 0.01 * qosCovered * fx.growthMult)));
+    else if (qosCovered < 0.05) sc.subscribers = Math.max(0, Math.floor(sc.subscribers * fx.churnKeepLowQos));
+    const scTarget = sc.qos * 100;
+    const scRate = scTarget >= sc.satisfaction ? fx.satRecoveryRate : fx.satDecayRate;
+    sc.satisfaction = clamp(sc.satisfaction + (scTarget - sc.satisfaction) * scRate, 0, 100);
+    const homePkg = (state.packages || []).find((p) => p.id === 'home');
+    sc.revenue = Math.round(sc.subscribers * (homePkg ? homePkg.price : 120) * (0.4 + 0.6 * (sc.satisfaction / 100)));
+    totalRevenue += sc.revenue;
+
     const summary = {
       monthlyRevenue: totalRevenue,
       avgQoS: state.districts.length ? qosSum / state.districts.length : 0,
       servedDistricts,
-      totalSubscribers: state.districts.reduce((s, d) => s + d.subscribers, 0),
+      totalSubscribers: state.districts.reduce((s, d) => s + d.subscribers, 0) + sc.subscribers,
       congestedLinks: state.links.filter((l) => l.status === 'congested').length,
     };
     state.lastFlow = summary;
-    // فیلدهای کمکی UI: رضایت کلی (میانگین وزن‌دار با جمعیت؛ مناطق بدون سرویس ~۰)
-    const totalPop = state.districts.reduce((s, d) => s + (d.population || 0), 0);
+    // فیلدهای کمکی UI: رضایت کلی (میانگین وزن‌دار با جمعیت؛ مناطق بدون سرویس ~۰؛ پراکنده‌ها با وزن جمعیت تقریبی)
+    const scatteredPop = sc.potentialSubs * 3;
+    const totalPop = state.districts.reduce((s, d) => s + (d.population || 0), 0) + scatteredPop;
     state.satisfaction = totalPop > 0
-      ? Math.round(state.districts.reduce((s, d) => s + d.satisfaction * (d.population || 0), 0) / totalPop) : 0;
+      ? Math.round((state.districts.reduce((s, d) => s + d.satisfaction * (d.population || 0), 0) + sc.satisfaction * scatteredPop) / totalPop) : 0;
     let monthlyCosts = 0;
     for (const n of state.nodes) { const eq = getEq(n.type); if (eq && n.status !== 'building') monthlyCosts += eq.monthlyCost || 0; }
     for (const st of state.staff) monthlyCosts += st.salary || 0;
@@ -668,7 +724,7 @@
     };
     for (const d of state.districts) {
       if (d.qos >= 0.5) continue;
-      const servers = state.nodes.filter((n) => ACCESS_TYPES.includes(n.type) &&
+      const servers = state.nodes.filter((n) => isAccessNode(n) &&
         dist(d.x, d.y, n.x, n.y) <= (n.radius || 0) + d.radius * 0.6);
       const anyConnected = servers.some((n) => n.connected);
       if (!servers.length) {
@@ -747,8 +803,8 @@
 
   // ---------- آموزش و مأموریت‌ها ----------
   function updateTutorial(state) {
-    const hasAccess = state.nodes.some((n) => ACCESS_TYPES.includes(n.type));
-    const hasConnectedAccess = state.nodes.some((n) => ACCESS_TYPES.includes(n.type) && n.connected);
+    const hasAccess = state.nodes.some((n) => isAccessNode(n));
+    const hasConnectedAccess = state.nodes.some((n) => isAccessNode(n) && n.connected);
     const anyServed = state.districts.some((d) => d.qos >= 0.5);
     const hasTech = (state.techsUnlocked || []).length > 0;
     const hasStaff = (state.staff || []).length > 0;
@@ -765,13 +821,13 @@
   }
 
   function checkMissions(state) {
-    const totalSubs = state.districts.reduce((s, d) => s + d.subscribers, 0);
+    const totalSubs = state.districts.reduce((s, d) => s + d.subscribers, 0) + ((state.scattered && state.scattered.subscribers) || 0);
     for (const m of state.missions) {
       if (m.done) continue;
       const g = m.goal || {};
       let ok = false;
-      if (g.type === 'build_access') ok = state.nodes.filter((n) => ACCESS_TYPES.includes(n.type)).length >= (g.count || 1);
-      else if (g.type === 'connect_access') ok = state.nodes.filter((n) => ACCESS_TYPES.includes(n.type) && n.connected).length >= (g.count || 1);
+      if (g.type === 'build_access') ok = state.nodes.filter((n) => isAccessNode(n)).length >= (g.count || 1);
+      else if (g.type === 'connect_access') ok = state.nodes.filter((n) => isAccessNode(n) && n.connected).length >= (g.count || 1);
       else if (g.type === 'district_qos') ok = state.districts.filter((d) => d.qos >= (g.qos || 0.5)).length >= (g.count || 1);
       else if (g.type === 'subscribers') ok = totalSubs >= (g.count || 0);
       else if (g.type === 'unlock_tech') ok = (state.techsUnlocked || []).length >= (g.count || 1);
@@ -880,6 +936,109 @@
         break;
       }
     }
+
+    // ساختمان‌های پراکندهٔ خارج از مناطق هم به‌تدریج زیاد می‌شوند (تا سقف کل)
+    const outsideCap = (DATA.growth && DATA.growth.outsideCap) || 320;
+    const outsideRate = (DATA.growth && DATA.growth.outsideRate) || 0.3;
+    const outsideCount = state.buildings.filter((b) => !b.districtId).length;
+    if (outsideCount < outsideCap && rand(state) < Math.min(1, outsideRate * dtDays)) {
+      for (let attempt = 0; attempt < 60; attempt++) {
+        const w = 22 + Math.floor(rand(state) * 30);
+        const h = 22 + Math.floor(rand(state) * 30);
+        const x = Math.round(10 + rand(state) * (W - w - 20));
+        const y = Math.round(10 + rand(state) * (H - h - 20));
+        const cx = x + w / 2, cy = y + h / 2;
+        if (state.districts.some((d) => dist(cx, cy, d.x, d.y) < d.radius + 30)) continue;
+        if (rectHitsRoad(state, x, y, w, h)) continue;
+        if (rectHitsRiver(state, x, y, w, h)) continue;
+        if (rectOverlaps(x, y, w, h, state.buildings, state.nodes)) continue;
+        const bType = rand(state) < 0.7 ? 'residential' : (rand(state) < 0.5 ? 'industrial' : 'commercial');
+        const palette = palettes[bType] || palettes.residential || ['#5b6b82'];
+        state.counters.building = (state.counters.building || state.buildings.length) + 1;
+        state.buildings.push({
+          id: 'b' + state.counters.building,
+          districtId: null,
+          x, y, w, h,
+          height: 1 + Math.floor(rand(state) * 4),
+          type: bType,
+          color: palette[Math.floor(rand(state) * palette.length)],
+        });
+        break;
+      }
+    }
+  }
+
+  // ---------- اندازهٔ پویای مناطق + ادغام ----------
+  // شعاع هر منطقه با تعداد مشترکانش کم‌وزیاد می‌شود (۰٫۷× تا ۱٫۶× شعاع پایه، تدریجی).
+  // رشد هرگز از مرز همسایه رد نمی‌شود (بدون هم‌پوشانی)؛ اگر دو منطقهٔ مجاور هر دو پرمشترک
+  // باشند و شعاع مطلوبشان به هم برسد، در هم ادغام می‌شوند (منطقهٔ بزرگ‌تر/مرکز شهر می‌ماند).
+  const DISTRICT_GAP = 40;
+  function desiredRadius(d) {
+    const base = d.baseRadius || d.radius || 300;
+    const maxSubs = Math.max(1, (d.population || 1) * 0.35);
+    const ratio = clamp((d.subscribers || 0) / maxSubs, 0, 1);
+    return base * (0.7 + 0.9 * ratio);
+  }
+  function capRadiusByNeighbors(state, d, target) {
+    for (const o of state.districts) {
+      if (o === d) continue;
+      const dd = dist(d.x, d.y, o.x, o.y);
+      target = Math.min(target, Math.max(120, dd - o.radius - DISTRICT_GAP));
+    }
+    return target;
+  }
+  function mergeDistricts(state, a, b) {
+    // بازمانده: «مرکز شهر» همیشه می‌ماند؛ وگرنه منطقهٔ پرجمعیت‌تر (نامش هم می‌ماند)
+    let keep = a, drop = b;
+    if (b.id === 'center' || (a.id !== 'center' && b.population > a.population)) { keep = b; drop = a; }
+    const keepPop = keep.population || 0, dropPop = drop.population || 0;
+    const totalPop = Math.max(1, keepPop + dropPop);
+    keep.x = Math.round((keep.x * keepPop + drop.x * dropPop) / totalPop);
+    keep.y = Math.round((keep.y * keepPop + drop.y * dropPop) / totalPop);
+    keep.radius = Math.round(Math.sqrt(Math.pow(keep.radius || 0, 2) + Math.pow(drop.radius || 0, 2))); // حفظ مساحت
+    keep.baseRadius = Math.round(Math.sqrt(Math.pow(keep.baseRadius || keep.radius, 2) + Math.pow(drop.baseRadius || drop.radius, 2)));
+    keep.population = totalPop;
+    keep.demandBase = (keep.demandBase || 0) + (drop.demandBase || 0);
+    keep.subscribers = (keep.subscribers || 0) + (drop.subscribers || 0);
+    keep.potentialRevenue = (keep.potentialRevenue || 0) + (drop.potentialRevenue || 0);
+    keep.buildingCap = (keep.buildingCap || 0) + (drop.buildingCap || 0);
+    keep.satisfaction = Math.round(((keep.satisfaction || 0) * keepPop + (drop.satisfaction || 0) * dropPop) / totalPop);
+    keep.everServed = keep.everServed || drop.everServed;
+    for (const bl of (state.buildings || [])) if (bl.districtId === drop.id) bl.districtId = keep.id;
+    const keepCust = (state.customers || []).find((c) => c.districtId === keep.id);
+    const dropCust = (state.customers || []).find((c) => c.districtId === drop.id);
+    if (keepCust && dropCust) keepCust.count = (keepCust.count || 0) + (dropCust.count || 0);
+    state.customers = (state.customers || []).filter((c) => c.districtId !== drop.id);
+    state.districts = state.districts.filter((d) => d.id !== drop.id);
+    // شعاع ادغام‌شده فوراً با همسایه‌ها محدود شود تا هم‌پوشانی نماند
+    keep.radius = Math.round(capRadiusByNeighbors(state, keep, keep.radius));
+    log(state, 'دو منطقهٔ «' + keep.name + '» و «' + drop.name + '» با رشد مشترکان به هم پیوستند و یکی شدند.', 'event');
+    return keep;
+  }
+  function updateDistrictSizes(state, dtDays) {
+    const ds = state.districts || [];
+    for (const d of ds) {
+      if (!d.baseRadius) d.baseRadius = d.radius;
+      const target = capRadiusByNeighbors(state, d, desiredRadius(d));
+      const step = Math.max(1, d.radius * 0.03 * dtDays);
+      if (d.radius < target) d.radius = Math.min(target, d.radius + step);
+      else if (d.radius > target) d.radius = Math.max(target, d.radius - step);
+      d.radius = Math.round(d.radius);
+    }
+    // ادغام: هر دو پرمشترک و شعاع مطلوبشان به هم می‌رسد (حداکثر یک ادغام در هر تیک)
+    for (let i = 0; i < ds.length; i++) {
+      for (let j = i + 1; j < ds.length; j++) {
+        const a = ds[i], b = ds[j];
+        const ratioA = (a.subscribers || 0) / Math.max(1, (a.population || 1) * 0.35);
+        const ratioB = (b.subscribers || 0) / Math.max(1, (b.population || 1) * 0.35);
+        if (ratioA < 0.55 || ratioB < 0.55) continue;
+        const dd = dist(a.x, a.y, b.x, b.y);
+        if (desiredRadius(a) + desiredRadius(b) + DISTRICT_GAP > dd) {
+          mergeDistricts(state, a, b);
+          return;
+        }
+      }
+    }
   }
 
   function tick(state, dtDays) {
@@ -915,14 +1074,18 @@
     }
 
     // خرابی‌های تصادفی کوچک (هسته و دروازه در مرکز داده محافظت‌شده‌اند)
+    // سامانه‌های برق (دستهٔ power) از گره‌های نزدیک محافظت می‌کنند: خرابی کمتر، فرسودگی کندتر
     const isHQ = (n) => n && (n.type === 'core_router' || n.type === 'internet_gateway');
+    const powerNodes = state.nodes.filter((n) => nodeCategory(n) === 'power' && isUsableNode(n));
+    const isProtected = (n) => powerNodes.some((p) => p.id !== n.id && dist(n.x, n.y, p.x, p.y) <= (p.radius || 0));
     for (const n of state.nodes) {
       if (isHQ(n)) continue;
-      if (n.status === 'active' && rand(state) < 0.002 * dtDays) {
+      const prot = isProtected(n);
+      if (n.status === 'active' && rand(state) < 0.002 * dtDays * (prot ? 0.3 : 1)) {
         n.status = 'failed'; n.health = 0;
         log(state, 'گره «' + (n.name || 'نامشخص') + '» خراب شد.', 'error');
       } else if (n.status === 'active') {
-        n.health = clamp(n.health - 0.1 * dtDays, 10, 100);
+        n.health = clamp(n.health - 0.1 * dtDays * (prot ? 0.5 : 1), 10, 100);
       }
     }
     for (const l of state.links) {
@@ -950,6 +1113,9 @@
 
     // رشد تدریجی شهر: ساختمان‌های جدید در مناطق
     growCity(state, dtDays);
+
+    // اندازهٔ پویای مناطق بر اساس مشترکان + ادغام مناطق مجاور پرمشترک
+    updateDistrictSizes(state, dtDays);
 
     // حساب ماهانه (هر ۳۰ روز): فقط هزینه‌ها کسر می‌شوند؛ درآمد روزانه قبلاً واریز شده است
     if (state.day - state.lastMonthDay >= 30) {
@@ -1200,14 +1366,16 @@
     if (!state.counters.building) state.counters.building = state.buildings.length;
     if (state.monthRevenue == null) state.monthRevenue = 0;
     const capMult = (DATA.growth && DATA.growth.capMultiplier) || {};
+    if (!state.scattered) state.scattered = { subscribers: 0, demand: 0, servedDemand: 0, qos: 0, satisfaction: 0, revenue: 0, potentialSubs: 0, buildingCount: 0, coveredCount: 0 };
     for (const d of (state.districts || [])) {
+      if (!d.baseRadius) d.baseRadius = d.radius;
       if (!d.buildingCap) {
         const initial = (DATA.buildings || []).filter((b) => b.districtId === d.id).length;
         d.buildingCap = Math.max(1, Math.round(initial * (capMult[d.type] || 1.5)));
       }
       if (!d.techDemand) {
         const srv = (state.nodes || []).filter((n) =>
-          ACCESS_TYPES.includes(n.type) && n.connected && isUsableNode(n) &&
+          isAccessNode(n) && n.connected && isUsableNode(n) &&
           dist(d.x, d.y, n.x, n.y) <= (n.radius || 0) + d.radius * 0.6);
         d.techDemand = computeTechDemand(d, srv, 1);
       }
@@ -1225,6 +1393,10 @@
       }
       if (p.price == null && pkgDefaults[p.id]) p.price = pkgDefaults[p.id].price;
     }
+    // ذخیره‌های قدیمی ممکن است مناطق هم‌پوشان داشته باشند: شعاع‌ها یک‌بار با همسایه‌ها محدود شوند
+    for (const d of (state.districts || [])) {
+      d.radius = Math.round(capRadiusByNeighbors(state, d, d.radius));
+    }
     return state;
   }
 
@@ -1236,6 +1408,7 @@
     demolishNode, moveNode, isValidPlacement, hireStaff, fireStaff, staffEffects, updatePackage, applyFix,
     // کمکی‌ها
     nodeById, linkById, getEq, getTech, rand, ACCESS_TYPES, computeTechDemand, TECH_KEYS, speedTestAt,
+    isAccessNode, nodeCategory, updateDistrictSizes, mergeDistricts, desiredRadius,
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = GameSim;
