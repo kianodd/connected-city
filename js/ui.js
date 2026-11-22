@@ -16,18 +16,17 @@
   var pendingSuggestions = null; // last suggestPlacements list shown on map
   var lastLogLen = 0;
   var lastAlertCount = 0;
-  var contractCounter = {};  // offerId -> counterTerms from negotiateContract
   var campaignForm = { typeId: null, days: 14 };
 
   var TUTORIAL = [
-    { title: 'گام ۱: بررسی نقشه', text: 'به «شبکه‌ساز: شهر متصل» خوش آمدید! روی نقشه مناطق و ساختمان‌ها را ببینید. روی یک ساختمان کلیک کنید تا نیاز آن (کاربران و پهنای باند) نمایش داده شود. با دکمه‌های + و − یا کلیدهای + و − بزرگ‌نمایی کنید.' },
-    { title: 'گام ۲: نصب دستگاه دسترسی', text: 'از پنل «ابزار ساخت» یک دستگاه دسترسی مثل دکل سلولی 2G انتخاب کنید و روی نقشه نزدیک ساختمان‌ها قرار دهید. دستگاه بدون اتصال به شبکه هیچ سرویسی نمی‌دهد! اینترنت ثابت سیم‌کارتی TD-LTE هم فقط داخل پوشش شبکهٔ 4G و بالاتر کار می‌کند؛ پس در شروع بازی با دکل 2G شروع کنید و TD-LTE را بعد از ساخت دکل 4G داخل پوشش آن بگذارید. وای‌فای داخل ساختمان را خود مشترک‌ها راه می‌اندازند؛ کار شما رساندن اشتراک به ساختمان‌هاست.' },
-    { title: 'گام ۳: اتصال انتقال', text: 'ابزار «اتصال» را انتخاب کنید، روی دستگاه دسترسی و سپس روی یک گره تجمیع کلیک کنید و رسانه (فیبر/مسی/نقطه‌به‌نقطه) را انتخاب کنید تا لینک انتقال ساخته شود.' },
+    { title: 'گام ۱: بررسی نقشه', text: 'به «شبکه‌ساز: شهر متصل» خوش آمدید! بازی از سال ۱۹۹۱ شروع می‌شود و هر ۱۰ روزِ بازی یک سال جلو می‌رود؛ تجهیزات با رسیدن دورانشان در منوی ساخت ظاهر می‌شوند (فیبر ۱۹۹۵، 3G در ۲۰۰۱، FTTH در ۲۰۰۴، 4G در ۲۰۰۹، TD-LTE در ۲۰۱۲، 5G در ۲۰۱۹). روی نقشه مناطق و ساختمان‌ها را ببینید؛ فقط مرکز شهر و حاشیهٔ شمالی در شروع بازند و بقیهٔ مناطق با پرداخت هزینه باز می‌شوند.' },
+    { title: 'گام ۲: نصب دستگاه دسترسی', text: 'از پنل «ابزار ساخت» یک دستگاه دسترسی مثل دکل 2G انتخاب کنید و روی نقشه نزدیک ساختمان‌ها قرار دهید. دستگاه بدون اتصال به شبکه هیچ سرویسی نمی‌دهد! دکل‌ها فقط به مشترکان سرویس می‌دهند و ترافیک گره‌های دیگر از آن‌ها عبور نمی‌کند؛ بک‌هال هر دکل مستقیم به تجمیع/هسته وصل می‌شود. TD-LTE گرهٔ جدا ندارد: «ماژول TD-LTE» روی دکل 4G یا 5G نصب می‌شود و مشترکان ثابتِ داخل پوشش همان دکل از آن سرویس می‌گیرند.' },
+    { title: 'گام ۳: اتصال انتقال', text: 'ابزار «اتصال» را انتخاب کنید، روی دستگاه دسترسی و سپس روی یک گره تجمیع کلیک کنید و رسانه (فیبر/مسی/نقطه‌به‌نقطه) را انتخاب کنید تا لینک انتقال ساخته شود. مسیرهای بلند فیبر و مسی سیگنال از دست می‌دهند؛ «تقویت‌کننده سیگنال» در میانهٔ مسیر افت را جبران می‌کند.' },
     { title: 'گام ۴: اتصال هسته و دروازه', text: 'زنجیره باید کامل باشد: مشتری ← دسترسی ← تجمیع ← هسته ← دروازه اینترنت. گره تجمیع را به هسته و هسته را به دروازه وصل کنید تا اینترنت به شهر برسد.' },
-    { title: 'گام ۵: فعال‌سازی سرویس', text: 'حالا مسیر کامل است و مشتریان آنلاین می‌شوند. از پنل «بسته‌ها» قیمت و سرعت بسته‌ها را تنظیم کنید؛ قیمت بالاتر درآمد بیشتر اما تقاضای کمتر می‌دهد.' },
-    { title: 'گام ۶: بررسی ظرفیت و رفع مشکل', text: 'اگر لینک یا دستگاه اشباع شود، هشدار ظاهر می‌شود. روی گره مشکل‌دار کلیک کنید: علت مشکل و گزینه‌های رفع آن (ارتقا، لینک موازی، تغییر رسانه) نمایش داده می‌شود.' },
-    { title: 'گام ۷: گسترش به منطقه جدید', text: 'با درآمد حاصل، در مناطق دیگر شهر دستگاه نصب کنید و به شبکه وصل کنید. با «تحقیق و توسعه» فناوری‌های جدید مثل فیبر نوری و 5G را باز کنید.' },
-    { title: 'گام ۸: مسیر جایگزین (افزونگی)', text: 'برای جلوگیری از قطعی هنگام خرابی، بین گره‌های کلیدی یک مسیر دوم بسازید. اگر مسیر اصلی قطع شود، ترافیک از مسیر جایگزین (مثلاً لینک نقطه‌به‌نقطه) عبور می‌کند. موفق باشید!' }
+    { title: 'گام ۵: فعال‌سازی سرویس', text: 'حالا مسیر کامل است و مشتریان آنلاین می‌شوند. از پنل «بسته‌ها» قیمت و سرعت بسته‌ها را تنظیم کنید؛ قیمت بالاتر درآمد بیشتر اما تقاضای کمتر می‌دهد. انشعاب فیبر و مسی ساختمان‌ها رایگان است (هزینهٔ نصب با مشترک است)؛ انشعاب فیبر از سال ۲۰۰۴ ممکن است.' },
+    { title: 'گام ۶: بررسی ظرفیت و رفع مشکل', text: 'اگر لینک یا دستگاه اشباع شود، هشدار ظاهر می‌شود. روی گره مشکل‌دار کلیک کنید: علت مشکل و گزینه‌های رفع آن (نصب ماژول، لینک موازی، تغییر رسانه) نمایش داده می‌شود. هر گره اسلات ماژول دارد: ماژول افزایش ظرفیت، افزایش برد، پورت اضافه و TD-LTE.' },
+    { title: 'گام ۷: گسترش به منطقه جدید', text: 'با درآمد حاصل، مناطق قفل‌شدهٔ شهر را باز کنید (از پنل هر منطقه) و شبکه را گسترش دهید. با گذشت سال‌ها مردم فناوری دوران خودشان را می‌خواهند؛ ماندن روی فناوری قدیمی رضایت را کم می‌کند. صبح‌ها مردم از خانه به محل کار می‌روند و در مسیر به پوشش موبایل نیاز دارند؛ پالس‌های سبز/قرمز روی نقشه پوشش مسیر را نشان می‌دهند.' },
+    { title: 'گام ۸: مسیر جایگزین (افزونگی)', text: 'برای جلوگیری از قطعی هنگام خرابی، بین گره‌های کلیدی یک مسیر دوم بسازید. اگر مسیر اصلی قطع شود، ترافیک از مسیر جایگزین (مثلاً لینک نقطه‌به‌نقطه) عبور می‌کند. با ابزار «پینگ» تأخیر بین هر دو گره را ببینید. موفق باشید!' }
   ];
 
   function $(id) { return document.getElementById(id); }
@@ -128,6 +127,12 @@
     $('ui-cash').closest('.stat').classList.toggle('negative', state.cash < 0);
     var income = (state.finance && state.finance.incomePerDay != null) ? state.finance.incomePerDay : (state.incomePerDay || 0);
     $('ui-income').textContent = fmt(income) + ' /روز';
+    var yearEl = $('ui-year');
+    if (yearEl) {
+      var y = null;
+      try { if (window.GameSim && GameSim.yearOf) y = GameSim.yearOf(state); } catch (e) { y = null; }
+      yearEl.textContent = y != null ? faDigits(String(y)) : '—';
+    }
     $('ui-day').textContent = fmt(state.day || 1);
     var sat = state.satisfaction != null ? Math.round(state.satisfaction) + '٪' : '—';
     $('ui-satisfaction').textContent = sat;
@@ -196,7 +201,7 @@
   }
   function isUnlocked(item) {
     if (window.GameSim && GameSim.isUnlocked) return GameSim.isUnlocked(state, item && item.id ? item.id : item);
-    return !item.unlockTech && !item.tech;
+    return true;
   }
 
   var CAT_FA = { cable: 'کابل‌ها و اتصالات', access: 'دسترسی', antenna: 'آنتن‌ها', backhaul: 'انتقال', core: 'هسته و تجمیع', power: 'برق و پشتیبان', tools: 'ابزار و اندازه‌گیری' };
@@ -224,7 +229,7 @@
       groups[cat].forEach(function (it) {
         var locked = !isUnlocked(it);
         var sel = selectedTool === it.id ? ' selected' : '';
-        html += '<button class="build-item' + (locked ? ' locked' : '') + sel + '" data-equip="' + esc(it.id) + '"' + (locked ? ' title="قفل است — ابتدا فناوری لازم را در تحقیق و توسعه باز کنید"' : '') + '>' +
+        html += '<button class="build-item' + (locked ? ' locked' : '') + sel + '" data-equip="' + esc(it.id) + '"' + (locked ? ' title="هنوز در این دوران نیست — از سال ' + faDigits(String(it.era || '')) + ' در دسترس می‌شود"' : '') + '>' +
           '<span class="bi-icon">' + (CAT_ICONS[it.category] || ICONS.antenna) + '</span>' +
           '<span class="bi-main"><span class="bi-name">' + esc(it.name || it.id) + '</span><br><span class="bi-sub">' + esc(it.description || '') + '</span>' +
           (connectsText(it) ? '<br><span class="bi-conn">اتصال‌ها: ' + esc(connectsText(it)) + '</span>' : '') + '</span>' +
@@ -267,13 +272,6 @@
     if (!bld.length && !bldLegacy && eq.category === 'core') parts.push('به ساختمان مستقیم وصل نمی‌شود (از کابینت خیابانی استفاده کنید)');
     return parts.join(' — ');
   }
-  function techNameForEquip(item) {
-    var techs = (window.GAME_DATA && (GAME_DATA.techList || GAME_DATA.techs)) || [];
-    techs = Array.isArray(techs) ? techs : Object.values(techs);
-    var t = techs.find(function (x) { return (x.unlocks || []).indexOf(item.id) >= 0; }) ||
-      techs.find(function (x) { return x.id === item.unlock; });
-    return t ? (t.name || t.id) : (item.unlock || '');
-  }
   function openGuide(equipId) {
     var item = equipList().find(function (i) { return i.id === equipId; });
     if (!item) return;
@@ -288,7 +286,7 @@
       '<dt>ساخت</dt><dd>آنی</dd>' +
       '</dl>';
     if (connectsText(item)) html += '<h5>اتصال‌ها</h5><p class="guide-text">' + esc(connectsText(item)) + '</p>';
-    if (locked) html += '<div class="warn-box">' + ICONS.lock + ' این تجهیز قفل است. برای باز شدن، تحقیق «' + esc(techNameForEquip(item)) + '» را در بخش تحقیق و توسعه انجام دهید.</div>';
+    if (locked) html += '<div class="warn-box">' + ICONS.lock + ' این تجهیز هنوز در این دوران نیست؛ از سال ' + faDigits(String(item.era || '')) + ' در دسترس می‌شود. خط زمانی را از منو («دوران فناوری») ببینید.</div>';
     $('guide-body').innerHTML = html;
     $('guide-popover').classList.remove('hidden');
   }
@@ -298,6 +296,7 @@
     distance: 'فاصله زیاد', los: 'ساختمان‌های مسیر سیگنال را ضعیف کرده‌اند', no_path: 'مسیر تا دروازه نیست', no_fiber_drop: 'به فیبر متصل نیست',
     no_subscription: 'اشتراک ندارد (وای‌فای داخل ساختمان فقط با اشتراک فعال می‌شود)',
     no_network: 'بدون اتصال به شبکه (ساختمان به شبکه وصل نیست و در برد دکل متصلی هم نیست)',
+    no_tdlte_module: 'پوشش 4G هست ولی دکل «ماژول TD-LTE» ندارد',
     no_4g_coverage: 'خارج از پوشش 4G (TD-LTE فقط روی پوشش شبکهٔ 4G و بالاتر کار می‌کند)'
   };
   function runSpeedTest(wx, wy) {
@@ -309,11 +308,13 @@
       var e = res[t] || { speed: 0, reason: 'no_coverage' };
       var sub = e.nodeName ? esc(e.nodeName) : '';
       if (e.reason) sub += (sub ? ' — ' : '') + esc(SPEED_REASON_FA[e.reason] || e.reason);
+      var pingTxt = (e.latency != null) ? ('پینگ: ' + faDigits(String(Math.round(e.latency))) + ' میلی‌ثانیه' + (e.jitter != null ? ' (نوسان: ' + faDigits(String(e.jitter)) + ')' : '')) : '';
+      if (pingTxt) sub += (sub ? ' — ' : '') + pingTxt;
       html += '<div class="tech-row"><div class="tech-head"><span>' + esc(TECH_FA[t] || t) + '</span>' +
         '<span><strong>' + fmt(e.speed || 0) + ' Mbps</strong></span></div>' +
         (sub ? '<div class="muted tech-sub">' + sub + '</div>' : '') + '</div>';
     });
-    html += '<p class="muted">بدون اشتراک، سرویسی فعال نمی‌شود؛ این سرعت‌ها فقط برای مشترک است.</p>';
+    html += '<p class="muted">بدون اشتراک، سرویسی فعال نمی‌شود؛ این سرعت‌ها فقط برای مشترک است. TD-LTE پینگ پایدار و بدون نوسان دارد.</p>';
     $('speedtest-body').innerHTML = html;
     $('speedtest-popover').classList.remove('hidden');
   }
@@ -332,13 +333,14 @@
     }).join('') || '<p class="muted">راهنمایی ثبت نشده است.</p>';
   }
 
-  var moveNodeId = null, pendingDeleteId = null;
+  var moveNodeId = null, pendingDeleteId = null, pingFromId = null;
   function setMode(m) {
     mode = m; connectFirst = null; connectFromBuilding = null;
     if (m !== 'move') moveNodeId = null;
+    if (m !== 'ping') pingFromId = null;
     if (window.CityMap && CityMap.setPlacementMode) CityMap.setPlacementMode(m === 'place' || m === 'move');
-    ['tool-select', 'tool-demolish', 'tool-speedtest'].forEach(function (id) {
-      var b = $(id); if (b) b.classList.toggle('active', (m === 'select' && id === 'tool-select') || (m === 'demolish' && id === 'tool-demolish') || (m === 'speedtest' && id === 'tool-speedtest'));
+    ['tool-select', 'tool-demolish', 'tool-speedtest', 'tool-ping'].forEach(function (id) {
+      var b = $(id); if (b) b.classList.toggle('active', (m === 'select' && id === 'tool-select') || (m === 'demolish' && id === 'tool-demolish') || (m === 'speedtest' && id === 'tool-speedtest') || (m === 'ping' && id === 'tool-ping'));
     });
     var cancelBtn = $('btn-connect-cancel');
     if (cancelBtn) cancelBtn.classList.toggle('hidden', m !== 'connect');
@@ -349,6 +351,7 @@
       demolish: 'روی گره کلیک کنید تا حذف شود',
       move: 'روی محل جدید گره کلیک کنید (Esc برای لغو) — جابه‌جایی آنی است',
       speedtest: 'روی هر نقطه از نقشه کلیک کنید تا سرعت اتصال آنجا سنجیده شود',
+      ping: 'گرهٔ مبدأ پینگ را انتخاب کنید',
       select: ''
     };
     if (hints[m]) { hint.textContent = hints[m]; hint.classList.remove('hidden'); }
@@ -381,7 +384,7 @@
   function selectTool(equipId) {
     var item = equipList().find(function (i) { return i.id === equipId; });
     if (!item) return;
-    if (!isUnlocked(item)) { toast('این تجهیز قفل است. ابتدا فناوری لازم را در بخش تحقیق و توسعه باز کنید.', 'error'); return; }
+    if (!isUnlocked(item)) { toast('این تجهیز هنوز در این دوران نیست؛ از سال ' + faDigits(String(item.era || '')) + ' در دسترس می‌شود.', 'error'); return; }
     if (state && state.cash < (item.cost || 0)) { toast('نقدینگی کافی نیست. هزینه: ' + fmt(item.cost) + ' تومان', 'error'); return; }
     selectedTool = equipId;
     setMode('place');
@@ -396,12 +399,6 @@
     if (c4 && isUnlocked(c4)) return 'cell_4g';
     var c2 = list.find(function (i) { return i.id === 'cell_2g'; });
     if (c2 && isUnlocked(c2)) return 'cell_2g';
-    // TD-LTE فقط داخل پوشش 4G+ کار می‌کند: بدون دکل 4G/5G متصل پیشنهادش نده
-    var has4G = state && (state.nodes || []).some(function (n) {
-      return (n.type === 'cell_4g' || n.type === 'cell_5g') && n.connected && (n.status === 'active' || n.status === 'unconnected');
-    });
-    var fw = list.find(function (i) { return i.id === 'fwa_ap'; });
-    if (fw && isUnlocked(fw) && has4G) return 'fwa_ap';
     var anyAccess = list.find(function (i) { return (i.category === 'access') && isUnlocked(i); });
     return anyAccess ? anyAccess.id : null;
   }
@@ -506,6 +503,27 @@
       return;
     }
     if (mode === 'speedtest') { if (wx != null && wy != null) runSpeedTest(wx, wy); return; }
+    if (mode === 'ping') {
+      if (kind !== 'node' || id == null) { setMode('select'); toast('حالت پینگ لغو شد.', 'warn'); return; }
+      if (pingFromId == null) {
+        pingFromId = id;
+        toast('گرهٔ مقصد پینگ را انتخاب کنید.');
+        return;
+      }
+      var pr = (window.GameSim && GameSim.pingBetween) ? GameSim.pingBetween(state, pingFromId, id) : null;
+      if (!pr || pr.ok === false) {
+        toast((pr && pr.error) || 'پینگ انجام نشد.', 'error');
+        setMode('select');
+        return;
+      }
+      var phtml = '<div class="tech-row"><div class="tech-head"><span>پینگ (رفت‌وبرگشت)</span>' +
+        '<span><strong>' + faDigits(String(pr.ms)) + ' میلی‌ثانیه</strong></span></div>' +
+        '<div class="muted tech-sub">مسیر (' + faDigits(String(pr.hops)) + ' لینک): ' + (pr.pathNames || []).map(esc).join(' ← ') + '</div></div>';
+      $('ping-body').innerHTML = phtml;
+      $('ping-popover').classList.remove('hidden');
+      setMode('select');
+      return;
+    }
     if (id == null) {
       if (mode === 'connect') { setMode('select'); toast('حالت اتصال لغو شد.', 'warn'); return; } // empty tap cancels connect
       if (mode === 'select') selectNode(null, kind);
@@ -552,7 +570,7 @@
     ];
     var box = $('medium-options');
     box.innerHTML = media.map(function (m) {
-      var locked = m.unlockTech && GameSim.isUnlocked && !GameSim.isUnlocked(state, m);
+      var locked = false; // رسانه‌ها دوران ندارند؛ همه از اول در دسترس‌اند
       return '<button class="btn" style="display:block;width:100%;margin:6px 0;text-align:right" data-medium="' + esc(m.id) + '"' + (locked ? ' disabled' : '') + '>' +
         esc(m.name || m.id) + ' — ظرفیت ' + fmt(m.capacity || 0) + ' Mbps' + (locked ? ' ' + ICONS.lock : '') + '</button>';
     }).join('');
@@ -705,19 +723,23 @@
     });
   }
 
-  // ردیف‌های ترجیح نوع اینترنت (رتبه‌بندی‌شده با درصد و نوار) — رنگ‌ها همان لایهٔ تقاضای فناوری روی نقشه
+  // ترجیح اینترنت: هر ساختمان فقط «یک» نوع فعال دارد (برچسب تک)؛ منطقه شمار ساختمان‌ها را نشان می‌دهد
+  var PREF_FA = { fiber: 'فیبر/مسی', cellular: 'سلولار', fwa: 'TD-LTE' };
+  var PREF_COLOR = { fiber: '#22d3ee', cellular: '#3fb950', fwa: '#fb923c' };
   function prefHtml(pref) {
     if (!pref) return '';
-    var TECH_FA = { fiber: 'فیبر/مسی', cellular: 'سلولار', fwa: 'TD-LTE' };
-    var TECH_COLOR = { fiber: '#22d3ee', cellular: '#3fb950', fwa: '#fb923c' };
-    var rows = ['fiber', 'cellular', 'fwa'].map(function (t) {
-      return { t: t, pct: Math.round((pref[t] || 0) * 100) };
-    }).sort(function (a, b) { return b.pct - a.pct; });
+    if (pref.type) {
+      return '<div class="tech-row"><div class="tech-head"><span><span class="tech-dot" style="background:' + (PREF_COLOR[pref.type] || '#888') + '"></span>' + esc(PREF_FA[pref.type] || pref.type) + '</span>' +
+        '<span class="muted">نوع ترجیحی این ساختمان</span></div></div>';
+    }
+    // شمار ساختمان‌های منطقه به تفکیک نوع ترجیحی (وزن‌دار با حجم ساختمان)
+    var total = Math.max(1, pref.total || ((pref.fiber || 0) + (pref.cellular || 0) + (pref.fwa || 0)));
     var out = '';
-    rows.forEach(function (r) {
-      out += '<div class="tech-row"><div class="tech-head"><span><span class="tech-dot" style="background:' + (TECH_COLOR[r.t] || '#888') + '"></span>' + esc(TECH_FA[r.t] || r.t) + '</span>' +
-        '<span class="muted">' + fmt(r.pct) + '٪</span></div>' +
-        '<div class="cap-bar"><div class="cap-fill" style="width:' + r.pct + '%;background:' + (TECH_COLOR[r.t] || '#888') + '"></div></div></div>';
+    ['fiber', 'cellular', 'fwa'].forEach(function (t) {
+      var share = Math.round(((pref[t] || 0) / total) * 100);
+      out += '<div class="tech-row"><div class="tech-head"><span><span class="tech-dot" style="background:' + (PREF_COLOR[t] || '#888') + '"></span>' + esc(PREF_FA[t] || t) + '</span>' +
+        '<span class="muted">سهم ' + fmt(share) + '٪ ساختمان‌ها</span></div>' +
+        '<div class="cap-bar"><div class="cap-fill" style="width:' + share + '%;background:' + (PREF_COLOR[t] || '#888') + '"></div></div></div>';
     });
     return out;
   }
@@ -739,6 +761,7 @@
       html += '<dl class="kv">' +
         '<dt>نوع ساختمان</dt><dd>' + esc(BTYPE_FA[n.type] || 'ساختمانی') + '</dd>' +
         '<dt>طبقات</dt><dd>' + fmt(n.height || 1) + '</dd>' +
+        '<dt>ساکنان</dt><dd>' + fmt((window.GameSim && GameSim.buildingResidents) ? GameSim.buildingResidents(state, n) : 1) + ' نفر</dd>' +
         '<dt>منطقه</dt><dd>' + esc(bDist ? bDist.name : 'خارج از مناطق (پراکنده)') + '</dd>' +
         (n.height >= 10 ? '<dt>اثر بر پوشش</dt><dd>ساختمان بلند است؛ فقط دید لینک‌های نقطه‌به‌نقطه (PtP) را مخدوش می‌کند (روی سیگنال سلولار اثری ندارد؛ برای TD-LTE/وای‌فای فقط چند درصد افت سیگنال)</dd>' : '') +
         '</dl>';
@@ -790,7 +813,7 @@
           html += '<span class="status-bad">به شبکه سیمی متصل نیست</span>' +
             '<button class="btn sm primary" data-wired-connect="fiber" data-building="' + esc(n.id) + '">' + ICONS.cable + ' اتصال به فیبر</button>' +
             '<button class="btn sm" data-wired-connect="copper" data-building="' + esc(n.id) + '">' + ICONS.cable + ' اتصال به سیم مسی</button>' +
-            '<span class="muted">بعد از زدن دکمه، روی یک کابینت خیابانی متصل نزدیک ساختمان ضربه بزنید. فیبر تا شعاع ۱۸۰ واحد؛ سیم مسی (DSL تا حدود ۱۰۰ مگابیت، ارزان‌تر) تا شعاع ۱۲۰ واحد. هزینه و زمان بر اساس فاصله است.</span>';
+            '<span class="muted">بعد از زدن دکمه، روی یک کابینت خیابانی یا گره FTTH متصل نزدیک ساختمان ضربه بزنید. فیبر تا شعاع ۱۸۰ واحد (از کابینت) یا ۴۰۰ واحد (از FTTH)؛ سیم مسی (DSL تا حدود ۱۰۰ مگابیت) تا شعاع ۱۲۰ واحد. انشعاب برای شما رایگان است (هزینهٔ نصب با مشترک است) و آنی وصل می‌شود؛ انشعاب فیبر از سال ۲۰۰۴ ممکن است.</span>';
         }
         html += '</div>';
       }
@@ -816,6 +839,11 @@
       var lb = (state.nodes || []).find(function (x) { return String(x.id) === String(n.to); });
       var medName = ((window.GAME_DATA && GAME_DATA.linkMedia && GAME_DATA.linkMedia[n.medium]) || {}).name || n.medium || 'ارتباطی';
       var linkLevel = n.level || 1;
+      var linkMs = null, linkAtt = null;
+      try {
+        if (window.GameSim && GameSim.linkLatency) linkMs = Math.round(GameSim.linkLatency(n, la, lb) * 2 * 10) / 10;
+        if (window.GameSim && GameSim.linkAttenuation) linkAtt = GameSim.linkAttenuation(state, n, la, lb);
+      } catch (e) { /* ignore */ }
       html += '<dl class="kv">' +
         '<dt>نوع اتصال</dt><dd>' + esc(medName) + (n.isBackup ? ' (پشتیبان)' : '') + '</dd>' +
         '<dt>از</dt><dd>' + esc((la && la.name) || '—') + '</dd>' +
@@ -823,8 +851,16 @@
         '<dt>سطح لینک</dt><dd>' + fmt(linkLevel) + ' از ' + fmt((window.GameSim && GameSim.LINK_MAX_LEVEL) || 5) + '</dd>' +
         '<dt>ظرفیت</dt><dd>' + fmt(n.capacity || 0) + ' Mbps</dd>' +
         '<dt>مصرف فعلی</dt><dd>' + fmt(Math.round(n.usage || 0)) + ' Mbps</dd>' +
+        (linkMs != null ? '<dt>تأخیر (پینگ)</dt><dd>' + faDigits(String(linkMs)) + ' میلی‌ثانیه</dd>' : '') +
+        (linkAtt != null && linkAtt < 1 ? '<dt>افت سیگنال</dt><dd>ظرفیت مؤثر ' + fmt(Math.round(linkAtt * 100)) + '٪ (مسیر بلند)</dd>' : '') +
         '<dt>وضعیت</dt><dd>' + esc(STATUS_FA[n.status] || n.status || '—') + '</dd>' +
         '</dl>';
+      if (linkAtt != null && linkAtt < 0.8) {
+        html += '<div class="warn-box">' + ICONS.warn + ' این مسیر بلند است و سیگنال از دست می‌دهد؛ یک «تقویت‌کننده سیگنال» در میانهٔ مسیر نصب کنید.</div>';
+      }
+      if (n.status === 'congested') {
+        html += '<div class="warn-box">' + ICONS.warn + ' این لینک اشباع شده است؛ ظرفیتش را ارتقا دهید یا لینک موازی بسازید.</div>';
+      }
       // تغییر نوع لینک
       var chOpts = [];
       try { chOpts = (window.GameSim && GameSim.linkChangeOptions) ? GameSim.linkChangeOptions(state, n.id) : []; } catch (e) { chOpts = []; }
@@ -877,7 +913,11 @@
       var TYPE_FA = { commercial: 'تجاری', residential: 'مسکونی', dense: 'پرتراکم', sparse: 'کم‌تراکم', industrial: 'صنعتی', landmark: 'مرکز مهم',
         academic: 'دانشگاهی', medical: 'درمانی', heavy_industrial: 'صنعتی سنگین', tourism: 'گردشگری', transport: 'حمل‌ونقل', villa: 'ویلایی', slum: 'حاشیه‌نشین', government: 'اداری' };
       var qosPct = Math.round((n.qos || 0) * 100);
-      if (n.connected && (n.subscribers || 0) > 0) {
+      if (n.unlocked === false) {
+        var unlockCost = (window.GameSim && GameSim.districtUnlockCost) ? GameSim.districtUnlockCost(n) : 0;
+        html += '<div class="warn-box">' + ICONS.lock + ' این منطقه هنوز باز نشده است؛ در آن نمی‌شود ساخت و آمارش در رضایت کل شهر حساب نمی‌شود.</div>' +
+          '<button class="btn primary" data-unlock-district="' + esc(n.id) + '">باز کردن منطقه — ' + fmt(unlockCost) + ' تومان</button>';
+      } else if (n.connected && (n.subscribers || 0) > 0) {
         html += '<p class="status-ok"><span class="dot-ok"></span>دارای سرویس</p>';
       } else if (n.connected) {
         html += '<p class="status-warn"><span class="dot-ok"></span>تحت پوشش — هنوز مشترکی ندارد (سرویس فقط با اشتراک فعال می‌شود)</p>';
@@ -896,7 +936,10 @@
         '<dt>رضایت</dt><dd>' + fmt(Math.round(n.satisfaction || 0)) + '٪</dd>' +
         '<dt>درآمد ماهانه</dt><dd>' + fmt(n.revenue) + ' تومان</dd>' +
         (n.avgLatency != null ? '<dt>تأخیر میانگین</dt><dd>' + fmt1(n.avgLatency) + ' ms</dd>' : '') +
+        (n.jitter != null ? '<dt>نوسان تأخیر (جیتر)</dt><dd>' + fmt(n.jitter) + ' ms</dd>' : '') +
         (n.perSubMbps != null ? '<dt>سرعت هر مشترک</dt><dd>' + fmt1(n.perSubMbps) + ' Mbps</dd>' : '') +
+        (n.type === 'residential' && n.commuteCoverage != null ? '<dt>پوشش مسیر رفت‌وآمد</dt><dd>' + fmt(Math.round(n.commuteCoverage * 100)) + '٪ (مسیر خانه↔کار)</dd>' : '') +
+        (n.eraFactor != null && n.eraFactor < 1 ? '<dt>انتظار دوران</dt><dd>فناوری این منطقه از دوران فعلی عقب است (رضایت کمتر)</dd>' : '') +
         '</dl>';
       html += '<div class="cap-bar"><div class="cap-fill ' + (qosPct < 30 ? 'hot' : qosPct < 60 ? 'warm' : '') + '" style="width:' + qosPct + '%"></div></div>';
       // تقاضا به تفکیک فناوری: سهم هر فناوری از تقاضا و بخش سرویس‌گرفته‌اش
@@ -935,15 +978,15 @@
       html += connected
         ? '<p class="status-ok"><span class="dot-ok"></span>متصل به شبکه</p>'
         : '<div class="warn-box">' + ICONS.warn + ' متصل نیست — این دستگاه به هسته/دروازه مسیر ندارد و هیچ سرویسی ارائه نمی‌دهد. با دکمهٔ «اتصال» آن را وصل کنید.</div>';
-      // TD-LTE فقط روی پوشش شبکهٔ 4G و بالاتر سرویس می‌دهد
-      if (n.type === 'fwa_ap') {
-        var fed = null;
-        try { fed = (window.GameSim && GameSim.tdlteFed) ? GameSim.tdlteFed(state, n) : n._tdlteFed; } catch (e) { fed = n._tdlteFed; }
-        html += fed
-          ? '<p class="status-ok"><span class="dot-ok"></span>TD-LTE: داخل پوشش 4G — سرویس می‌دهد</p>'
-          : '<div class="warn-box">' + ICONS.warn + ' خارج از پوشش 4G — سرویس نمی‌دهد. TD-LTE فقط داخل پوشش شبکهٔ 4G و بالاتر کار می‌کند؛ نزدیک این آنتن یک دکل 4G یا 5G متصل بسازید یا آنتن را به داخل پوشش 4G جابه‌جا کنید.</div>';
+      // وضعیت ماژول TD-LTE روی دکل 4G/5G
+      if (n.type === 'cell_4g' || n.type === 'cell_5g') {
+        var hasTdlte = Array.isArray(n.modules) && n.modules.indexOf('tdlte') >= 0;
+        html += hasTdlte
+          ? '<p class="status-ok"><span class="dot-ok"></span>ماژول TD-LTE نصب است — مشترکان ثابت داخل پوشش این دکل سرویس TD-LTE می‌گیرند (پینگ پایدار)</p>'
+          : '<div class="warn-box">' + ICONS.warn + ' ماژول TD-LTE ندارد — تقاضای TD-LTE در پوشش این دکل سرویس نمی‌گیرد. از بخش «ماژول‌ها» نصب کنید.</div>';
       }
       html += '<button class="btn primary connect-from-btn" data-connect-from="' + esc(n.id) + '">' + ICONS.backhaul + ' اتصال</button>';
+      html += ' <button class="btn" data-ping-from="' + esc(n.id) + '">پینگ از این گره</button>';
     }
     if (n.status) html += '<p>وضعیت: ' + esc(STATUS_FA[n.status] || n.status) + '</p>';
     if (n.capacity != null) {
@@ -1003,24 +1046,26 @@
           '<div class="sector-row"><label>پهنا: <input type="range" min="30" max="360" value="' + angV + '" data-sector-angle="' + esc(n.id) + '"> <span data-sector-angle-val>' + fmt(angV) + '°</span></label></div>' +
           '<p class="muted">جهت ۰ درجه یعنی شمال؛ پهنا ۳۶۰ درجه یعنی پوشش کامل دایره‌ای.</p>';
       }
-      // ارتقای سطح (افزایش پهنای باند)
-      var upInfo = null;
-      try { upInfo = (window.GameSim && GameSim.upgradeInfo) ? GameSim.upgradeInfo(state, n.id) : null; } catch (e) { upInfo = null; }
-      if (upInfo) {
-        html += '<h5>ارتقای سطح</h5><div class="upgrade-row">' +
-          '<span>سطح فعلی: <strong>' + fmt(upInfo.level) + ' از ' + fmt(upInfo.maxLevel) + '</strong> — ظرفیت: ' + fmt(n.capacity || 0) + ' Mbps</span>';
-        if (upInfo.maxed) {
-          html += '<span class="status-ok">به حداکثر سطح رسیده است.</span>';
-        } else if (n.status === 'upgrading') {
-          html += '<span class="status-warn">در حال ارتقا… (گره آفلاین است)</span>';
+      // ماژول‌های گره (جایگزین ارتقای سطح): نصب آنی، با اسلات محدود
+      var modInfo = null;
+      try { modInfo = (window.GameSim && GameSim.moduleInfo) ? GameSim.moduleInfo(state, n.id) : null; } catch (e) { modInfo = null; }
+      if (modInfo) {
+        html += '<h5>ماژول‌ها (' + fmt(modInfo.installed.length) + ' از ' + fmt(modInfo.slots) + ' اسلات)</h5>';
+        if (modInfo.slots <= 0) {
+          html += '<p class="muted">این تجهیز اسلات ماژول ندارد.</p>';
         } else {
-          html += '<button class="btn sm primary" data-upgrade-node="' + esc(n.id) + '"' +
-            ((upInfo.busy || !upInfo.canAfford) ? ' disabled' : '') + '>' + ICONS.upgrade + ' ارتقا به سطح ' + fmt(upInfo.level + 1) + '</button>' +
-            '<span class="muted">ظرفیت جدید: ' + fmt(upInfo.nextCapacity) + ' Mbps' +
-            ((n.radius || 0) > 0 ? ' — شعاع: ' + fmt(upInfo.nextRadius) : '') +
-            ' — هزینه: ' + fmt(upInfo.cost) + ' تومان — زمان: حدود ' + fmt(upInfo.workDays) + ' روز (در مدت ارتقا آفلاین)</span>';
+          var modNames = { cap_boost: 'افزایش ظرفیت', range_boost: 'افزایش برد', ports_boost: 'پورت اضافه', tdlte: 'TD-LTE' };
+          if (modInfo.installed.length) {
+            html += '<p>نصب‌شده: ' + modInfo.installed.map(function (m) { return esc(modNames[m] || m); }).join('، ') + '</p>';
+          }
+          modInfo.options.forEach(function (o) {
+            html += '<div class="module-row"><div><strong>' + esc(o.name) + '</strong>' +
+              '<div class="muted">' + esc(o.desc) + '</div>' +
+              '<div class="muted">هزینه: ' + fmt(o.cost) + ' تومان — ماهانه: ' + fmt(o.monthlyCost) + (o.installed ? ' — نصب‌شده: ' + fmt(o.installed) : '') + '</div></div>' +
+              '<button class="btn sm primary" data-install-module="' + esc(o.id) + '" data-module-node="' + esc(n.id) + '"' + (o.ok ? '' : ' disabled') + '>نصب</button>' +
+              (o.ok ? '' : '<div class="muted module-reason">' + esc(o.reason) + '</div>') + '</div>';
+          });
         }
-        html += '</div>';
       }
       // لینک‌های این گره (با امکان قطع اتصال هرکدام)
       var nodeLinks = [];
@@ -1057,12 +1102,29 @@
       btn.addEventListener('click', function () { armConnectFromNode(btn.getAttribute('data-connect-from')); });
     });
     wireDisconnectButtons(box);
-    box.querySelectorAll('[data-upgrade-node]').forEach(function (btn) {
+    box.querySelectorAll('[data-install-module]').forEach(function (btn) {
       btn.addEventListener('click', function () {
-        if (window.GameSim && GameSim.upgradeNode) {
-          var r = GameSim.upgradeNode(state, btn.getAttribute('data-upgrade-node'));
-          toast(r && r.ok === false ? (r.error || 'ارتقا انجام نشد.') : 'ارتقا شروع شد؛ گره تا پایان آفلاین است.', r && r.ok === false ? 'error' : 'success');
-        } else toast('ارتقا در این نسخه موجود نیست.', 'warn');
+        if (window.GameSim && GameSim.installModule) {
+          var r = GameSim.installModule(state, btn.getAttribute('data-module-node'), btn.getAttribute('data-install-module'));
+          toast(r && r.ok === false ? (r.error || 'نصب ماژول انجام نشد.') : 'ماژول نصب شد (آنی).', r && r.ok === false ? 'error' : 'success');
+        } else toast('نصب ماژول در این نسخه موجود نیست.', 'warn');
+        refresh();
+      });
+    });
+    box.querySelectorAll('[data-ping-from]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        setMode('ping');
+        pingFromId = btn.getAttribute('data-ping-from');
+        var panel = $('panel-detail'); if (panel) panel.classList.remove('open');
+        toast('گرهٔ مقصد پینگ را انتخاب کنید.');
+      });
+    });
+    box.querySelectorAll('[data-unlock-district]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        if (window.GameSim && GameSim.unlockDistrict) {
+          var r = GameSim.unlockDistrict(state, btn.getAttribute('data-unlock-district'));
+          toast(r && r.ok === false ? (r.error || 'بازکردن منطقه انجام نشد.') : 'منطقه باز شد.', r && r.ok === false ? 'error' : 'success');
+        }
         refresh();
       });
     });
@@ -1149,24 +1211,23 @@
       '<p class="muted">جزئیات درآمد بر اساس بسته‌های فعال و تعداد مشتریان متصل محاسبه می‌شود.</p>';
   }
 
-  function renderRD() {
-    var techs = (window.GAME_DATA && GAME_DATA.techs) || [];
-    techs = Array.isArray(techs) ? techs : Object.values(techs);
-    $('rd-body').innerHTML = '<div class="tech-grid">' + techs.map(function (t) {
-      var unlocked = GameSim.isUnlocked ? GameSim.isUnlocked(state, t) : false;
-      var canAfford = state.cash >= (t.cost || 0);
-      return '<div class="tech-card ' + (unlocked ? 'unlocked' : 'locked') + '"><h5>' + (unlocked ? ICONS.check + ' ' : ICONS.lock + ' ') + esc(t.name || t.id) + '</h5>' +
-        '<p>' + esc(t.description || '') + '</p>' +
-        (unlocked ? '<span class="status-ok">باز شده</span>' :
-          '<button class="btn sm primary" data-tech="' + esc(t.id) + '"' + (canAfford ? '' : ' disabled title="نقدینگی کافی نیست"') + '>باز کردن — ' + fmt(t.cost || 0) + '</button>') + '</div>';
+  function renderTimeline() {
+    var tl = (window.GAME_DATA && GAME_DATA.timeline) || { startYear: 1991, daysPerYear: 10, eras: [] };
+    var year = 1991;
+    try { if (window.GameSim && GameSim.yearOf) year = GameSim.yearOf(state); } catch (e) { /* ignore */ }
+    var eqs = equipList();
+    var html = '<p>سال فعلی: <strong>' + faDigits(String(year)) + '</strong> — هر ' + faDigits(String(tl.daysPerYear || 10)) + ' روزِ بازی یک سال جلو می‌رود. تجهیزات با رسیدن دورانشان در منوی ساخت ظاهر می‌شوند و تقاضای مردم هم با دوران عوض می‌شود.</p>';
+    html += '<div class="tech-grid">' + (tl.eras || []).map(function (er) {
+      var active = year >= er.year;
+      var items = eqs.filter(function (e) { return (e.era || 1991) === er.year; }).map(function (e) { return e.name || e.id; });
+      var mods = ((window.GAME_DATA && GAME_DATA.moduleList) || []).filter(function (m) { return (m.era || 1991) === er.year; }).map(function (m) { return m.name; });
+      var all = items.concat(mods);
+      return '<div class="tech-card ' + (active ? 'unlocked' : 'locked') + '"><h5>' + (active ? ICONS.check + ' ' : ICONS.lock + ' ') + faDigits(String(er.year)) + ' — ' + esc(er.name || '') + '</h5>' +
+        '<p>' + esc(er.desc || '') + '</p>' +
+        (all.length ? '<p class="muted">تجهیزات این دوران: ' + esc(all.join('، ')) + '</p>' : '') +
+        (active ? '<span class="status-ok">در دسترس</span>' : '<span class="muted">از سال ' + faDigits(String(er.year)) + '</span>') + '</div>';
     }).join('') + '</div>';
-    $('rd-body').querySelectorAll('[data-tech]').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        var r = GameSim.unlockTech(state, btn.getAttribute('data-tech'));
-        toast(r && r.ok === false ? (r.error || 'باز کردن فناوری انجام نشد.') : 'فناوری باز شد!', r && r.ok === false ? 'error' : 'success');
-        renderRD(); refresh();
-      });
-    });
+    $('timeline-body').innerHTML = html;
   }
 
   function faMult(x) { return '×' + String(Math.round(x * 10) / 10).replace('.', '٫'); }
@@ -1303,91 +1364,6 @@
   }
 
   /* ---------- Contracts ---------- */
-  function renderContracts() {
-    var body = $('contracts-body'); if (!body) return;
-    var offers = (state && state.contractOffers) || [];
-    var contracts = (state && state.contracts) || [];
-    var active = contracts.filter(function (c) { return c.status === 'active' || c.status == null || (c.monthsLeft != null && c.monthsLeft > 0 && c.status !== 'expired' && c.status !== 'ended'); });
-    var expired = contracts.filter(function (c) { return c.status === 'expired' || c.status === 'ended' || (c.monthsLeft != null && c.monthsLeft <= 0 && c.status !== 'active'); }).slice(-5);
-    var html = '<h4>پیشنهادهای جدید</h4>';
-    if (!offers.length) html += '<p class="muted">پیشنهاد سازمانی جدیدی نیست.</p>';
-    offers.forEach(function (o) {
-      var counter = contractCounter[o.id];
-      html += '<div class="contract-card"><h5>' + esc(o.orgName || o.id) + ' — ' + esc(districtNameById(o.districtId)) + '</h5>' +
-        '<p class="muted">خواسته: سرعت ' + fmt(o.wantSpeed) + ' Mbps — SLA ' + fmt(o.wantSla) + '٪ — ' + fmt(o.wantPrice) + ' تومان/ماه — ' + fmt(o.months) + ' ماه (تا روز ' + fmt(o.expiresDay) + ')</p>' +
-        '<div class="neg-form">' +
-        '<label>سرعت <input type="number" min="1" value="' + (o.wantSpeed || 0) + '" data-neg-speed="' + esc(o.id) + '"></label>' +
-        '<label>SLA <input type="number" min="1" max="100" value="' + (o.wantSla || 0) + '" data-neg-sla="' + esc(o.id) + '"></label>' +
-        '<label>قیمت <input type="number" min="0" value="' + (o.wantPrice || 0) + '" data-neg-price="' + esc(o.id) + '"></label>' +
-        '<label>ماه <input type="number" min="1" value="' + (o.months || 0) + '" data-neg-months="' + esc(o.id) + '"></label>' +
-        '<button class="btn sm primary" data-neg-submit="' + esc(o.id) + '">پیشنهاد</button></div>';
-      if (counter) {
-        html += '<div class="warn-box">پیشنهاد متقابل: سرعت ' + fmt(counter.speed) + ' Mbps — SLA ' + fmt(counter.sla) + '٪ — ' + fmt(counter.price) + ' تومان/ماه — ' + fmt(counter.months) + ' ماه' +
-          '<div class="fix-btns"><button class="btn sm primary" data-neg-accept="' + esc(o.id) + '">پذیرفتن پیشنهاد متقابل</button>' +
-          '<button class="btn sm" data-neg-reject="' + esc(o.id) + '">رد کردن</button></div></div>';
-      }
-      html += '</div>';
-    });
-    html += '<h4>قراردادهای فعال</h4>';
-    if (!active.length) html += '<p class="muted">قرارداد فعالی نیست.</p>';
-    else {
-      html += '<table><tr><th>سازمان</th><th>منطقه</th><th>سرعت</th><th>SLA</th><th>ماهانه</th><th>مانده</th><th>نقض</th></tr>' +
-        active.map(function (c) {
-          return '<tr><td>' + esc(c.orgName || c.id) + '</td><td>' + esc(districtNameById(c.districtId)) + '</td><td>' + fmt(c.speed) + ' Mbps</td><td>' + fmt(c.sla) + '٪</td><td>' + fmt(c.priceMonthly) + '</td><td>' + fmt(c.monthsLeft) + ' ماه</td><td>' + fmt(c.breaches || 0) + '</td></tr>';
-        }).join('') + '</table>';
-    }
-    if (expired.length) {
-      html += '<h4>قراردادهای پایان‌یافته</h4><table><tr><th>سازمان</th><th>منطقه</th><th>سرعت</th><th>ماهانه</th></tr>' +
-        expired.map(function (c) { return '<tr><td>' + esc(c.orgName || c.id) + '</td><td>' + esc(districtNameById(c.districtId)) + '</td><td>' + fmt(c.speed) + ' Mbps</td><td>' + fmt(c.priceMonthly) + '</td></tr>'; }).join('') + '</table>';
-    }
-    body.innerHTML = html;
-    body.querySelectorAll('[data-neg-submit]').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        var oid = btn.getAttribute('data-neg-submit');
-        var terms = {
-          speed: +body.querySelector('[data-neg-speed="' + oid + '"]').value,
-          sla: +body.querySelector('[data-neg-sla="' + oid + '"]').value,
-          price: +body.querySelector('[data-neg-price="' + oid + '"]').value,
-          months: +body.querySelector('[data-neg-months="' + oid + '"]').value
-        };
-        negotiate(oid, terms);
-      });
-    });
-    body.querySelectorAll('[data-neg-accept]').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        var oid = btn.getAttribute('data-neg-accept');
-        var c = contractCounter[oid];
-        if (c) negotiate(oid, c);
-      });
-    });
-    body.querySelectorAll('[data-neg-reject]').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        delete contractCounter[btn.getAttribute('data-neg-reject')];
-        toast('پیشنهاد متقابل رد شد.', 'warn');
-        renderContracts();
-      });
-    });
-  }
-  function negotiate(offerId, terms) {
-    if (!window.GameSim || typeof GameSim.negotiateContract !== 'function') { toast('مذاکره قرارداد در این نسخه موجود نیست.', 'warn'); return; }
-    var r = null;
-    try { r = GameSim.negotiateContract(state, offerId, terms); } catch (e) { r = null; }
-    if (!r) { toast('مذاکره انجام نشد.', 'error'); return; }
-    if (r.status === 'accepted') {
-      delete contractCounter[offerId];
-      playSound('complete');
-      toast('قرارداد پذیرفته شد.', 'success');
-    } else if (r.status === 'counter') {
-      contractCounter[offerId] = r.counterTerms || terms;
-      toast('پیشنهاد متقابل دریافت شد.', 'warn');
-    } else {
-      delete contractCounter[offerId];
-      toast('پیشنهاد رد شد.', 'error');
-    }
-    renderContracts(); refresh();
-  }
-
-  /* ---------- Campaigns ---------- */
   function renderCampaigns() {
     var body = $('campaigns-body'); if (!body) return;
     var types = (window.GAME_DATA && GAME_DATA.campaignTypes) || [];
@@ -1633,16 +1609,18 @@
         });
       }
     } catch (e) { /* ignore */ }
-    // build-complete detection via log
+    // رویدادهای تصادفی و دوران جدید با یک پیام کوتاه دیده شوند (حداکثر یکی در هر تازه‌سازی)
     try {
       var log = (state && state.log) || [];
       if (log.length > lastLogLen) {
+        var toasted = false;
         for (var i = lastLogLen; i < log.length; i++) {
           var e = log[i];
           var msg = typeof e === 'string' ? e : (e.msg || e.text || e.message || '');
           var kind = (typeof e === 'object' && e.kind) || '';
           if ((kind === 'build' || kind === 'construct') && msg.indexOf('تمام شد') >= 0) playSound('complete');
           else if (msg.indexOf('تمام شد') >= 0 && (msg.indexOf('ساخت') >= 0 || msg.indexOf('نصب') >= 0)) playSound('complete');
+          if (!toasted && kind === 'event' && msg) { toast(msg, 'warn'); toasted = true; }
         }
       }
       lastLogLen = log.length;
@@ -1653,7 +1631,7 @@
     try {
       var m;
       if ((m = $('modal-achievements')) && !m.classList.contains('hidden')) renderAchievements();
-      if ((m = $('modal-contracts')) && !m.classList.contains('hidden')) renderContracts();
+      if ((m = $('modal-timeline')) && !m.classList.contains('hidden')) renderTimeline();
       if ((m = $('modal-campaigns')) && !m.classList.contains('hidden')) renderCampaigns();
       if ((m = $('modal-stats')) && !m.classList.contains('hidden')) renderStats();
     } catch (e3) { /* ignore */ }
@@ -1681,7 +1659,9 @@
     if (btnConnectCancel) btnConnectCancel.addEventListener('click', function () { setMode('select'); toast('حالت اتصال لغو شد.', 'warn'); });
     $('tool-demolish').addEventListener('click', function () { selectedTool = null; setMode('demolish'); renderBuildMenu(); if (isMobile()) $('panel-right').classList.remove('open'); });
     $('tool-speedtest').addEventListener('click', function () { selectedTool = null; setMode('speedtest'); renderBuildMenu(); if (isMobile()) $('panel-right').classList.remove('open'); });
+    if ($('tool-ping')) $('tool-ping').addEventListener('click', function () { selectedTool = null; setMode('ping'); renderBuildMenu(); if (isMobile()) $('panel-right').classList.remove('open'); });
     $('speedtest-close').addEventListener('click', function () { $('speedtest-popover').classList.add('hidden'); });
+    if ($('ping-close')) $('ping-close').addEventListener('click', function () { $('ping-popover').classList.add('hidden'); });
     $('confirm-yes').addEventListener('click', confirmBuild);
     $('confirm-no').addEventListener('click', function () { pendingBuild = null; $('build-confirm').classList.add('hidden'); });
     $('delete-yes').addEventListener('click', function () {
@@ -1696,14 +1676,14 @@
     $('delete-no').addEventListener('click', function () { pendingDeleteId = null; $('delete-confirm').classList.add('hidden'); });
     $('medium-cancel').addEventListener('click', function () { $('medium-picker').classList.add('hidden'); setMode('select'); });
     $('btn-finance').addEventListener('click', function () { renderFinance(); openModal('modal-finance'); });
-    $('btn-rd').addEventListener('click', function () { renderRD(); openModal('modal-rd'); });
+    if ($('btn-timeline')) $('btn-timeline').addEventListener('click', function () { renderTimeline(); openModal('modal-timeline'); });
     $('btn-staff').addEventListener('click', function () { renderStaff(); openModal('modal-staff'); });
     $('btn-missions').addEventListener('click', function () { renderMissions(); openModal('modal-missions'); });
     $('btn-packages').addEventListener('click', function () { renderPackages(); openModal('modal-packages'); });
     $('btn-guide').addEventListener('click', function () { renderGuideOverview(); openModal('modal-guide'); });
     $('btn-log').addEventListener('click', function () { renderLog(); openModal('modal-log'); });
     if ($('btn-achievements')) $('btn-achievements').addEventListener('click', function () { renderAchievements(); openModal('modal-achievements'); });
-    if ($('btn-contracts')) $('btn-contracts').addEventListener('click', function () { renderContracts(); openModal('modal-contracts'); });
+    if ($('btn-tutorial')) $('btn-tutorial').addEventListener('click', function () { showTutorial(0); });
     if ($('btn-campaigns')) $('btn-campaigns').addEventListener('click', function () { renderCampaigns(); openModal('modal-campaigns'); });
     if ($('btn-stats')) $('btn-stats').addEventListener('click', function () { renderStats(); openModal('modal-stats'); });
     if ($('btn-suggest')) $('btn-suggest').addEventListener('click', runSuggest);
@@ -1780,13 +1760,13 @@
     lastLogLen = ((state && state.log) || []).length;
     lastAlertCount = ((state && state.problems) || []).length;
     refresh();
-    if (state && (state.tutorialStep == null || state.tutorialStep < TUTORIAL.length) && state.isNewGame) showTutorial(state.tutorialStep || 0);
+    // آموزش بازی خودکار باز نمی‌شود؛ فقط از منو («آموزش بازی») در دسترس است
   }
 
   window.GameUI = {
     init: init, toast: toast, refresh: refresh, renderTopbar: renderTopbar,
     onPlace: onPlace, onMapSelect: onMapSelect, selectNode: selectNode,
-    showTutorial: showTutorial, setState: function (s) { state = s; lastLogLen = ((s && s.log) || []).length; lastAlertCount = ((s && s.problems) || []).length; contractCounter = {}; clearSuggestions(); refresh(); },
+    showTutorial: showTutorial, setState: function (s) { state = s; lastLogLen = ((s && s.log) || []).length; lastAlertCount = ((s && s.problems) || []).length; clearSuggestions(); refresh(); },
     getMode: function () { return mode; }, TUTORIAL: TUTORIAL
   };
 })();
