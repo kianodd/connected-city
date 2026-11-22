@@ -266,7 +266,7 @@
   /* ---------- تست سرعت در نقطه‌ای از نقشه ---------- */
   var SPEED_REASON_FA = {
     no_coverage: 'خارج از پوشش', unconnected: 'گره متصل نیست', congestion: 'ازدحام مسیر',
-    distance: 'فاصله زیاد', los: 'ساختمان بلند مانع دید', no_path: 'مسیر تا دروازه نیست', no_fiber_drop: 'به فیبر متصل نیست'
+    distance: 'فاصله زیاد', los: 'ساختمان‌های مسیر سیگنال را ضعیف کرده‌اند', no_path: 'مسیر تا دروازه نیست', no_fiber_drop: 'به فیبر متصل نیست'
   };
   function runSpeedTest(wx, wy) {
     if (!window.GameSim || !GameSim.speedTestAt || !state) return;
@@ -639,7 +639,7 @@
         '<dt>نوع ساختمان</dt><dd>' + esc(BTYPE_FA[n.type] || 'ساختمانی') + '</dd>' +
         '<dt>طبقات</dt><dd>' + fmt(n.height || 1) + '</dd>' +
         '<dt>منطقه</dt><dd>' + esc(bDist ? bDist.name : 'خارج از مناطق (پراکنده)') + '</dd>' +
-        (n.height >= 10 ? '<dt>اثر بر پوشش</dt><dd>ساختمان بلند است؛ دید مستقیم بی‌سیم را می‌بندد</dd>' : '') +
+        (n.height >= 10 ? '<dt>اثر بر پوشش</dt><dd>ساختمان بلند است؛ فقط دید لینک‌های نقطه‌به‌نقطه (PtP) را مخدوش می‌کند (برای سلولار/وای‌فای فقط چند درصد افت سیگنال)</dd>' : '') +
         '</dl>';
       if (!n.districtId && state.scattered) {
         html += '<p class="muted">این ساختمان خارج از مناطق است. مشترکان ساختمان‌های پراکنده: ' + fmt(state.scattered.subscribers || 0) +
