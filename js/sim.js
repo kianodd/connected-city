@@ -101,6 +101,28 @@
     const eq = getEq(type);
     return (eq && eq.tech) || null;
   }
+  // ---------- TD-LTE: فقط روی پوشش شبکهٔ 4G و بالاتر ----------
+  // TD-LTE (fwa_ap) اینترنت ثابت سیم‌کارتی روی شبکهٔ موبایل است: آنتن آن فقط وقتی
+  // سرویس می‌دهد که خودش داخل پوشش یک دکل 4G یا 5G متصل به دروازه باشد (رله/توسعهٔ شبکهٔ LTE).
+  // بیرون از پوشش 4G هیچ سرویسی ندارد (نه سیگنال، نه سرعت، نه ظرفیت برای منطقه/ساختمان).
+  function pointIn4GCoverage(state, x, y) {
+    for (const m of (state.nodes || [])) {
+      if (m.type !== 'cell_4g' && m.type !== 'cell_5g') continue;
+      if (!isUsableNode(m) || !m.connected) continue;
+      if (dist(x, y, m.x, m.y) <= (m.radius || 0) && inWedge(m, x, y)) return true;
+    }
+    return false;
+  }
+  function tdlteFed(state, node) {
+    if (!node || node.type !== 'fwa_ap') return false;
+    return pointIn4GCoverage(state, node.x, node.y);
+  }
+  // گره دسترسی در این لحظه واقعاً سرویس می‌دهد؟ (متصل + قابل‌استفاده + برای TD-LTE تغذیه‌شده از 4G)
+  function nodeServes(state, n) {
+    if (!isAccessNode(n) || !isUsableNode(n) || !n.connected) return false;
+    if (n.type === 'fwa_ap') return tdlteFed(state, n);
+    return true;
+  }
   // ---------- ساعت، فصل، آب‌وهوا (ویژگی‌های ۴۵ و ۴۶) ----------
   // ساعت پیش‌فرض بازی ۱۰ است و منحنی تقاضا در ساعت‌های ۹ تا ۱۱ برابر ۱٫۰ است؛
   // پس بدون دخالت UI، تقاضا دقیقاً مثل قبل می‌ماند.
@@ -288,7 +310,7 @@
     return null;
   }
   // مدل سیگنال: ارتفاع ساختمان فقط دید لینک نقطه‌به‌نقطه (PtP) را مخدوش می‌کند؛
-  // ساختمان‌ها روی سیگنال سلولار هیچ اثری ندارند؛ برای FWA/وای‌فای هر ساختمانِ سر راه
+  // ساختمان‌ها روی سیگنال سلولار هیچ اثری ندارند؛ برای TD-LTE/وای‌فای هر ساختمانِ سر راه
   // فقط ۴٪ از قدرت سیگنال کم می‌کند (سقف مجموع: ‎−۳۰٪). فیبر و ماهواره هم از ساختمان اثر نمی‌گیرند.
   function buildingAttenuation(state, ax, ay, bx, by) {
     return Math.max(0.70, 1 - 0.04 * segNearBuildings(state, ax, ay, bx, by, 0));
@@ -343,9 +365,75 @@
     return mult;
   }
 
+  // ---------- ترجیح نوع اینترنت ساکنان ساختمان‌ها ----------
+  // ترجیح هر ساختمان قطعی و مشتق‌شده است (بدون ذخیرهٔ حالت): از شناسهٔ ساختمان + بذر نقشه
+  // با یک RNG محلی (جریان تصادفی بازی دست نمی‌خورد)، روی پایهٔ سهم فناوریِ نوع منطقه
+  // (همان DATA.techDemandSplit) و با ضریب نوع ساختمان شکل می‌گیرد.
+  function prefHash(str) { // FNV-1a
+    let h = 0x811c9dc5;
+    for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+    return h >>> 0;
+  }
+  function prefRnd(seed) { // mulberry32 محلی
+    let t = seed >>> 0;
+    return function () {
+      t = (t + 0x6d2b79f5) >>> 0;
+      let x = Math.imul(t ^ (t >>> 15), t | 1);
+      x ^= x + Math.imul(x ^ (x >>> 7), x | 61);
+      return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  const PREF_TYPE_MULT = {
+    office:      { fiber: 1.7,  cellular: 0.8,  fwa: 0.55, satellite: 0.45 },
+    industrial:  { fiber: 1.5,  cellular: 0.7,  fwa: 0.9,  satellite: 1.25 },
+    commercial:  { fiber: 1.35, cellular: 1.05, fwa: 0.8,  satellite: 0.7 },
+    residential: { fiber: 0.9,  cellular: 1.1,  fwa: 1.25, satellite: 1.05 },
+  };
+  function buildingPreference(state, b) {
+    if (!b) return { fiber: 0.31, cellular: 0.38, fwa: 0.19, satellite: 0.12 };
+    const d = b.districtId ? (state.districts || []).find((x) => x.id === b.districtId) : null;
+    const base = (d && DATA.techDemandSplit && DATA.techDemandSplit[d.type]) || DATA.techDemandSplitDefault || {};
+    const mult = PREF_TYPE_MULT[b.type] || { fiber: 1, cellular: 1, fwa: 1, satellite: 1 };
+    const rnd = prefRnd(prefHash(String(b.id) + '|' + (state.mapSeed || 0)));
+    const out = {};
+    let sum = 0;
+    for (const t of TECH_KEYS) {
+      let w = (base[t] || 0.05) * (mult[t] || 1) * (0.75 + rnd() * 0.5); // نوسان قطعی ±۲۵٪
+      if (!d) { if (t === 'fwa') w *= 1.3; if (t === 'satellite') w *= 1.4; } // ساختمان پراکنده: گرایش به TD-LTE/ماهواره
+      out[t] = w; sum += w;
+    }
+    if (sum <= 0) return { fiber: 0.25, cellular: 0.25, fwa: 0.25, satellite: 0.25 };
+    for (const t of TECH_KEYS) out[t] /= sum;
+    return out;
+  }
+  // ترجیح کلی منطقه = میانگین موزون ترجیح ساختمان‌هایش (وزن ≈ حجم ساختمان = شاخص ساکنان)
+  function districtPreference(state, d) {
+    const bs = (state.buildings || []).filter((b) => b.districtId === d.id);
+    if (!bs.length) {
+      const split = (DATA.techDemandSplit && DATA.techDemandSplit[d.type]) || DATA.techDemandSplitDefault || {};
+      const out = {}; let sum = 0;
+      for (const t of TECH_KEYS) { out[t] = split[t] || 0; sum += out[t]; }
+      if (sum > 0) for (const t of TECH_KEYS) out[t] /= sum;
+      return out;
+    }
+    const acc = { fiber: 0, cellular: 0, fwa: 0, satellite: 0 };
+    let wSum = 0;
+    for (const b of bs) {
+      const w = (b.w || 10) * (b.h || 10) * (b.height || 1);
+      const p = buildingPreference(state, b);
+      for (const t of TECH_KEYS) acc[t] += p[t] * w;
+      wSum += w;
+    }
+    if (wSum <= 0) return buildingPreference(state, bs[0]);
+    for (const t of TECH_KEYS) acc[t] /= wSum;
+    return acc;
+  }
+
   // سهم تقاضای هر فناوری از تقاضای کل منطقه + بخش سرویس‌گرفته با ظرفیت همان فناوری
-  function computeTechDemand(d, servers, congestionFactor, fiberRatio) {
-    const split = (DATA.techDemandSplit && DATA.techDemandSplit[d.type]) || DATA.techDemandSplitDefault || {};
+  // منبع سهم‌ها «ترجیح کلی منطقه» است (districtPreference) تا پنل ترجیح و پنل تقاضا همیشه یکی باشند.
+  function computeTechDemand(d, servers, congestionFactor, fiberRatio, state) {
+    const split = state ? districtPreference(state, d)
+      : ((DATA.techDemandSplit && DATA.techDemandSplit[d.type]) || DATA.techDemandSplitDefault || {});
     const techCap = { fiber: 0, cellular: 0, fwa: 0, wifi: 0, satellite: 0 };
     for (const srv of (servers || [])) { const t = techOfNode(srv.type); if (t) techCap[t] += (srv._effCap != null ? srv._effCap : srv.capacity) || 0; }
     // فیبر دستی است: فقط به نسبت ساختمان‌های دارای انشعاب فعال سرویس می‌دهد
@@ -432,8 +520,17 @@
         out[t] = { speed: 0, nodeId: n0.id, nodeName: n0.name, reason: 'unconnected', latency: null };
         continue;
       }
+      // TD-LTE فقط روی پوشش 4G و بالاتر کار می‌کند: آنتن متصلِ بیرون از پوشش 4G سرعت صفر می‌دهد
+      let pool = connected;
+      if (t === 'fwa') {
+        pool = connected.filter((n) => tdlteFed(state, n));
+        if (!pool.length) {
+          out[t] = { speed: 0, nodeId: connected[0].id, nodeName: connected[0].name, reason: 'no_4g_coverage', latency: null };
+          continue;
+        }
+      }
       let best = null;
-      for (const n of connected) {
+      for (const n of pool) {
         const path = bfsPath(state, n.id);
         if (!path) continue;
         let bottleneck = (n.capacity || 0) * nodeWeatherFactor(state, n) * (1 - 0.5 * interferenceFor(state, n, n.channel));
@@ -455,7 +552,7 @@
         const latency = latencySum + techLatencyBase(t, n);
         if (!best || speed > best.speed) best = { speed, nodeId: n.id, nodeName: n.name, attFactor, congFactor, distFactor, latency };
       }
-      if (!best) { out[t] = { speed: 0, nodeId: connected[0].id, nodeName: connected[0].name, reason: 'no_path', latency: null }; continue; }
+      if (!best) { out[t] = { speed: 0, nodeId: pool[0].id, nodeName: pool[0].name, reason: 'no_path', latency: null }; continue; }
       let reason = null;
       if (best.congFactor < 0.7) reason = 'congestion';
       else if (best.attFactor <= 0.85) reason = 'los';
@@ -482,7 +579,7 @@
 
   // ساختمان مسیر واقعی انتها‌به‌انتها تا دروازه اینترنت دارد؟
   // (الف) انشعاب سیمی فعال که گره منبعش (کابینت) خودش به دروازه وصل است، یا
-  // (ب) پوشش بی‌سیم (سلولار/FWA/ماهواره) از گره دسترسیِ متصل به دروازه.
+  // (ب) پوشش بی‌سیم (سلولار/TD-LTE/ماهواره) از گره دسترسیِ متصل به دروازه.
   // اکسس‌پوینت خصوصی داخل ساختمان فقط با همین مسیر به شبکه وصل می‌شود؛
   // اشتراک به‌تنهایی (بدون مسیر) هیچ سرویسی نمی‌دهد.
   function buildingNetworkPath(state, b) {
@@ -497,6 +594,8 @@
       if (!isAccessNode(n) || !isUsableNode(n) || !n.connected) continue;
       const tech = techOfNode(n.type);
       if (tech !== 'cellular' && tech !== 'fwa' && tech !== 'satellite') continue;
+      // TD-LTE بیرون از پوشش 4G+ مسیر واقعی تا شبکه نمی‌سازد
+      if (tech === 'fwa' && !tdlteFed(state, n)) continue;
       if (dist(cx, cy, n.x, n.y) <= (n.radius || 0) && inWedge(n, cx, cy)) {
         return { hasPath: true, via: 'wireless', nodeId: n.id };
       }
@@ -509,6 +608,8 @@
     let best = null;
     for (const n of (state.nodes || [])) {
       if (!isAccessNode(n) || !isUsableNode(n)) continue;
+      // TD-LTE بیرون از پوشش 4G+ سیگنالی برای رله‌کردن ندارد
+      if (n.type === 'fwa_ap' && !tdlteFed(state, n)) continue;
       const radius = n.radius || 0;
       if (radius <= 0) continue;
       const d = dist(x, y, n.x, n.y);
@@ -547,6 +648,7 @@
     const nodes = [];
     for (const n of (state.nodes || [])) {
       if (!isAccessNode(n) || !isUsableNode(n)) continue;
+      if (n.type === 'fwa_ap' && !tdlteFed(state, n)) continue; // TD-LTE بیرون از پوشش 4G+ سیگنال ندارد
       const radius = n.radius || 0;
       if (radius <= 0) continue;
       nodes.push({
@@ -597,6 +699,7 @@
     for (const n of (state.nodes || [])) {
       const tech = techOfNode(n.type);
       if (!tech || !isUsableNode(n) || !n.connected) continue;
+      if (n.type === 'fwa_ap' && !tdlteFed(state, n)) continue; // TD-LTE بیرون از پوشش 4G+ سرعت صفر (هم‌خوان با speedTestAt)
       const bn = nodeBottleneck(state, n, fx, satBonus);
       if (!bn) continue;
       const e = {
@@ -684,7 +787,7 @@
     const W = (DATA.world && DATA.world.width) || 7200;
     const H = (DATA.world && DATA.world.height) || 5400;
     // ساختمان‌های پراکندهٔ بدون پوشش فعلی
-    const accessNodes = (state.nodes || []).filter((n) => isAccessNode(n) && n.connected && isUsableNode(n));
+    const accessNodes = (state.nodes || []).filter((n) => nodeServes(state, n));
     const uncovered = (state.buildings || []).filter((b) => !b.districtId).filter((b) => {
       const cx = b.x + (b.w || 26) / 2, cy = b.y + (b.h || 20) / 2;
       return !accessNodes.some((n) => dist(cx, cy, n.x, n.y) <= (n.radius || 0) && inWedge(n, cx, cy));
@@ -693,6 +796,8 @@
     for (let gx = 150; gx < W; gx += 300) {
       for (let gy = 150; gy < H; gy += 300) {
         if (!isValidPlacement(state, gx, gy).ok) continue;
+        // TD-LTE فقط داخل پوشش 4G+ کار می‌کند: بیرون از پوشش 4G نقطه‌ای پیشنهاد نمی‌شود
+        if (eqId === 'fwa_ap' && !pointIn4GCoverage(state, gx, gy)) continue;
         let score = 0, subCap = 0;
         for (const d of (state.districts || [])) {
           if ((d.qos || 0) >= 0.5 && (d.subscribers || 0) >= Math.floor((d.population || 0) * 0.35)) continue;
@@ -823,7 +928,7 @@
       qos: 0, potentialQos: 0, satisfaction: 0, revenue: 0, complaints: 0, connected: false,
       avgLatency: 0, perSubMbps: 0, _qosAcc: 0, _qosDays: 0,
     }));
-    state.districts.forEach((d) => { d.techDemand = computeTechDemand(d, [], 1); });
+    state.districts.forEach((d) => { d.techDemand = computeTechDemand(d, [], 1, null, state); });
     // گروه مشتری هر منطقه
     state.customers = state.districts.map((d) => ({
       id: 'cust_' + d.id, districtId: d.id,
@@ -1155,11 +1260,12 @@
     for (const n of state.nodes) {
       if (!isAccessNode(n)) continue;
       if (!isUsableNode(n)) continue;
+      if (n.type === 'fwa_ap' && !tdlteFed(state, n)) continue; // TD-LTE بیرون از پوشش 4G+ سرویس نمی‌دهد
       if (!inWedge(n, district.x, district.y)) continue;
       const d = dist(district.x, district.y, n.x, n.y);
       const reach = (n.radius || 0) + district.radius * 0.6;
       if (d > reach) continue;
-      // ساختمان‌های بلند بین گره و مرکز منطقه دید FWA/وای‌فای را می‌بندند (سلولار از ساختمان اثر نمی‌گیرد)
+      // ساختمان‌های بلند بین گره و مرکز منطقه دید TD-LTE/وای‌فای را می‌بندند (سلولار از ساختمان اثر نمی‌گیرد)
       let blocked = false;
       if (n.type !== 'ftth' && techOfNode(n.type) !== 'cellular') {
         for (const b of (state.buildings || DATA.buildings || [])) {
@@ -1250,6 +1356,8 @@
       if (n.status === 'active' && !n.connected) n.status = 'unconnected';
       else if (n.status === 'unconnected' && n.connected) n.status = 'active';
     });
+    // TD-LTE فقط داخل پوشش 4G+ متصل تغذیه می‌شود (پرچم برای UI/نقشه؛ منطق سرویس با nodeServes است)
+    state.nodes.forEach((n) => { if (n.type === 'fwa_ap') n._tdlteFed = tdlteFed(state, n); });
 
     const fx = staffEffects(state);
 
@@ -1283,15 +1391,16 @@
       const perSub = perSubTraffic(state, d, demandTimeFactor);
       d.demand = d.subscribers * perSub;
       // گره‌های دسترسی متصلِ پوشش‌دهنده (مرکز منطقه باید داخل گوهٔ آنتن باشد)
+      // TD-LTE بیرون از پوشش 4G+ سرویس نمی‌دهد و در این فهرست نمی‌آید
       const servers = state.nodes.filter((n) =>
-        isAccessNode(n) && n.connected && isUsableNode(n) &&
+        nodeServes(state, n) &&
         dist(d.x, d.y, n.x, n.y) <= (n.radius || 0) + d.radius * 0.6 && inWedge(n, d.x, d.y));
       const cust = (state.customers || []).find((c) => c.districtId === d.id);
       if (!servers.length) {
         d.servedDemand = 0; d.qos = 0; d.potentialQos = 0; d.connected = false;
         d.avgLatency = 0; d.perSubMbps = 0;
         if (!noDaily && d.subscribers > 0) { d._qosAcc = (d._qosAcc || 0) + d.qos; d._qosDays = (d._qosDays || 0) + 1; }
-        d.techDemand = computeTechDemand(d, [], 1, 0);
+        d.techDemand = computeTechDemand(d, [], 1, 0, state);
         if (cust) cust.servingNodeId = null;
         if (!noDaily) {
           const subsBeforeChurn = d.subscribers;
@@ -1355,7 +1464,7 @@
       served = served * congestionFactor;
 
       d.servedDemand = Math.round(served);
-      d.techDemand = computeTechDemand(d, servers, congestionFactor, fiberRatio);
+      d.techDemand = computeTechDemand(d, servers, congestionFactor, fiberRatio, state);
       // کیفیت تجربه‌شدهٔ مشترکان فعلی (بدون مشترک = ۰؛ سرویسی در کار نیست)
       d.qos = d.demand > 0 ? clamp(served / d.demand, 0, 1) : 0;
       // کیفیت بالقوه برای مشترکِ بعدی (مبنای رشد): ظرفیت آزاد نسبت به ترافیک یک مشترک تازه
@@ -1424,7 +1533,7 @@
     const homePkg0 = (state.packages || []).find((p) => p.id === 'home');
     const scPerSub = packageSpeed(homePkg0) * CONCURRENCY * demandTimeFactor;
     sc.demand = Math.round(sc.subscribers * scPerSub);
-    const accessNodes = state.nodes.filter((n) => isAccessNode(n) && n.connected && isUsableNode(n));
+    const accessNodes = state.nodes.filter((n) => nodeServes(state, n));
     let coveredCount = 0;
     const coveringCaps = new Map();
     const activeDrops = activeFiberDropSet(state);
@@ -1663,6 +1772,7 @@
     congestion: 'کمبود ظرفیت',
     failed_node: 'خرابی گره',
     link_cut: 'قطع لینک',
+    tdlte_no_4g: 'TD-LTE خارج از پوشش 4G',
   };
   function buildProblems(state) {
     const problems = [];
@@ -1671,12 +1781,14 @@
     };
     for (const d of state.districts) {
       if (d.qos >= 0.5) continue;
-      const servers = state.nodes.filter((n) => isAccessNode(n) &&
+      // TD-LTE بیرون از پوشش 4G+ سرویس نمی‌دهد و «پوشش» حساب نمی‌شود
+      const servers = state.nodes.filter((n) => isAccessNode(n) && isUsableNode(n) &&
+        (n.type !== 'fwa_ap' || tdlteFed(state, n)) &&
         dist(d.x, d.y, n.x, n.y) <= (n.radius || 0) + d.radius * 0.6);
       const anyConnected = servers.some((n) => n.connected);
       if (!servers.length) {
         add('no_coverage', { districtId: d.id, message: 'منطقه «' + d.name + '» پوشش ندارد.' }, [
-          { action: 'build_access', label: 'ساخت دکل/آنتن در منطقه', equipment: ['cell_3g', 'fwa_ap', 'cell_2g'] },
+          { action: 'build_access', label: 'ساخت دکل/آنتن در منطقه', equipment: ['cell_3g', 'cell_2g'] },
           { action: 'build_satellite', label: 'استفاده از پایانه ماهواره‌ای', equipment: ['sat_terminal_leo'] },
         ]);
       } else if (!anyConnected) {
@@ -1698,6 +1810,12 @@
         add('failed_node', { nodeId: n.id, message: 'گره «' + (n.name || 'نامشخص') + '» خراب شده است.' }, [
           { action: 'repair', label: 'تعمیر گره', nodeId: n.id },
           { action: 'replace', label: 'جایگزینی گره', nodeId: n.id },
+        ]);
+      }
+      // TD-LTE بیرون از پوشش 4G+ هیچ سرویسی نمی‌دهد
+      if (n.type === 'fwa_ap' && isUsableNode(n) && !tdlteFed(state, n)) {
+        add('tdlte_no_4g', { nodeId: n.id, message: 'آنتن TD-LTE «' + (n.name || 'نامشخص') + '» خارج از پوشش 4G است و سرویس نمی‌دهد.' }, [
+          { action: 'build_access', label: 'ساخت دکل 4G نزدیک آنتن', equipment: ['cell_4g'] },
         ]);
       }
     }
@@ -2863,6 +2981,11 @@
           n.baseRadius = eqm.radius || 0;
         }
       }
+      // تغییر نام TD-LTE: نام قدیمی تجهیز در ذخیره‌های قبلی به نام جدید به‌روز می‌شود
+      if (n.type === 'fwa_ap' && n.name && n.name.indexOf('آنتن دسترسی ثابت بی‌سیم') === 0) {
+        const eqT = getEq('fwa_ap');
+        n.name = (eqT ? eqT.name : 'آنتن TD-LTE') + n.name.slice('آنتن دسترسی ثابت بی‌سیم'.length);
+      }
       // سطح ارتقا: ذخیره‌های قدیمی سطح ۱
       if (n.level == null) n.level = 1;
       const eqN = getEq(n.type);
@@ -2891,9 +3014,9 @@
       }
       if (!d.techDemand) {
         const srv = (state.nodes || []).filter((n) =>
-          isAccessNode(n) && n.connected && isUsableNode(n) &&
+          nodeServes(state, n) &&
           dist(d.x, d.y, n.x, n.y) <= (n.radius || 0) + d.radius * 0.6);
-        d.techDemand = computeTechDemand(d, srv, 1);
+        d.techDemand = computeTechDemand(d, srv, 1, null, state);
       }
     }
     // بسته‌های ذخیره‌های قدیمی: سرعت پیش‌فرض متناسب با قیمت (صفر/خالی نماند)
@@ -2903,6 +3026,8 @@
       state.packages = JSON.parse(JSON.stringify(DATA.packageList || DATA.packages || []));
     }
     for (const p of state.packages) {
+      // تغییر نام TD-LTE: نام قدیمی بسته در ذخیره‌های قبلی به‌روز می‌شود
+      if (p.id === 'fwa' && pkgDefaults[p.id]) { p.name = pkgDefaults[p.id].name; p.expectFa = pkgDefaults[p.id].expectFa; }
       if (!(p.speedMbps > 0)) {
         if (p.speed > 0) p.speedMbps = p.speed; // فیلد قدیمی
         else if (pkgDefaults[p.id]) p.speedMbps = pkgDefaults[p.id].speedMbps;
@@ -3028,6 +3153,8 @@
     disconnectLink, linkDisconnectImpact, linksOfNode,
     changeLinkMedium, upgradeLink, toggleLinkBackup, linkChangeOptions, linkCapacityFor, LINK_MAX_LEVEL,
     subscriberStats, buildingServiceStatus, buildingHasSubscription, buildingNetworkPath, individualTargetFor, CONCURRENCY, INDIVIDUAL_CAP,
+    tdlteFed, pointIn4GCoverage, nodeServes,
+    buildingPreference, districtPreference,
     prepareSignalField, prepareSpeedField, signalFieldAt, speedFieldAt, sampleFieldRows, interferenceFor,
     buildingAttenuation, ptpLosFactor,
     // کمکی‌ها
