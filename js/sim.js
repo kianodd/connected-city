@@ -58,7 +58,7 @@
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   }
 
-  const ACCESS_TYPES = ['cell_2g', 'cell_3g', 'cell_4g', 'cell_5g', 'fwa_ap', 'wifi_ap', 'ftth', 'street_cabinet', 'sat_terminal_leo', 'sat_terminal_geo'];
+  const ACCESS_TYPES = ['cell_2g', 'cell_3g', 'cell_4g', 'cell_5g', 'fwa_ap', 'ftth', 'street_cabinet', 'sat_terminal_leo', 'sat_terminal_geo'];
 
   // گره دسترسی: انواع کلاسیک + هر تجهیز کاتالوگ با دستهٔ access/antenna و فیلد tech
   function isAccessNode(n) {
@@ -74,7 +74,7 @@
   }
 
   // ---------- تقاضا به تفکیک فناوری ----------
-  const TECH_KEYS = ['fiber', 'cellular', 'fwa', 'wifi', 'satellite'];
+  const TECH_KEYS = ['fiber', 'cellular', 'fwa', 'satellite']; // وای‌فای فناوریِ جداگانه نیست؛ داخل ساختمانِ مشترک است
   // ---------- مدل تقاضا: فقط مشترک ترافیک می‌سازد ----------
   // بدون اشتراک هیچ سرویسی نیست: پوشش به‌تنهایی به کسی اینترنت نمی‌دهد و غیرمشترکان
   // هیچ ظرفیتی مصرف نمی‌کنند. ترافیک هر منطقه = مشترکان × سرعت بسته × ضریب هم‌زمانی
@@ -82,7 +82,7 @@
   // مصرف می‌شود؛ یعنی هر مشترک خانگی با بستهٔ ۵۰ مگابیت حدود ۱ مگابیت میانگین بار دارد
   // — نسبت اشتراک‌فروشی ۵۰:۱ که در شبکه‌های واقعی هم رایج است).
   // جمعیت فقط «بازار قابل‌دسترس» است که رشد مشترک از آن تغذیه می‌شود، نه بار شبکه.
-  const CONCURRENCY = 0.02;
+  const CONCURRENCY = 0.012;
   function districtPackage(state, d) {
     const cust = (state.customers || []).find((c) => c.districtId === d.id);
     return (state.packages || []).find((p) => p.id === (cust ? cust.packageId : 'home')) || null;
@@ -97,7 +97,6 @@
     if (type === 'ftth') return 'fiber';
     if (type && type.indexOf('cell_') === 0) return 'cellular';
     if (type === 'fwa_ap') return 'fwa';
-    if (type === 'wifi_ap') return 'wifi';
     if (type && type.indexOf('sat_terminal') === 0) return 'satellite';
     const eq = getEq(type);
     return (eq && eq.tech) || null;
@@ -236,20 +235,57 @@
   // ---------- دید مستقیم (LoS) و تأخیر مسیر ----------
   // شمار ساختمان‌هایی که مرکزشان نزدیک پاره‌خط (ax,ay)-(bx,by) است (با پیش‌فیلتر جعبهٔ مرزی)
   function segNearBuildings(state, ax, ay, bx, by, minHeight) {
-    const bs = state.buildings || (DATA && DATA.buildings) || [];
+    const g = buildingGrid(state);
     const minX = Math.min(ax, bx) - 45, maxX = Math.max(ax, bx) + 45;
     const minY = Math.min(ay, by) - 45, maxY = Math.max(ay, by) + 45;
     const dx = bx - ax, dy = by - ay;
     const len2 = dx * dx + dy * dy || 1;
     let count = 0;
-    for (const b of bs) {
-      if ((b.height || 0) < minHeight) continue;
-      const cx = b.x + (b.w || 26) / 2, cy = b.y + (b.h || 20) / 2;
-      if (cx < minX || cx > maxX || cy < minY || cy > maxY) continue;
-      const tt = clamp(((cx - ax) * dx + (cy - ay) * dy) / len2, 0, 1);
-      if (dist(cx, cy, ax + tt * dx, ay + tt * dy) < 45) count++;
+    const cx0 = Math.floor(minX / g.cell), cx1 = Math.floor(maxX / g.cell);
+    const cy0 = Math.floor(minY / g.cell), cy1 = Math.floor(maxY / g.cell);
+    for (let gx = cx0; gx <= cx1; gx++) {
+      for (let gy = cy0; gy <= cy1; gy++) {
+        const arr = g.map.get(gx + ',' + gy);
+        if (!arr) continue;
+        for (const b of arr) {
+          if ((b.height || 0) < minHeight) continue;
+          const cx = b.x + (b.w || 26) / 2, cy = b.y + (b.h || 20) / 2;
+          if (cx < minX || cx > maxX || cy < minY || cy > maxY) continue;
+          const tt = clamp(((cx - ax) * dx + (cy - ay) * dy) / len2, 0, 1);
+          if (dist(cx, cy, ax + tt * dx, ay + tt * dy) < 45) count++;
+        }
+      }
     }
     return count;
+  }
+  // شبکهٔ فضایی ساختمان‌ها (کش‌شده؛ فقط وقتی آرایه/تعداد ساختمان‌ها عوض شود بازساخته می‌شود)
+  let _bGridCache = null;
+  function buildingGrid(state) {
+    const bs = state.buildings || (DATA && DATA.buildings) || [];
+    if (_bGridCache && _bGridCache.bs === bs && _bGridCache.len === bs.length) return _bGridCache;
+    const cell = 200, map = new Map();
+    for (const b of bs) {
+      const cx = b.x + (b.w || 26) / 2, cy = b.y + (b.h || 20) / 2;
+      const k = Math.floor(cx / cell) + ',' + Math.floor(cy / cell);
+      if (!map.has(k)) map.set(k, []);
+      map.get(k).push(b);
+    }
+    _bGridCache = { bs, len: bs.length, cell, map };
+    return _bGridCache;
+  }
+  function buildingAtPointGrid(state, x, y) {
+    const g = buildingGrid(state);
+    const cx = Math.floor(x / g.cell), cy = Math.floor(y / g.cell);
+    for (let i = -1; i <= 1; i++) {
+      for (let j = -1; j <= 1; j++) {
+        const arr = g.map.get((cx + i) + ',' + (cy + j));
+        if (!arr) continue;
+        for (const b of arr) {
+          if (x >= b.x && x <= b.x + (b.w || 26) && y >= b.y && y <= b.y + (b.h || 20)) return b;
+        }
+      }
+    }
+    return null;
   }
   // مدل سیگنال: ارتفاع ساختمان فقط دید لینک نقطه‌به‌نقطه (PtP) را مخدوش می‌کند؛
   // ساختمان‌ها روی سیگنال سلولار هیچ اثری ندارند؛ برای FWA/وای‌فای هر ساختمانِ سر راه
@@ -426,7 +462,20 @@
       else if (best.distFactor < 0.65) reason = 'distance';
       out[t] = { speed: best.speed, nodeId: best.nodeId, nodeName: best.nodeName, reason, latency: best.latency };
     }
+    // وای‌فای داخل ساختمانِ مشترک است: سرعتش = سرعت اشتراک همان ساختمان؛ بدون اشتراک، وای‌فای نیست
+    const subscribed = !!(bAt && buildingHasSubscription(state, bAt));
+    const bestSpeed = Math.max(0, ...TECH_KEYS.map((t) => (out[t] && out[t].speed) || 0));
+    out.wifi = subscribed
+      ? { speed: bestSpeed, nodeId: null, nodeName: 'اکسس‌پوینت خود مشترک', reason: null, latency: null }
+      : { speed: 0, nodeId: null, nodeName: null, reason: 'no_subscription', latency: null };
     return out;
+  }
+
+  // ساختمان اشتراک فعال دارد؟ (انشعاب سیمی فعال یا مشترک فردی ساکن)
+  function buildingHasSubscription(state, b) {
+    if (!b) return false;
+    if (buildingWiredStatus(state, b.id).status === 'active') return true;
+    return (state.individuals || []).some((p) => String(p.buildingId) === String(b.id) && p.status === 'subscribed');
   }
 
   // ---------- سیگنال در یک نقطه (ویژگی ۲۳) ----------
@@ -445,6 +494,159 @@
     }
     if (!best) return { signal: 0, tech: null, nodeId: null };
     return { signal: clamp(best.signal, 0, 1), tech: best.tech, nodeId: best.nodeId };
+  }
+
+  // ---------- نمونه‌برداری سریع میدان سیگنال/سرعت برای لایه‌های نقشه ----------
+  // همان مدل signalAt / aggregateSpeedAt، ولی با پیش‌محاسبهٔ یک‌بارهٔ عامل‌های هر گره
+  // (تداخل، آب‌وهوا، گلوگاه مسیر) و جست‌وجوی فضایی — تا ساخت کل میدان در چند میلی‌ثانیه تمام شود.
+  const FIELD_CELL = 800;
+  function fieldBuckets(items) {
+    const map = new Map();
+    for (const it of items) {
+      const k = Math.floor(it.x / FIELD_CELL) + ',' + Math.floor(it.y / FIELD_CELL);
+      if (!map.has(k)) map.set(k, []);
+      map.get(k).push(it);
+    }
+    return map;
+  }
+  function wedgeOk(e, x, y) {
+    if (e.angle >= 360) return true;
+    const dx = x - e.x, dy = y - e.y;
+    if (Math.hypot(dx, dy) < 1) return true;
+    const ang = Math.atan2(-dy, dx) * 180 / Math.PI;
+    const diff = (((ang - e.direction) + 540) % 360) - 180;
+    return Math.abs(diff) <= e.angle / 2;
+  }
+  function prepareSignalField(state) {
+    const nodes = [];
+    for (const n of (state.nodes || [])) {
+      if (!isAccessNode(n) || !isUsableNode(n)) continue;
+      const radius = n.radius || 0;
+      if (radius <= 0) continue;
+      nodes.push({
+        x: n.x, y: n.y, radius, tech: techOfNode(n.type),
+        factor: (1 - 0.5 * interferenceFor(state, n, n.channel)) * nodeWeatherFactor(state, n),
+        angle: n.angle == null ? 360 : n.angle, direction: n.direction || 0,
+      });
+    }
+    return { state, nodes, buckets: fieldBuckets(nodes) };
+  }
+  function signalFieldAt(prep, x, y) {
+    const cx = Math.floor(x / FIELD_CELL), cy = Math.floor(y / FIELD_CELL);
+    let best = 0;
+    for (let i = -1; i <= 1; i++) {
+      for (let j = -1; j <= 1; j++) {
+        const arr = prep.buckets.get((cx + i) + ',' + (cy + j));
+        if (!arr) continue;
+        for (const e of arr) {
+          const d = dist(x, y, e.x, e.y);
+          if (d > e.radius || !wedgeOk(e, x, y)) continue;
+          const att = wirelessAttFactor(prep.state, e.tech, e.x, e.y, x, y);
+          const sig = (1 - d / e.radius) * att * e.factor;
+          if (sig > best) best = sig;
+        }
+      }
+    }
+    return clamp(best, 0, 1);
+  }
+  function nodeBottleneck(state, n, fx, satBonus) {
+    const path = bfsPath(state, n.id);
+    if (!path) return null;
+    let bottleneck = (n.capacity || 0) * nodeWeatherFactor(state, n) * (1 - 0.5 * interferenceFor(state, n, n.channel));
+    let cong = 1;
+    for (const id of path) {
+      const l = linkById(state, id);
+      if (!l) continue;
+      const effCap = (l.capacity || 0) * fx.capMult * (l.medium === 'ptp' ? ptpLosFactor(state, nodeById(state, l.from), nodeById(state, l.to)) : 1) + (l.medium === 'satellite' ? satBonus : 0);
+      bottleneck = Math.min(bottleneck, effCap);
+      if (effCap > 0 && (l.usage || 0) > effCap) cong = Math.min(cong, effCap / l.usage);
+    }
+    return { bottleneck, cong };
+  }
+  function prepareSpeedField(state) {
+    const fx = staffEffects(state);
+    const satBonus = constellationBonusPerLink(state);
+    const nodes = [];
+    const byId = {};
+    for (const n of (state.nodes || [])) {
+      const tech = techOfNode(n.type);
+      if (!tech || !isUsableNode(n) || !n.connected) continue;
+      const bn = nodeBottleneck(state, n, fx, satBonus);
+      if (!bn) continue;
+      const e = {
+        id: n.id, x: n.x, y: n.y, radius: n.radius || 0, tech,
+        bottleneck: bn.bottleneck, cong: bn.cong,
+        angle: n.angle == null ? 360 : n.angle, direction: n.direction || 0,
+      };
+      nodes.push(e);
+      byId[n.id] = e;
+    }
+    const fiberByBuilding = {};
+    for (const fd of (state.fiberDrops || [])) {
+      if (fd.status !== 'active') continue;
+      const src = byId[fd.nodeId];
+      if (!src) continue;
+      fiberByBuilding[fd.buildingId] = { src, medium: fd.medium || 'fiber' };
+    }
+    return { state, nodes, buckets: fieldBuckets(nodes), fiberByBuilding };
+  }
+  function speedFieldAt(prep, x, y) {
+    let best = 0;
+    const bAt = buildingAtPointGrid(prep.state, x, y);
+    const cx = Math.floor(x / FIELD_CELL), cy = Math.floor(y / FIELD_CELL);
+    for (let i = -1; i <= 1; i++) {
+      for (let j = -1; j <= 1; j++) {
+        const arr = prep.buckets.get((cx + i) + ',' + (cy + j));
+        if (!arr) continue;
+        for (const e of arr) {
+          if (e.tech === 'fiber') continue; // فیبر جداگانه (با ساختمان) حساب می‌شود
+          const d = dist(x, y, e.x, e.y);
+          if (d > e.radius || !wedgeOk(e, x, y)) continue;
+          const distFactor = 1 - 0.5 * clamp(d / Math.max(1, e.radius || 1), 0, 1);
+          const att = wirelessAttFactor(prep.state, e.tech, e.x, e.y, x, y);
+          const spd = Math.round(e.bottleneck * distFactor * att * e.cong);
+          if (spd > best) best = spd;
+        }
+      }
+    }
+    // فیبر: داخل ساختمان فقط از انشعاب خودش؛ بیرون ساختمان گره‌های فیبری نزدیک (مثل speedTestAt)
+    if (bAt) {
+      const f = prep.fiberByBuilding[bAt.id];
+      if (f) {
+        const e = f.src;
+        const d = dist(x, y, e.x, e.y);
+        const distFactor = 1 - 0.5 * clamp(d / Math.max(1, e.radius || 1), 0, 1);
+        let spd = Math.round(e.bottleneck * distFactor * e.cong);
+        if (f.medium === 'copper') spd = Math.min(spd, COPPER_DROP_SPEED);
+        if (spd > best) best = spd;
+      }
+    } else {
+      for (let i = -1; i <= 1; i++) {
+        for (let j = -1; j <= 1; j++) {
+          const arr = prep.buckets.get((cx + i) + ',' + (cy + j));
+          if (!arr) continue;
+          for (const e of arr) {
+            if (e.tech !== 'fiber') continue;
+            const d = dist(x, y, e.x, e.y);
+            if (d > e.radius || !wedgeOk(e, x, y)) continue;
+            const distFactor = 1 - 0.5 * clamp(d / Math.max(1, e.radius || 1), 0, 1);
+            const spd = Math.round(e.bottleneck * distFactor * e.cong);
+            if (spd > best) best = spd;
+          }
+        }
+      }
+    }
+    return best;
+  }
+  // نمونه‌برداری ردیفی برای ساخت تدریجی (چانک‌شده) لایه‌ها
+  function sampleFieldRows(prep, kind, x0, y0, step, pw, rowStart, rowEnd, out) {
+    for (let j = rowStart; j < rowEnd; j++) {
+      const wy = y0 + (j + 0.5) * step;
+      for (let i = 0; i < pw; i++) {
+        const wx = x0 + (i + 0.5) * step;
+        out[j * pw + i] = kind === 'signal' ? signalFieldAt(prep, wx, wy) : speedFieldAt(prep, wx, wy);
+      }
+    }
   }
 
   // ---------- پیشنهاد مکان نصب (ویژگی ۲۴) ----------
@@ -664,7 +866,7 @@
       type: eqId,
       name: eq.name,
       x: x, y: y,
-      status: 'building',
+      status: 'active', // ساخت آنی است
       health: 100,
       capacity: eq.capacity || 0,
       radius: eq.radius || 0,
@@ -675,7 +877,7 @@
       direction: opts.direction !== undefined ? opts.direction : 0,
       angle: (DATA.beamwidthByEq && DATA.beamwidthByEq[eqId]) || (opts.angle !== undefined ? opts.angle : 360),
       power: opts.power !== undefined ? opts.power : 1,
-      buildTimer: eq.buildDays || 1,
+      buildTimer: 0,
       usage: 0,
       connected: false,
       installPointId: opts.installPointId || null,
@@ -685,7 +887,8 @@
     // کانال فرکانسی: برای فناوری‌های بی‌سیم، کم‌تداخل‌ترین کانال انتخاب می‌شود
     if (channelCountFor(node) > 0) node.channel = leastInterferedChannel(state, node);
     state.nodes.push(node);
-    log(state, 'ساخت «' + eq.name + '» آغاز شد (' + (Math.round(node.buildTimer * 100) / 100) + ' روز).', 'build');
+    log(state, '«' + eq.name + '» ساخته شد (آنی).', 'build');
+    refreshConnectivity(state);
     return node;
   }
 
@@ -744,6 +947,102 @@
   // ---------- قطع اتصال لینک ----------
   function linksOfNode(state, nodeId) {
     return (state.links || []).filter((l) => l.from === nodeId || l.to === nodeId);
+  }
+
+  // ---------- تغییر نوع و ارتقای لینک ----------
+  const LINK_MEDIUM_COST = { fiber: 5000, copper: 2000, ptp: 18000, satellite: 20000, ethernet: 3000 };
+  const LINK_CHANGE_DAYS = { fiber: 0.5, copper: 0.25, ptp: 0.25, satellite: 0.5, ethernet: 0.25 };
+  const LINK_MAX_LEVEL = 5;
+
+  function linkBaseCapacity(medium) {
+    const mi = (DATA.linkMedia && DATA.linkMedia[medium]) || {};
+    return mi.capacity || 1000;
+  }
+  function linkCapacityFor(medium, level) {
+    return Math.round(linkBaseCapacity(medium) * Math.pow(1.5, Math.max(1, level || 1) - 1));
+  }
+  // آیا این نوع گره (طبق مشخصهٔ connects در داده‌ها) این رسانه را برای لینک گره‌به‌گره پشتیبانی می‌کند؟
+  function mediumSupportedBy(nodeType, medium) {
+    const eq = DATA.equipment && DATA.equipment[nodeType];
+    if (!eq || !eq.connects) return medium === 'fiber' || medium === 'copper';
+    return eq.connects.some((c) => c.medium === medium && (c.targets || []).includes('node'));
+  }
+  function satellitePairOk(a, b) {
+    const isTerm = (n) => n && (n.type === 'sat_terminal_leo' || n.type === 'sat_terminal_geo');
+    const isGw = (n) => n && n.type === 'sat_gateway';
+    return (isTerm(a) && isGw(b)) || (isTerm(b) && isGw(a));
+  }
+  // گزینه‌های تغییر رسانه برای پنل لینک: ظرفیت، هزینه، زمان و دلیل غیرفعال‌بودن
+  function linkChangeOptions(state, linkId) {
+    const link = (state.links || []).find((l) => l.id === linkId);
+    if (!link) return [];
+    const a = nodeById(state, link.from);
+    const b = nodeById(state, link.to);
+    const media = ['fiber', 'copper', 'ptp', 'satellite'];
+    return media.map((m) => {
+      const opt = {
+        medium: m,
+        name: ((DATA.linkMedia && DATA.linkMedia[m]) || {}).name || m,
+        capacity: linkCapacityFor(m, link.level || 1),
+        cost: Math.round(0.5 * (LINK_MEDIUM_COST[m] || 3000)),
+        days: 0, // تغییر نوع لینک آنی است
+        current: m === link.medium,
+        ok: true, reason: '',
+      };
+      if (opt.current) { opt.ok = false; opt.reason = 'نوع فعلی لینک'; return opt; }
+      if (m === 'satellite') {
+        if (!satellitePairOk(a, b)) { opt.ok = false; opt.reason = 'فقط بین پایانه ماهواره‌ای و دروازه زمینی'; return opt; }
+      } else if (!mediumSupportedBy(a && a.type, m) || !mediumSupportedBy(b && b.type, m)) {
+        opt.ok = false; opt.reason = 'یکی از دو گره این رسانه را پشتیبانی نمی‌کند'; return opt;
+      }
+      if (m === 'ptp' && a && b && dist(a.x, a.y, b.x, b.y) > ((DATA.linkMedia.ptp || {}).maxRange || 1800)) {
+        opt.ok = false; opt.reason = 'فاصله بیش از برد نقطه‌به‌نقطه (۱۸۰۰ واحد)'; return opt;
+      }
+      const dup = (state.links || []).some((l) => l.id !== link.id && l.medium === m &&
+        ((l.from === link.from && l.to === link.to) || (l.from === link.to && l.to === link.from)));
+      if (dup) { opt.ok = false; opt.reason = 'لینکی با همین رسانه بین این دو گره هست'; return opt; }
+      if (state.cash < opt.cost) { opt.ok = false; opt.reason = 'نقدینگی کافی نیست'; return opt; }
+      return opt;
+    });
+  }
+  function changeLinkMedium(state, linkId, newMedium) {
+    const link = (state.links || []).find((l) => l.id === linkId);
+    if (!link) return { ok: false, error: 'لینک پیدا نشد.' };
+    const opt = linkChangeOptions(state, linkId).find((o) => o.medium === newMedium);
+    if (!opt) return { ok: false, error: 'رسانه نامعتبر است.' };
+    if (!opt.ok) return { ok: false, error: opt.reason || 'تغییر ممکن نیست.' };
+    state.cash -= opt.cost;
+    // تغییر نوع لینک آنی است: بدون قطعی و بدون زمان انتظار
+    link.medium = newMedium;
+    link.capacity = linkCapacityFor(newMedium, link.level || 1);
+    link.status = 'active';
+    log(state, 'نوع لینک به «' + opt.name + '» تغییر کرد (آنی).', 'build');
+    refreshConnectivity(state);
+    return { ok: true, cost: opt.cost, days: 0 };
+  }
+  function upgradeLink(state, linkId) {
+    const link = (state.links || []).find((l) => l.id === linkId);
+    if (!link) return { ok: false, error: 'لینک پیدا نشد.' };
+    const level = link.level || 1;
+    if (level >= LINK_MAX_LEVEL) return { ok: false, error: 'لینک در حداکثر سطح است.' };
+    const cost = Math.round(0.6 * (LINK_MEDIUM_COST[link.medium] || 3000) * level);
+    if (state.cash < cost) return { ok: false, error: 'نقدینگی کافی نیست.' };
+    state.cash -= cost;
+    // ارتقای لینک آنی است
+    link.level = level + 1;
+    link.capacity = linkCapacityFor(link.medium, link.level);
+    link.status = 'active';
+    log(state, 'ظرفیت لینک به سطح ' + link.level + ' ارتقا یافت (آنی).', 'build');
+    refreshConnectivity(state);
+    return { ok: true, cost, days: 0, nextCapacity: link.capacity };
+  }
+  function toggleLinkBackup(state, linkId) {
+    const link = (state.links || []).find((l) => l.id === linkId);
+    if (!link) return { ok: false, error: 'لینک پیدا نشد.' };
+    link.isBackup = !link.isBackup;
+    log(state, link.isBackup ? 'لینک به حالت پشتیبان رفت.' : 'لینک به حالت اصلی برگشت.', 'info');
+    refreshConnectivity(state);
+    return { ok: true, isBackup: link.isBackup };
   }
   function connectedSetExcluding(state, excludeLinkId) {
     const set = new Set();
@@ -1000,10 +1299,13 @@
         const share = Math.min(remaining, capOf(srv));
         const path = bfsPath(state, srv.id);
         if (!path) continue;
-        srv.usage += share;
+        // مسیر bfsPath متناوب [گره، لینک، گره، ...] است: ترافیک از همهٔ گره‌های میانی
+        // (روتر/سوئیچ/تجمیع/هسته/دروازه) عبور می‌کند و مصرف همهٔ آن‌ها ثبت می‌شود
         for (const id of path) {
           const l = linkById(state, id);
-          if (l) l.usage += share;
+          if (l) { l.usage += share; continue; }
+          const nn = nodeById(state, id);
+          if (nn) nn.usage += share;
         }
         remaining -= share;
       }
@@ -1014,6 +1316,13 @@
         if (l.usage > effCap && effCap > 0) {
           l.status = 'congested';
           congestionFactor = Math.min(congestionFactor, effCap / l.usage);
+        }
+      }
+      // گلوگاه گره‌های میانی: روتر/تجمیع اشباع‌شده هم کیفیت پایین‌دست را کم می‌کند
+      for (const n of state.nodes) {
+        const effCap = n._effCap != null ? n._effCap : (n.capacity || 0);
+        if (effCap > 0 && (n.usage || 0) > effCap) {
+          congestionFactor = Math.min(congestionFactor, effCap / n.usage);
         }
       }
       if (state.failoverActive && priority(d) === 2) congestionFactor *= 0.6; // throttling عادی‌ها
@@ -1106,6 +1415,20 @@
     sc.coveredCount = coveredCount;
     const capSum = Array.from(coveringCaps.values()).reduce((a, b) => a + b, 0);
     sc.servedDemand = Math.round(Math.min(sc.demand, capSum));
+    // ترافیک پراکنده‌ها هم روی گره‌های سرویس‌دهنده و مسیرشان ثبت می‌شود (به نسبت ظرفیت)
+    if (sc.servedDemand > 0 && capSum > 0) {
+      for (const [nid, cap] of coveringCaps) {
+        const share = sc.servedDemand * (cap / capSum);
+        const path = bfsPath(state, nid);
+        if (!path) continue;
+        for (const id of path) {
+          const l = linkById(state, id);
+          if (l) { l.usage += share; continue; }
+          const nn = nodeById(state, id);
+          if (nn) nn.usage += share;
+        }
+      }
+    }
     // کیفیت تجربه‌شدهٔ مشترکان پراکنده (بدون مشترک = ۰)
     sc.qos = sc.demand > 0 ? clamp(sc.servedDemand / sc.demand, 0, 1) : 0;
     // کیفیت بالقوه برای مشترک تازهٔ پراکنده (مبنای رشد؛ فقط ساختمان‌های تحت پوشش مشترک می‌گیرند)
@@ -1251,15 +1574,15 @@
       return { ok: false, error: 'پورت‌های این کابینت پر شده است؛ کابینت را ارتقا دهید یا کابینت دیگری بسازید.' };
     }
     const cost = medium === 'copper' ? 300 + Math.round(dd * 0.6) : 600 + Math.round(dd * 1.2);
-    const workDays = medium === 'copper' ? 1 + Math.floor(dd / 600) : 1 + Math.floor(dd / 400);
+    const workDays = 0; // انشعاب سیمی آنی وصل می‌شود
     if (state.cash < cost) return { ok: false, error: 'بودجه کافی برای اتصال ' + mediumFa + ' نیست. هزینه: ' + cost };
     state.cash -= cost;
     state.totalCosts = (state.totalCosts || 0) + cost;
     if (!Array.isArray(state.fiberDrops)) state.fiberDrops = [];
     if (state.counters.fiberDrop == null) state.counters.fiberDrop = 0;
-    const drop = { id: 'fd' + (++state.counters.fiberDrop), buildingId, nodeId: src.id, medium, status: 'building', work: workDays };
+    const drop = { id: 'fd' + (++state.counters.fiberDrop), buildingId, nodeId: src.id, medium, status: 'active', work: 0 };
     state.fiberDrops.push(drop);
-    log(state, 'اتصال ' + mediumFa + ' ساختمان به «' + (src.name || 'کابینت') + '» شروع شد (' + workDays + ' روز).', 'build');
+    log(state, 'ساختمان به «' + (src.name || 'کابینت') + '» با ' + mediumFa + ' متصل شد (آنی).', 'build');
     refreshConnectivity(state);
     return { ok: true, cost, days: workDays, nodeId: src.id, nodeName: src.name, medium };
   }
@@ -1323,7 +1646,7 @@
       const anyConnected = servers.some((n) => n.connected);
       if (!servers.length) {
         add('no_coverage', { districtId: d.id, message: 'منطقه «' + d.name + '» پوشش ندارد.' }, [
-          { action: 'build_access', label: 'ساخت دکل/آنتن در منطقه', equipment: ['cell_3g', 'fwa_ap', 'wifi_ap'] },
+          { action: 'build_access', label: 'ساخت دکل/آنتن در منطقه', equipment: ['cell_3g', 'fwa_ap', 'cell_2g'] },
           { action: 'build_satellite', label: 'استفاده از پایانه ماهواره‌ای', equipment: ['sat_terminal_leo'] },
         ]);
       } else if (!anyConnected) {
@@ -1496,15 +1819,33 @@
       const p = Math.min(1, (rates[d.type] != null ? rates[d.type] : 0.07) * dtDays);
       if (rand(state) >= p) continue;
       // تلاش برای یافتن جای مناسب داخل منطقه (نه روی خیابان، نه در رودخانه، نه روی ساختمان/گره دیگر)
-      // تلاش‌های پایانی: شعاع بزرگ‌تر و ساختمان کوچک‌تر تا مناطق تنگ هم به سقف برسند
+      // تلاش‌های اول: جبهه‌ای کنار خیابان و هم‌جهت با آن؛ تلاش‌های پایانی: شعاع بزرگ‌تر و ساختمان کوچک‌تر
       for (let attempt = 0; attempt < 80; attempt++) {
-        const small = attempt >= 50;
-        const w = 26 + Math.floor(rand(state) * (small ? 16 : 42));
-        const h = 26 + Math.floor(rand(state) * (small ? 16 : 42));
-        const ang = rand(state) * Math.PI * 2;
-        const rr = Math.sqrt(rand(state)) * d.radius * (attempt >= 30 ? 0.92 : 0.85);
-        const x = Math.round(d.x + Math.cos(ang) * rr - w / 2);
-        const y = Math.round(d.y + Math.sin(ang) * rr - h / 2);
+        let w, h, x, y;
+        const roads = state.roads;
+        if (attempt < 40 && roads && (roads.h || roads.v)) {
+          const horiz = rand(state) < 0.5;
+          const lines = (horiz ? roads.h : roads.v) || [];
+          const center = horiz ? d.y : d.x;
+          const near = lines.filter((L) => Math.abs(L - center) < d.radius);
+          if (!near.length) continue;
+          const L = near[Math.floor(rand(state) * near.length)];
+          const side = rand(state) < 0.5 ? 1 : -1;
+          const fl = 26 + Math.floor(rand(state) * 38);
+          const dep = 22 + Math.floor(rand(state) * 26);
+          const along = (horiz ? d.x : d.y) + (rand(state) * 2 - 1) * d.radius * 0.8;
+          if (horiz) { w = fl; h = dep; x = Math.round(along - w / 2); y = Math.round(side > 0 ? L + 16 : L - 16 - h); }
+          else { w = dep; h = fl; y = Math.round(along - h / 2); x = Math.round(side > 0 ? L + 16 : L - 16 - w); }
+          if (Math.hypot(x + w / 2 - d.x, y + h / 2 - d.y) > d.radius) continue;
+        } else {
+          const small = attempt >= 50;
+          w = 26 + Math.floor(rand(state) * (small ? 16 : 42));
+          h = 26 + Math.floor(rand(state) * (small ? 16 : 42));
+          const ang = rand(state) * Math.PI * 2;
+          const rr = Math.sqrt(rand(state)) * d.radius * (attempt >= 30 ? 0.92 : 0.85);
+          x = Math.round(d.x + Math.cos(ang) * rr - w / 2);
+          y = Math.round(d.y + Math.sin(ang) * rr - h / 2);
+        }
         if (x < 10 || y < 10 || x + w > W - 10 || y + h > H - 10) continue;
         if (rectHitsRoad(state, x, y, w, h)) continue;
         if (rectHitsRiver(state, x, y, w, h)) continue;
@@ -1646,6 +1987,7 @@
     }
     n.channel = channel;
     log(state, 'کانال «' + (n.name || 'گره') + '» روی کانال ' + channel + ' تنظیم شد.', 'info');
+    refreshConnectivity(state); // تداخل و کیفیت همان لحظه بازمحاسبه شود
     return { ok: true, channel };
   }
   function autoChannel(state, nodeId) {
@@ -1656,6 +1998,7 @@
     const ch = leastInterferedChannel(state, n);
     n.channel = ch;
     log(state, 'کانال «' + (n.name || 'گره') + '» به‌صورت خودکار روی کانال ' + ch + ' تنظیم شد.', 'info');
+    refreshConnectivity(state);
     return { ok: true, channel: ch };
   }
   function setNodeDirection(state, nodeId, directionDeg, angleDeg) {
@@ -1885,13 +2228,13 @@
     const n = (state.counters.satellite = (state.counters.satellite || 0) + 1);
     const sat = {
       id: 'sat' + n, kind, name: cfg.name + ' ' + n,
-      status: 'launching', launchTimer: cfg.buildDays,
+      status: 'active', launchTimer: 0, // پرتاب آنی است
       capacity: cfg.capacity, lifetimeDays: cfg.lifetimeDays,
       ageDays: 0, health: 100, monthlyCost: cfg.monthlyCost,
     };
     if (!state.satellites) state.satellites = [];
     state.satellites.push(sat);
-    log(state, 'پرتاب ماهوارهٔ «' + sat.name + '» آغاز شد (' + cfg.buildDays + ' روز تا قرارگیری در مدار).', 'build');
+    log(state, 'ماهوارهٔ «' + sat.name + '» پرتاب و در مدار قرار گرفت (آنی).', 'build');
     return { ok: true, satellite: sat };
   }
   function tickSatellites(state, dtDays) {
@@ -2056,6 +2399,7 @@
         }
       }
     }
+    // (تغییر نوع و ارتقای لینک آنی است و در تیک پردازش نمی‌شود)
 
     // خرابی‌های تصادفی کوچک (هسته و دروازه در مرکز داده محافظت‌شده‌اند)
     // سامانه‌های برق (دستهٔ power) از گره‌های نزدیک محافظت می‌کنند: خرابی کمتر، فرسودگی کندتر
@@ -2249,12 +2593,10 @@
     state.cash -= cost;
     state.totalCosts += cost;
     n.x = Math.round(x); n.y = Math.round(y);
-    n.status = 'building';
-    n.buildTimer = Math.max(1, Math.round((eq ? eq.buildDays || 1 : 1) * 0.3));
-    n.connected = false;
-    log(state, 'جابه‌جایی «' + (n.name || 'گره') + '» شروع شد؛ تا پایان نصب مجدد سرویس نمی‌دهد.', 'build');
+    n.buildTimer = 0; // جابه‌جایی آنی است
+    log(state, '«' + (n.name || 'گره') + '» جابه‌جا شد (آنی).', 'build');
     refreshConnectivity(state);
-    return { ok: true, cost, days: n.buildTimer };
+    return { ok: true, cost, days: 0 };
   }
 
   // ---------- ارتقای گره‌ها (افزایش پهنای باند) ----------
@@ -2279,7 +2621,7 @@
     const lvl = n.level || 1;
     if (lvl >= MAX_LEVEL) return { node: n, level: lvl, maxLevel: MAX_LEVEL, maxed: true };
     const cost = Math.round((eq.cost || 0) * 0.6 * lvl);
-    const workDays = Math.max(1, Math.round((eq.buildDays || 1) * 0.5 * lvl));
+    const workDays = Math.min(1, Math.max(0.125, (eq.buildDays || 0.25) * 0.5 * lvl));
     return {
       node: n, level: lvl, maxLevel: MAX_LEVEL, maxed: false, cost, workDays,
       nextCapacity: levelCapacity(n.baseCapacity != null ? n.baseCapacity : (eq.capacity || 0), lvl + 1),
@@ -2360,7 +2702,7 @@
         const eq = getEq(n.type);
         const cost = eq ? Math.round(eq.cost * 0.1) : 500;
         if (state.cash < cost) return fail('بودجه کافی برای تعمیر نیست.');
-        state.cash -= cost; n.status = 'repairing'; n.repairWork = 3; n.repairHealth = 85;
+        state.cash -= cost; n.status = 'repairing'; n.repairWork = 1; n.repairHealth = 85;
         log(state, 'تعمیر «' + (n.name || 'نامشخص') + '» شروع شد.', 'repair');
         return { ok: true, cost };
       }
@@ -2371,7 +2713,7 @@
         const eq = getEq(n.type);
         const cost = eq ? Math.round(eq.cost * 0.25) : 1000;
         if (state.cash < cost) return fail('بودجه کافی برای جایگزینی نیست.');
-        state.cash -= cost; n.status = 'repairing'; n.repairWork = 2; n.repairHealth = 100;
+        state.cash -= cost; n.status = 'repairing'; n.repairWork = 0.75; n.repairHealth = 100;
         log(state, 'جایگزینی «' + (n.name || 'نامشخص') + '» شروع شد.', 'repair');
         return { ok: true, cost };
       }
@@ -2450,6 +2792,16 @@
     // تکمیل فیلدهای نسخه‌های قدیمی ذخیره (رشد شهر + درآمد روزانه)
     if (!Array.isArray(state.buildings)) state.buildings = (DATA.buildings || []).slice();
     if (!state.counters) state.counters = { node: 0, link: 0, staff: 0, problem: 0 };
+    (state.links || []).forEach((l) => {
+      if (!l.level) l.level = 1;
+      // لینک‌های در حال تغییرِ ذخیره‌های میانی: تغییرشان آنی اعمال شود
+      if (l.status === 'changing' || l.status === 'upgrading') {
+        if (l.pendingMedium) { l.medium = l.pendingMedium; delete l.pendingMedium; }
+        if (l.pendingLevel) { l.level = l.pendingLevel; delete l.pendingLevel; }
+        l.changeWork = 0;
+        l.status = 'active';
+      }
+    });
     if (!state.counters.building) state.counters.building = state.buildings.length;
     if (state.monthRevenue == null) state.monthRevenue = 0;
     // فیلدهای جدید: ساعت، آب‌وهوا، دستاوردها، افراد، قراردادها، کمپین‌ها، ماهواره‌ها، تاریخچه
@@ -2472,7 +2824,7 @@
       if (n.channel === undefined) n.channel = null;
       // سازگاری ذخیره‌های قدیمی: تجهیز حذف‌شده از کاتالوگ ساده‌شده → نزدیک‌ترین معادل کلی
       if (!getEq(n.type)) {
-        const mapped = (DATA.legacyEquipmentMap || {})[n.type] || 'wifi_ap';
+        const mapped = (DATA.legacyEquipmentMap || {})[n.type] || 'fwa_ap';
         const eqm = getEq(mapped);
         if (eqm) {
           n.type = mapped;
@@ -2488,7 +2840,11 @@
       if (n.baseRadius == null) n.baseRadius = eqN ? (eqN.radius || 0) : (n.radius || 0);
       applyNodeLevel(n);
       if (n.channel == null && channelCountFor(n) > 0) n.channel = leastInterferedChannel(state, n);
+      // ساخت آنی است: گره‌های در حال ساختِ ذخیره‌های قدیمی همان لحظه فعال شوند
+      if (n.status === 'building') { n.status = 'active'; n.buildTimer = 0; }
     }
+    (state.fiberDrops || []).forEach((fd) => { if (fd.status === 'building') { fd.status = 'active'; fd.work = 0; } });
+    (state.satellites || []).forEach((sat) => { if (sat.status === 'launching') { sat.status = 'active'; sat.launchTimer = 0; } });
     const capMult = (DATA.growth && DATA.growth.capMultiplier) || {};
     if (!state.scattered) state.scattered = { subscribers: 0, demand: 0, servedDemand: 0, qos: 0, satisfaction: 0, revenue: 0, potentialSubs: 0, buildingCount: 0, coveredCount: 0 };
     for (const d of (state.districts || [])) {
@@ -2614,10 +2970,13 @@
       }
     }
     const list = (state.individuals || []).filter((p) => String(p.buildingId) === String(b.id));
+    const subscribedCount = list.filter((p) => p.status === 'subscribed').length;
     return {
       found: true, covered, connected,
       individuals: list.length,
-      individualsSubscribed: list.filter((p) => p.status === 'subscribed').length,
+      individualsSubscribed: subscribedCount,
+      // وای‌فای داخلی ساختمان = اکسس‌پوینت خود مشترک؛ فقط با اشتراک فعال
+      wifi: subscribedCount > 0 || buildingWiredStatus(state, b.id).status === 'active',
     };
   }
 
@@ -2631,7 +2990,9 @@
     refreshConnectivity, connectBuildingFiber, disconnectBuildingFiber, buildingFiberStatus, fiberDropFor,
     connectBuildingWired, disconnectBuildingWired, buildingWiredStatus, cabinetPorts, cabinetUsedPorts, COPPER_DROP_SPEED,
     disconnectLink, linkDisconnectImpact, linksOfNode,
-    subscriberStats, buildingServiceStatus, individualTargetFor, CONCURRENCY, INDIVIDUAL_CAP,
+    changeLinkMedium, upgradeLink, toggleLinkBackup, linkChangeOptions, linkCapacityFor, LINK_MAX_LEVEL,
+    subscriberStats, buildingServiceStatus, buildingHasSubscription, individualTargetFor, CONCURRENCY, INDIVIDUAL_CAP,
+    prepareSignalField, prepareSpeedField, signalFieldAt, speedFieldAt, sampleFieldRows, interferenceFor,
     buildingAttenuation, ptpLosFactor,
     // کمکی‌ها
     nodeById, linkById, getEq, getTech, rand, ACCESS_TYPES, computeTechDemand, TECH_KEYS, speedTestAt, aggregateSpeedAt,
