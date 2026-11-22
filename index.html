@@ -28,6 +28,9 @@
     <span class="stat"><label>درآمد روزانه</label><strong id="ui-income">—</strong></span>
     <span class="stat"><label>روز</label><strong id="ui-day">—</strong></span>
     <span class="stat"><label>رضایت</label><strong id="ui-satisfaction">—</strong></span>
+    <span class="stat"><label>ساعت</label><strong id="ui-clock">—</strong></span>
+    <span class="stat"><label>آب‌وهوا و فصل</label><strong id="ui-weather">—</strong></span>
+    <span class="stat"><label>سطح تقاضا</label><strong id="ui-demand-level">—</strong></span>
   </div>
   <div class="tb-group controls">
     <div class="speed-btns" role="group" aria-label="سرعت بازی">
@@ -53,6 +56,17 @@
   <button id="btn-packages" class="side-item"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 3.5 7.5v9L12 21l8.5-4.5v-9z"/><path d="M3.5 7.5 12 12l8.5-4.5"/><path d="M12 12v9"/></svg><span>بسته‌های اینترنت</span></button>
   <button id="btn-guide" class="side-item"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/><path d="M9 7h7M9 11h5"/></svg><span>راهنمای فناوری‌ها</span></button>
   <button id="btn-log" class="side-item"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg><span>گزارش رویدادها</span></button>
+  <button id="btn-achievements" class="side-item"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="5"/><path d="m9 12.5-1.5 7L12 16.5 16.5 19.5 15 12.5"/><path d="M9.5 8h5M12 5.5v5"/></svg><span>دستاوردها</span></button>
+  <button id="btn-contracts" class="side-item"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4"/><path d="M9 12h7M9 16h5"/></svg><span>قراردادهای سازمانی</span></button>
+  <button id="btn-campaigns" class="side-item"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11v3l4 1 1.5 5h3L10 15l8 3V6L6 9z"/><path d="M18 8a4 4 0 0 1 0 8"/></svg><span>کمپین‌های تبلیغاتی</span></button>
+  <button id="btn-constellation" class="side-item"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="6" height="6" rx="1"/><path d="M3 12h6M15 12h6M12 3v6M12 15v6"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/></svg><span>صورت فلکی ماهواره‌ای</span></button>
+  <button id="btn-stats" class="side-item"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10M9 20V4M14 20v-8M19 20v-5"/><path d="M3 20h18"/></svg><span>آمار و نمودارها</span></button>
+  <div class="side-menu-section">صدا</div>
+  <div class="side-audio">
+    <label class="side-audio-row"><span>صدا</span><input id="audio-volume" type="range" min="0" max="100" value="70" aria-label="بلندی صدا"></label>
+    <label class="side-audio-row check"><input id="audio-mute" type="checkbox"> بی‌صدا</label>
+    <label class="side-audio-row check"><input id="audio-music" type="checkbox"> موسیقی پس‌زمینه</label>
+  </div>
   <div class="side-menu-section">بازی</div>
   <button id="btn-save" class="side-item"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3h11l5 5v12a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M8 3v5h7V3"/><rect x="8" y="14" width="8" height="7"/></svg><span>ذخیره</span></button>
   <button id="btn-load" class="side-item"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M3 10h18"/></svg><span>بارگذاری</span></button>
@@ -76,6 +90,7 @@
         <button id="tool-speedtest" class="btn tool">تست سرعت</button>
       </div>
       <input id="build-search" type="search" placeholder="جست‌وجوی تجهیز… (نام، دسته، مشخصات)" aria-label="جست‌وجوی تجهیز">
+      <button id="btn-suggest" class="btn" style="width:100%;margin-bottom:8px">پیشنهاد جای دکل</button>
       <div id="build-menu"></div>
     </section>
     <section>
@@ -105,6 +120,9 @@
         <label><input type="checkbox" data-layer="coverage" checked> پوشش</label>
         <label><input type="checkbox" data-layer="labels" checked> برچسب‌ها</label>
         <label><input type="checkbox" data-layer="techdemand"> تقاضای فناوری</label>
+        <label><input type="checkbox" data-layer="signal"> نقشه حرارتی سیگنال</label>
+        <label><input type="checkbox" data-layer="daynight" checked> شب و روز</label>
+        <label><input type="checkbox" data-layer="weather" checked> آب‌وهوا</label>
         <label><input type="checkbox" data-layer="fiber" checked> لینک فیبر</label>
         <label><input type="checkbox" data-layer="copper" checked> لینک مسی</label>
         <label><input type="checkbox" data-layer="satellite" checked> لینک ماهواره‌ای</label>
@@ -117,6 +135,11 @@
       <div class="tech-legend-item"><span class="tech-dot" style="background:#fb923c"></span>وایرلس ثابت</div>
       <div class="tech-legend-item"><span class="tech-dot" style="background:#a78bfa"></span>وای‌فای</div>
       <div class="tech-legend-item"><span class="tech-dot" style="background:#e879f9"></span>ماهواره</div>
+    </div>
+    <div id="signal-legend" class="hidden" role="note" aria-label="راهنمای نقشه حرارتی سیگنال">
+      <div class="tech-legend-title">قدرت سیگنال</div>
+      <div class="signal-bar"></div>
+      <div class="signal-labels"><span>ضعیف</span><span>قوی</span></div>
     </div>
     <div id="map-hint" class="map-hint hidden"></div>
     <div id="zoom-controls">
@@ -174,6 +197,11 @@
 <div id="modal-packages" class="modal hidden"><div class="modal-head"><h3>بسته‌های اینترنت</h3><button class="btn icon sm modal-close" data-close="modal-packages"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div><div class="modal-body" id="packages-body"></div></div>
 <div id="modal-guide" class="modal hidden"><div class="modal-head"><h3>راهنمای فناوری‌ها</h3><button class="btn icon sm modal-close" data-close="modal-guide"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div><div class="modal-body" id="guide-overview-body"></div></div>
 <div id="modal-log" class="modal hidden"><div class="modal-head"><h3>گزارش رویدادها</h3><button class="btn icon sm modal-close" data-close="modal-log"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div><div class="modal-body"><div id="event-log" class="log log-full"></div></div></div>
+<div id="modal-achievements" class="modal hidden"><div class="modal-head"><h3>دستاوردها</h3><button class="btn icon sm modal-close" data-close="modal-achievements"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div><div class="modal-body" id="achievements-body"></div></div>
+<div id="modal-contracts" class="modal hidden"><div class="modal-head"><h3>قراردادهای سازمانی</h3><button class="btn icon sm modal-close" data-close="modal-contracts"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div><div class="modal-body" id="contracts-body"></div></div>
+<div id="modal-campaigns" class="modal hidden"><div class="modal-head"><h3>کمپین‌های تبلیغاتی</h3><button class="btn icon sm modal-close" data-close="modal-campaigns"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div><div class="modal-body" id="campaigns-body"></div></div>
+<div id="modal-constellation" class="modal hidden"><div class="modal-head"><h3>صورت فلکی ماهواره‌ای</h3><button class="btn icon sm modal-close" data-close="modal-constellation"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div><div class="modal-body" id="constellation-body"></div></div>
+<div id="modal-stats" class="modal hidden"><div class="modal-head"><h3>آمار و نمودارها</h3><button class="btn icon sm modal-close" data-close="modal-stats"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div><div class="modal-body"><label>بازه: <select id="stats-range"><option value="30">۳۰ روز</option><option value="90">۹۰ روز</option><option value="all" selected>کل</option></select></label><div id="stats-body"></div></div></div>
 
 <!-- Equipment guide popover -->
 <div id="guide-popover" class="popover hidden" role="dialog">
@@ -222,6 +250,7 @@
 <script src="js/mapgen.js"></script>
 <script src="js/sim.js"></script>
 <script src="js/map.js"></script>
+<script src="js/audio.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/main.js"></script>
 </body>
