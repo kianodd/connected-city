@@ -272,7 +272,7 @@
     if (!window.GameSim || !GameSim.speedTestAt || !state) return;
     var res = GameSim.speedTestAt(state, wx, wy);
     var TECH_FA = { fiber: 'فیبر/مسی', cellular: 'سلولار', fwa: 'وایرلس ثابت', wifi: 'وای‌فای', satellite: 'ماهواره' };
-    var html = '<p class="muted">سرعت مؤثر در این نقطه، به تفکیک فناوری:</p>';
+    var html = '<p class="muted">سرعت بالقوه در این نقطه (با اشتراک)، به تفکیک فناوری:</p>';
     ['fiber', 'cellular', 'fwa', 'wifi', 'satellite'].forEach(function (t) {
       var e = res[t] || { speed: 0, reason: 'no_coverage' };
       var sub = e.nodeName ? esc(e.nodeName) : '';
@@ -281,6 +281,7 @@
         '<span><strong>' + fmt(e.speed || 0) + ' Mbps</strong></span></div>' +
         (sub ? '<div class="muted tech-sub">' + sub + '</div>' : '') + '</div>';
     });
+    html += '<p class="muted">بدون اشتراک، سرویسی فعال نمی‌شود؛ این سرعت‌ها فقط برای مشترک است.</p>';
     $('speedtest-body').innerHTML = html;
     $('speedtest-popover').classList.remove('hidden');
   }
@@ -561,18 +562,58 @@
     return null;
   }
 
-  function individualsHtml(list, emptyMsg) {
+  var indivShow = {}; // کلید لیست → تعداد ردیف نمایشی («نمایش بیشتر»)
+  function indivPackageName(p) {
+    var cust = (state.customers || []).find(function (c) { return String(c.districtId) === String(p.districtId); });
+    var pkg = (state.packages || []).find(function (x) { return x.id === (cust ? cust.packageId : 'home'); });
+    return pkg ? (pkg.name || pkg.id) : '';
+  }
+  function indivBuildingLabel(p) {
+    var b = (state.buildings || []).find(function (x) { return String(x.id) === String(p.buildingId); });
+    if (!b) return '';
+    var BTYPE_FA = (window.GAME_DATA && GAME_DATA.buildingTypeFa) || { residential: 'مسکونی', commercial: 'تجاری', office: 'اداری', industrial: 'صنعتی' };
+    return 'ساختمان ' + (BTYPE_FA[b.type] || '');
+  }
+  function individualsHtml(list, emptyMsg, opts) {
+    opts = opts || {};
+    var key = opts.key || 'x';
     if (!list || !list.length) return '<p class="muted">' + esc(emptyMsg || 'مشترک فردی ثبت نشده است.') + '</p>';
     var subCount = list.filter(function (p) { return p.status === 'subscribed'; }).length;
-    return '<p class="muted">' + fmt(subCount) + ' مشترک از ' + fmt(list.length) + ' نفر</p>' +
-      '<div class="indiv-list">' + list.slice(0, 12).map(function (p) {
+    var show = indivShow[key] || 12;
+    var rows = list.slice(0, show).map(function (p) {
       var isSub = p.status === 'subscriber' || p.status === 'subscribed' || p.status === 'active' || p.subscribed === true;
       var stFa = isSub ? 'مشترک' : 'غیرمشترک';
       var satv = Math.max(0, Math.min(100, Math.round(p.satisfaction || 0)));
-      return '<div class="indiv-row"><div class="indiv-head"><span>' + esc(p.name || p.id) + '</span>' +
+      var meta = indivPackageName(p);
+      if (p.joinedDay != null) meta += (meta ? ' — ' : '') + 'از روز ' + fmt(p.joinedDay);
+      if (opts.showBuilding) { var bl = indivBuildingLabel(p); if (bl) meta += (meta ? ' — ' : '') + bl; }
+      return '<div class="indiv-row"' + (opts.showBuilding && p.buildingId != null ? ' data-indiv-bld="' + esc(p.buildingId) + '" title="مشاهده ساختمان روی نقشه"' : '') + '><div class="indiv-head"><span>' + esc(p.name || p.id) + '</span>' +
         '<span class="muted">' + fmt(p.needMbps || 0) + ' Mbps — ' + stFa + '</span></div>' +
+        (meta ? '<div class="muted tech-sub">' + esc(meta) + '</div>' : '') +
         '<div class="cap-bar"><div class="cap-fill ' + (satv < 30 ? 'hot' : satv < 60 ? 'warm' : '') + '" style="width:' + satv + '%"></div></div></div>';
-    }).join('') + '</div>' + (list.length > 12 ? '<p class="muted">و ' + fmt(list.length - 12) + ' نفر دیگر…</p>' : '');
+    }).join('');
+    var more = list.length > show
+      ? '<button class="btn sm" data-indiv-more="' + esc(key) + '">نمایش بیشتر (' + fmt(list.length - show) + ' نفر دیگر)</button>'
+      : '';
+    return '<p class="muted">' + fmt(subCount) + ' مشترک از ' + fmt(list.length) + ' نفر</p>' +
+      '<div class="indiv-list">' + rows + '</div>' + more;
+  }
+  function wireIndivLists(box) {
+    box.querySelectorAll('[data-indiv-more]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var k = btn.getAttribute('data-indiv-more');
+        indivShow[k] = (indivShow[k] || 12) + 24;
+        renderDetail();
+      });
+    });
+    box.querySelectorAll('[data-indiv-bld]').forEach(function (row) {
+      row.addEventListener('click', function () {
+        var bid = row.getAttribute('data-indiv-bld');
+        var b = (state.buildings || []).find(function (x) { return String(x.id) === String(bid); });
+        if (b && window.CityMap && CityMap.panTo) CityMap.panTo(b.x + (b.w || 26) / 2, b.y + (b.h || 20) / 2);
+        selectNode(bid, 'building');
+      });
+    });
   }
 
   function selectNode(id, kind) {
@@ -639,14 +680,24 @@
         '<dt>نوع ساختمان</dt><dd>' + esc(BTYPE_FA[n.type] || 'ساختمانی') + '</dd>' +
         '<dt>طبقات</dt><dd>' + fmt(n.height || 1) + '</dd>' +
         '<dt>منطقه</dt><dd>' + esc(bDist ? bDist.name : 'خارج از مناطق (پراکنده)') + '</dd>' +
-        (n.height >= 10 ? '<dt>اثر بر پوشش</dt><dd>ساختمان بلند است؛ فقط دید لینک‌های نقطه‌به‌نقطه (PtP) را مخدوش می‌کند (برای سلولار/وای‌فای فقط چند درصد افت سیگنال)</dd>' : '') +
+        (n.height >= 10 ? '<dt>اثر بر پوشش</dt><dd>ساختمان بلند است؛ فقط دید لینک‌های نقطه‌به‌نقطه (PtP) را مخدوش می‌کند (روی سیگنال سلولار اثری ندارد؛ برای FWA/وای‌فای فقط چند درصد افت سیگنال)</dd>' : '') +
         '</dl>';
       if (!n.districtId && state.scattered) {
         html += '<p class="muted">این ساختمان خارج از مناطق است. مشترکان ساختمان‌های پراکنده: ' + fmt(state.scattered.subscribers || 0) +
           ' از ' + fmt(state.scattered.potentialSubs || 0) + ' ممکن (پوشش: ' + fmt(state.scattered.coveredCount || 0) + ' ساختمان).</p>';
       }
+      var svc = null;
+      try { svc = (window.GameSim && GameSim.buildingServiceStatus) ? GameSim.buildingServiceStatus(state, n.id) : null; } catch (e) { svc = null; }
+      if (svc && svc.found) {
+        var svcHtml;
+        if (svc.individualsSubscribed > 0) svcHtml = '<span class="status-ok">دارای مشترک (' + fmt(svc.individualsSubscribed) + ' نفر)</span>';
+        else if (svc.covered && svc.connected) svcHtml = '<span class="status-warn">تحت پوشش — اشتراک ندارد (سرویس فقط با اشتراک فعال می‌شود)</span>';
+        else if (svc.covered) svcHtml = '<span class="status-warn">تحت پوشش گرهٔ متصل‌نشده — سرویسی ارائه نمی‌شود</span>';
+        else svcHtml = '<span class="status-bad">خارج از پوشش</span>';
+        html += '<h5>وضعیت سرویس</h5><p>' + svcHtml + '</p>';
+      }
       var bIndiv = (state.individuals || []).filter(function (p) { return String(p.buildingId) === String(n.id); });
-      html += '<h5>ساکنان ساختمان</h5>' + individualsHtml(bIndiv, 'ساکنی برای این ساختمان ثبت نشده است.');
+      html += '<h5>ساکنان ساختمان</h5>' + individualsHtml(bIndiv, 'ساکنی برای این ساختمان ثبت نشده است.', { key: 'b:' + n.id });
       // انشعاب فیبر دستی
       var fStatus = null;
       try { fStatus = (window.GameSim && GameSim.buildingFiberStatus) ? GameSim.buildingFiberStatus(state, n.id) : null; } catch (e) { fStatus = null; }
@@ -665,6 +716,7 @@
         html += '</div>';
       }
       box.innerHTML = html;
+      wireIndivLists(box);
       box.querySelectorAll('[data-fiber-connect]').forEach(function (btn) {
         btn.addEventListener('click', function () { armConnectFromBuilding(btn.getAttribute('data-fiber-connect')); });
       });
@@ -700,15 +752,21 @@
       var TYPE_FA = { commercial: 'تجاری', residential: 'مسکونی', dense: 'پرتراکم', sparse: 'کم‌تراکم', industrial: 'صنعتی', landmark: 'مرکز مهم',
         academic: 'دانشگاهی', medical: 'درمانی', heavy_industrial: 'صنعتی سنگین', tourism: 'گردشگری', transport: 'حمل‌ونقل', villa: 'ویلایی', slum: 'حاشیه‌نشین', government: 'اداری' };
       var qosPct = Math.round((n.qos || 0) * 100);
-      html += n.connected
-        ? '<p class="status-ok"><span class="dot-ok"></span>دارای سرویس</p>'
-        : '<div class="warn-box">' + ICONS.warn + ' این منطقه هنوز سرویس ندارد. یک دستگاه دسترسی نزدیک آن نصب و به شبکه وصل کنید.</div>';
+      if (n.connected && (n.subscribers || 0) > 0) {
+        html += '<p class="status-ok"><span class="dot-ok"></span>دارای سرویس</p>';
+      } else if (n.connected) {
+        html += '<p class="status-warn"><span class="dot-ok"></span>تحت پوشش — هنوز مشترکی ندارد (سرویس فقط با اشتراک فعال می‌شود)</p>';
+      } else {
+        html += '<div class="warn-box">' + ICONS.warn + ' این منطقه هنوز سرویس ندارد. یک دستگاه دسترسی نزدیک آن نصب و به شبکه وصل کنید.</div>';
+      }
+      var penPct = n.population ? Math.round((n.subscribers || 0) / n.population * 100) : 0;
       html += '<dl class="kv">' +
         '<dt>نوع منطقه</dt><dd>' + esc(TYPE_FA[n.type] || n.type || '—') + '</dd>' +
         '<dt>جمعیت</dt><dd>' + fmt(n.population) + '</dd>' +
-        '<dt>تقاضا</dt><dd>' + fmt(n.demand) + ' Mbps</dd>' +
-        '<dt>تقاضای سرویس‌شده</dt><dd>' + fmt(n.servedDemand) + ' Mbps</dd>' +
+        '<dt>ترافیک مشترکان</dt><dd>' + fmt(n.demand) + ' Mbps</dd>' +
+        '<dt>ترافیک سرویس‌شده</dt><dd>' + fmt(n.servedDemand) + ' Mbps</dd>' +
         '<dt>مشترکان</dt><dd>' + fmt(n.subscribers) + '</dd>' +
+        '<dt>نفوذ اشتراک</dt><dd>' + fmt(penPct) + '٪ از جمعیت</dd>' +
         '<dt>کیفیت سرویس</dt><dd>' + fmt(qosPct) + '٪</dd>' +
         '<dt>رضایت</dt><dd>' + fmt(Math.round(n.satisfaction || 0)) + '٪</dd>' +
         '<dt>درآمد ماهانه</dt><dd>' + fmt(n.revenue) + ' تومان</dd>' +
@@ -724,19 +782,20 @@
         // همان رنگ‌های لایهٔ «تقاضای فناوری» روی نقشه (map.js TECH_TINT)
         var TECH_COLOR = { fiber: '#22d3ee', cellular: '#3fb950', fwa: '#fb923c', wifi: '#a78bfa', satellite: '#e879f9' };
         var totalD = Math.max(1, n.demand || 0);
-        html += '<h5>تقاضا به تفکیک فناوری</h5>';
+        html += '<h5>ترافیک به تفکیک فناوری</h5>';
         ['fiber', 'cellular', 'fwa', 'wifi', 'satellite'].forEach(function (t) {
           var e = td[t] || { demand: 0, served: 0 };
           var share = Math.round((e.demand || 0) / totalD * 100);
           var pct = e.demand > 0 ? Math.min(100, Math.round((e.served || 0) / e.demand * 100)) : 0;
           html += '<div class="tech-row"><div class="tech-head"><span><span class="tech-dot" style="background:' + TECH_COLOR[t] + '"></span>' + TECH_FA[t] + '</span>' +
-            '<span class="muted">' + fmt(e.served || 0) + ' از ' + fmt(e.demand || 0) + ' Mbps (' + fmt(share) + '٪ تقاضا)</span></div>' +
+            '<span class="muted">' + fmt(e.served || 0) + ' از ' + fmt(e.demand || 0) + ' Mbps (' + fmt(share) + '٪ ترافیک)</span></div>' +
             '<div class="cap-bar"><div class="cap-fill ' + (pct < 30 ? 'hot' : pct < 60 ? 'warm' : '') + '" style="width:' + pct + '%"></div></div></div>';
         });
       }
       var dIndiv = (state.individuals || []).filter(function (p) { return String(p.districtId) === String(n.id); });
-      html += '<h5>مشترکان فردی منطقه</h5>' + individualsHtml(dIndiv, 'مشترک فردی در این منطقه ثبت نشده است.');
+      html += '<h5>مشترکان فردی منطقه</h5>' + individualsHtml(dIndiv, 'مشترک فردی در این منطقه ثبت نشده است.', { key: 'd:' + n.id, showBuilding: true });
       box.innerHTML = html;
+      wireIndivLists(box);
       return;
     }
     var connected = n.connected !== false && n.status !== 'unconnected';
@@ -1345,6 +1404,36 @@
     });
     ctx2.stroke();
   }
+  function subscribersStatsHtml() {
+    if (!window.GameSim || !GameSim.subscriberStats || !state) return '';
+    var st = null;
+    try { st = GameSim.subscriberStats(state); } catch (e) { st = null; }
+    if (!st) return '';
+    var html = '<h4>آمار مشترکان</h4>' +
+      '<dl class="kv">' +
+      '<dt>کل مشترکان</dt><dd>' + fmt(st.total) + ' نفر</dd>' +
+      '<dt>مشترکان فردی (نمونه)</dt><dd>' + fmt(st.individualsSubscribed) + ' مشترک از ' + fmt(st.individualsTotal) + ' نفر ثبت‌شده</dd>' +
+      '<dt>پیوستن امروز</dt><dd>' + fmt(st.joins) + ' نفر</dd>' +
+      '<dt>ترک امروز</dt><dd>' + fmt(st.leaves) + ' نفر</dd>' +
+      '<dt>درآمد ماهانه از مشترکان</dt><dd>' + fmt(Math.round(st.monthlyRevenue)) + ' تومان</dd>' +
+      '</dl>' +
+      '<p class="muted">مشترکان فردی نمونه‌ای از مجموع مشترکان‌اند (هر فرد نمایندهٔ حدود ۲۰ مشترک تجمیعی است؛ سقف نمونه ' + fmt(st.individualCap) + ' نفر). ترافیک و درآمد شبکه فقط از مشترکان می‌آید؛ جمعیتِ غیرمشترک هیچ سرویسی نمی‌گیرد.</p>';
+    var pkgNames = {};
+    (state.packages || []).forEach(function (p) { pkgNames[p.id] = p.name || p.id; });
+    var pkgRows = Object.keys(st.byPackage).filter(function (k) { return st.byPackage[k] > 0; })
+      .map(function (k) { return '<div class="tech-row"><div class="tech-head"><span>' + esc(pkgNames[k] || k) + '</span><span>' + fmt(st.byPackage[k]) + ' نفر</span></div></div>'; }).join('');
+    if (pkgRows) html += '<h5>مشترکان به تفکیک بسته</h5>' + pkgRows;
+    var dRows = st.districts.slice().sort(function (a, b) { return b.subscribers - a.subscribers; }).map(function (r) {
+      return '<tr><td>' + esc(r.name || r.id) + '</td><td>' + fmt(r.subscribers) + '</td><td>' + fmt(r.population) + '</td>' +
+        '<td>' + fmt1(r.penetration) + '٪</td><td>' + fmt(Math.round((r.qos || 0) * 100)) + '٪</td><td>' + fmt(r.revenue) + '</td></tr>';
+    }).join('');
+    html += '<h5>مشترکان به تفکیک منطقه</h5>' +
+      '<table class="subs-table"><thead><tr><th>منطقه</th><th>مشترک</th><th>جمعیت</th><th>نفوذ</th><th>کیفیت</th><th>درآمد ماهانه</th></tr></thead><tbody>' + dRows +
+      '<tr><td>ساختمان‌های پراکنده</td><td>' + fmt(st.scatteredSubscribers) + '</td><td>' + fmt(st.scatteredPotential) + '</td><td>—</td><td>—</td><td>—</td></tr>' +
+      '</tbody></table>';
+    return html;
+  }
+
   function renderStats() {
     var body = $('stats-body'); if (!body) return;
     var rangeEl = $('stats-range');
@@ -1352,7 +1441,8 @@
     var hist = ((state && state.history) || []).slice();
     if (range === '30') hist = hist.slice(-30);
     else if (range === '90') hist = hist.slice(-90);
-    if (!hist.length) { body.innerHTML = '<p class="muted">هنوز سابقه‌ای ثبت نشده است. چند روز بازی کنید تا نمودارها ساخته شوند.</p>'; return; }
+    var subsHtml = subscribersStatsHtml();
+    if (!hist.length) { body.innerHTML = subsHtml + '<p class="muted">هنوز سابقه‌ای ثبت نشده است. چند روز بازی کنید تا نمودارها ساخته شوند.</p>'; return; }
     var charts = [
       { id: 'cash', label: 'نقدینگی', color: '#2f81f7', get: function (r) { return r.cash || 0; } },
       { id: 'rev', label: 'درآمد روزانه', color: '#3fb950', get: function (r) { return r.revenue || 0; } },
@@ -1360,7 +1450,7 @@
       { id: 'sat', label: 'رضایت (٪)', color: '#d29922', get: function (r) { return r.sat || 0; } },
       { id: 'cov', label: 'پوشش (٪)', color: '#22d3ee', get: function (r) { return r.cov || 0; } }
     ];
-    var html = charts.map(function (c) { return '<div class="stats-chart"><canvas id="chart-' + c.id + '" class="chart-canvas"></canvas></div>'; }).join('');
+    var html = subsHtml + charts.map(function (c) { return '<div class="stats-chart"><canvas id="chart-' + c.id + '" class="chart-canvas"></canvas></div>'; }).join('');
     html += '<div class="stats-chart"><canvas id="chart-bytech" class="chart-canvas"></canvas></div>' +
       '<p class="muted">مشترکان به تفکیک فناوری: فیبر (فیروزه‌ای)، سلولار (سبز)، وایرلس ثابت (نارنجی)، وای‌فای (بنفش)، ماهواره (صورتی).</p>';
     body.innerHTML = html;
