@@ -1061,6 +1061,9 @@
       if (fd.status === 'building') {
         ctx.strokeStyle = 'rgba(245,158,11,0.8)';
         ctx.setLineDash([5 / sqrtZ, 4 / sqrtZ]);
+      } else if (fd.medium === 'copper') {
+        ctx.strokeStyle = 'rgba(251,146,60,0.6)'; // سیم مسی: نارنجی
+        ctx.setLineDash([]);
       } else {
         ctx.strokeStyle = 'rgba(34,211,238,0.55)';
         ctx.setLineDash([]);
