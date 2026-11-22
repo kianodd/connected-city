@@ -270,10 +270,12 @@
   }
 
   // سهم تقاضای هر فناوری از تقاضای کل منطقه + بخش سرویس‌گرفته با ظرفیت همان فناوری
-  function computeTechDemand(d, servers, congestionFactor) {
+  function computeTechDemand(d, servers, congestionFactor, fiberRatio) {
     const split = (DATA.techDemandSplit && DATA.techDemandSplit[d.type]) || DATA.techDemandSplitDefault || {};
     const techCap = { fiber: 0, cellular: 0, fwa: 0, wifi: 0, satellite: 0 };
     for (const srv of (servers || [])) { const t = techOfNode(srv.type); if (t) techCap[t] += (srv._effCap != null ? srv._effCap : srv.capacity) || 0; }
+    // فیبر دستی است: فقط به نسبت ساختمان‌های دارای انشعاب فعال سرویس می‌دهد
+    if (fiberRatio != null) techCap.fiber *= fiberRatio;
     const demand = d.demand != null ? d.demand : (d.demandBase || 0);
     const cf = congestionFactor == null ? 1 : congestionFactor;
     const out = {};
@@ -326,8 +328,19 @@
     const fx = staffEffects(state);
     const satBonus = constellationBonusPerLink(state);
     const out = {};
+    const bAt = buildingAtPoint(state, x, y);
     for (const t of TECH_KEYS) {
-      const covering = state.nodes.filter((n) =>
+      // فیبر دستی است: ساختمان بدون انشعاب فعال سرعت فیبر ندارد؛ با انشعاب، سرعت از گره منبع انشعاب می‌آید
+      let fiberSrc = null;
+      if (t === 'fiber' && bAt) {
+        const st = buildingFiberStatus(state, bAt.id);
+        if (st.status !== 'active') {
+          out[t] = { speed: 0, nodeId: st.nodeId, nodeName: st.nodeName, reason: 'no_fiber_drop', latency: null };
+          continue;
+        }
+        fiberSrc = nodeById(state, st.nodeId);
+      }
+      const covering = fiberSrc ? [fiberSrc] : state.nodes.filter((n) =>
         techOfNode(n.type) === t && isUsableNode(n) && dist(x, y, n.x, n.y) <= (n.radius || 0) && inWedge(n, x, y));
       if (!covering.length) { out[t] = { speed: 0, nodeId: null, nodeName: null, reason: 'no_coverage', latency: null }; continue; }
       const connected = covering.filter((n) => n.connected);
@@ -482,7 +495,7 @@
       problems: [],
       settings: { autoFailover: true },
       failoverActive: false,
-      counters: { node: 0, link: 0, staff: 0, problem: 0, building: genBuildings.length, individual: 0, contract: 0, campaign: 0, satellite: 0, built: 0, contractsDone: 0, campaignsRun: 0, profitMonths: 0 },
+      counters: { node: 0, link: 0, staff: 0, problem: 0, building: genBuildings.length, individual: 0, contract: 0, campaign: 0, satellite: 0, built: 0, contractsDone: 0, campaignsRun: 0, profitMonths: 0, fiberDrop: 0 },
       // ساعت روز (۰ تا ۲۴) و آب‌وهوای جاری
       hour: 10,
       pendingDays: 0,
@@ -495,6 +508,7 @@
       contractOffers: [],
       campaigns: [],
       satellites: [],
+      fiberDrops: [],
       history: [],
       lastMonthDay: 1,
       monthRevenue: 0,
@@ -604,6 +618,9 @@
       health: 100,
       capacity: eq.capacity || 0,
       radius: eq.radius || 0,
+      level: 1,
+      baseCapacity: eq.capacity || 0,
+      baseRadius: eq.radius || 0,
       tech: CELL_TECH[eqId] || null,
       direction: opts.direction !== undefined ? opts.direction : 0,
       angle: (DATA.beamwidthByEq && DATA.beamwidthByEq[eqId]) || (opts.angle !== undefined ? opts.angle : 360),
@@ -662,6 +679,7 @@
     };
     state.links.push(link);
     log(state, 'لینک ' + mediumFa(medium) + ' بین «' + (a.name || 'گره') + '» و «' + (b.name || 'گره') + '» برقرار شد.', 'build');
+    refreshConnectivity(state); // وضعیت اتصال به هسته فوراً تازه شود، نه در تیک روزانهٔ بعدی
     return link;
   }
 
@@ -778,6 +796,8 @@
 
   // ---------- محاسبه جریان ترافیک ----------
   function computeFlow(state, opts) {
+    // noDailyEffects: فقط وضعیت اتصال و جریان لحظه‌ای تازه می‌شود؛ رشد/ریزش مشترک و رضایت (اثرات روزانه) دست نمی‌خورد
+    const noDaily = !!(opts && opts.noDailyEffects);
     // صفر کردن مصرف‌ها
     state.links.forEach((l) => { l.usage = 0; if (l.status === 'congested') l.status = 'active'; });
     state.nodes.forEach((n) => { n.usage = 0; });
@@ -840,12 +860,14 @@
       if (!servers.length) {
         d.servedDemand = 0; d.qos = 0; d.connected = false;
         d.avgLatency = 0; d.perSubMbps = 0;
-        d._qosAcc = (d._qosAcc || 0) + d.qos; d._qosDays = (d._qosDays || 0) + 1;
-        d.techDemand = computeTechDemand(d, [], 1);
+        if (!noDaily) { d._qosAcc = (d._qosAcc || 0) + d.qos; d._qosDays = (d._qosDays || 0) + 1; }
+        d.techDemand = computeTechDemand(d, [], 1, 0);
         if (cust) cust.servingNodeId = null;
-        d.subscribers = Math.max(0, Math.floor(d.subscribers * fx.churnKeepUnserved));
-        // بدون سرویس رضایت منطقه به سمت صفر می‌رود (جمعیت بدون اینترنت ناراضی است)؛ پشتیبانی افت را کند می‌کند
-        d.satisfaction = clamp(d.satisfaction + (0 - d.satisfaction) * fx.satDecayRate, 0, 100);
+        if (!noDaily) {
+          d.subscribers = Math.max(0, Math.floor(d.subscribers * fx.churnKeepUnserved));
+          // بدون سرویس رضایت منطقه به سمت صفر می‌رود (جمعیت بدون اینترنت ناراضی است)؛ پشتیبانی افت را کند می‌کند
+          d.satisfaction = clamp(d.satisfaction + (0 - d.satisfaction) * fx.satDecayRate, 0, 100);
+        }
         d.revenue = 0;
         continue;
       }
@@ -855,14 +877,20 @@
       const reserved = (state.contracts || [])
         .filter((c) => c.status === 'active' && c.districtId === d.id)
         .reduce((s, c) => s + (c.speed || 0), 0);
-      const accessCap = Math.max(0, servers.reduce((s, n) => s + (n._effCap != null ? n._effCap : n.capacity || 0), 0) - reserved);
+      // فیبر دستی: ظرفیت گره‌های فیبر فقط به نسبت ساختمان‌های منطقه که انشعاب فعال دارند حساب می‌شود
+      const fiberRatio = districtFiberRatio(state, d);
+      const capOf = (n) => {
+        const c = n._effCap != null ? n._effCap : n.capacity || 0;
+        return techOfNode(n.type) === 'fiber' ? c * fiberRatio : c;
+      };
+      const accessCap = Math.max(0, servers.reduce((s, n) => s + capOf(n), 0) - reserved);
       let served = Math.min(d.demand, accessCap);
 
       // انتشار روی مسیرها و محاسبه ازدحام
       let remaining = served;
       for (const srv of servers) {
         if (remaining <= 0) break;
-        const share = Math.min(remaining, srv._effCap != null ? srv._effCap : srv.capacity || 0);
+        const share = Math.min(remaining, capOf(srv));
         const path = bfsPath(state, srv.id);
         if (!path) continue;
         srv.usage += share;
@@ -885,25 +913,27 @@
       served = served * congestionFactor;
 
       d.servedDemand = Math.round(served);
-      d.techDemand = computeTechDemand(d, servers, congestionFactor);
+      d.techDemand = computeTechDemand(d, servers, congestionFactor, fiberRatio);
       d.qos = d.demand > 0 ? clamp(served / d.demand, 0, 1) : 0;
       d.connected = d.qos > 0;
-      d._qosAcc = (d._qosAcc || 0) + d.qos; d._qosDays = (d._qosDays || 0) + 1;
+      if (!noDaily) { d._qosAcc = (d._qosAcc || 0) + d.qos; d._qosDays = (d._qosDays || 0) + 1; }
       qosSum += d.qos; if (d.qos > 0) servedDistricts++;
 
       // مشترکان: رشد متناسب با کیفیت سرویس و تیم فروش و کمپین فعال، ریزش فقط با کیفیت خیلی بد (پشتیبانی ریزش را کم می‌کند)
       const maxSubs = Math.floor(d.population * 0.35);
       const subsBefore = d.subscribers;
-      if (d.qos >= 0.12) d.subscribers = Math.min(maxSubs, d.subscribers + Math.max(1, Math.ceil(d.population * 0.004 * d.qos * fx.growthMult * campaignMultFor(state, d.id))));
-      else if (d.qos < 0.05) d.subscribers = Math.max(0, Math.floor(d.subscribers * fx.churnKeepLowQos));
-      if (cust) cust.count = d.subscribers;
-      // نسبت‌دادن تقریبی مشترکان جدید به کمپین‌های فعالِ هدف‌گرفتهٔ این منطقه
-      const gained = d.subscribers - subsBefore;
-      if (gained > 0) {
-        for (const c of (state.campaigns || [])) {
-          if (c.active && (c.districtIds || []).includes(d.id)) c.newSubs = (c.newSubs || 0) + gained;
+      if (!noDaily) {
+        if (d.qos >= 0.12) d.subscribers = Math.min(maxSubs, d.subscribers + Math.max(1, Math.ceil(d.population * 0.004 * d.qos * fx.growthMult * campaignMultFor(state, d.id))));
+        else if (d.qos < 0.05) d.subscribers = Math.max(0, Math.floor(d.subscribers * fx.churnKeepLowQos));
+        // نسبت‌دادن تقریبی مشترکان جدید به کمپین‌های فعالِ هدف‌گرفتهٔ این منطقه
+        const gained = d.subscribers - subsBefore;
+        if (gained > 0) {
+          for (const c of (state.campaigns || [])) {
+            if (c.active && (c.districtIds || []).includes(d.id)) c.newSubs = (c.newSubs || 0) + gained;
+          }
         }
       }
+      if (cust) cust.count = d.subscribers;
 
       // بستهٔ منطقه: قیمت برای درآمد، سرعت برای رضایت (نسبت به انتظار نوع منطقه)
       const pkg = (state.packages || []).find((p) => p.id === (cust ? cust.packageId : 'home'));
@@ -923,7 +953,7 @@
       // رضایت به سمت کیفیت حرکت می‌کند؛ پشتیبانی بازگشت را سریع‌تر و افت را کندتر می‌کند
       const target = clamp(d.qos * 100 * speedFactor * kindFactor, 0, 100);
       const satRate = target >= d.satisfaction ? fx.satRecoveryRate : fx.satDecayRate;
-      d.satisfaction = clamp(d.satisfaction + (target - d.satisfaction) * satRate, 0, 100);
+      if (!noDaily) d.satisfaction = clamp(d.satisfaction + (target - d.satisfaction) * satRate, 0, 100);
       d.complaints = d.qos < 0.4 && d.subscribers > 0 ? Math.ceil(d.subscribers * 0.05) : 0;
 
       // درآمد ماهانه: مشترک × قیمت بسته × ضریب رضایت
@@ -944,10 +974,15 @@
     const accessNodes = state.nodes.filter((n) => isAccessNode(n) && n.connected && isUsableNode(n));
     let coveredCount = 0;
     const coveringCaps = new Map();
+    const activeDrops = activeFiberDropSet(state);
     for (const b of outsideBuildings) {
       const cx = b.x + (b.w || 26) / 2, cy = b.y + (b.h || 20) / 2;
       for (const n of accessNodes) {
-        if (dist(cx, cy, n.x, n.y) <= (n.radius || 0) && inWedge(n, cx, cy)) { coveredCount++; coveringCaps.set(n.id, n._effCap != null ? n._effCap : n.capacity || 0); break; }
+        if (dist(cx, cy, n.x, n.y) <= (n.radius || 0) && inWedge(n, cx, cy)) {
+          // فیبر دستی است: ساختمان پراکنده بدون انشعاب فعال از گره فیبر سرویس نمی‌گیرد
+          if (techOfNode(n.type) === 'fiber' && !activeDrops.has(b.id)) continue;
+          coveredCount++; coveringCaps.set(n.id, n._effCap != null ? n._effCap : n.capacity || 0); break;
+        }
       }
     }
     sc.coveredCount = coveredCount;
@@ -960,11 +995,13 @@
     const coveredDemand = sc.demand * coveredFrac;
     const qosCovered = coveredDemand > 0 ? clamp(sc.servedDemand / coveredDemand, 0, 1) : 0;
     const potentialCovered = coveredCount * 6;
-    if (qosCovered >= 0.12) sc.subscribers = Math.min(potentialCovered, sc.subscribers + Math.max(1, Math.ceil(potentialCovered * 0.01 * qosCovered * fx.growthMult)));
-    else if (qosCovered < 0.05) sc.subscribers = Math.max(0, Math.floor(sc.subscribers * fx.churnKeepLowQos));
+    if (!noDaily) {
+      if (qosCovered >= 0.12) sc.subscribers = Math.min(potentialCovered, sc.subscribers + Math.max(1, Math.ceil(potentialCovered * 0.01 * qosCovered * fx.growthMult)));
+      else if (qosCovered < 0.05) sc.subscribers = Math.max(0, Math.floor(sc.subscribers * fx.churnKeepLowQos));
+    }
     const scTarget = sc.qos * 100;
     const scRate = scTarget >= sc.satisfaction ? fx.satRecoveryRate : fx.satDecayRate;
-    sc.satisfaction = clamp(sc.satisfaction + (scTarget - sc.satisfaction) * scRate, 0, 100);
+    if (!noDaily) sc.satisfaction = clamp(sc.satisfaction + (scTarget - sc.satisfaction) * scRate, 0, 100);
     const homePkg = (state.packages || []).find((p) => p.id === 'home');
     sc.revenue = Math.round(sc.subscribers * (homePkg ? homePkg.price : 120) * (0.4 + 0.6 * (sc.satisfaction / 100)));
     totalRevenue += sc.revenue;
@@ -997,6 +1034,80 @@
     state.expensePerDay = Math.round(monthlyCosts / 30);
     state.finance = { incomePerDay: state.incomePerDay, expensePerDay: state.expensePerDay, monthlyRevenue: totalRevenue, monthlyCosts };
     return summary;
+  }
+
+  // تازه‌سازی فوری وضعیت اتصال و جریان بعد از هر تغییر توپولوژی (اتصال/حذف/جابه‌جایی/ارتقا):
+  // بدون اثرات روزانه (رشد/ریزش مشترک و رضایت) تا کلیک‌های بازیکن اقتصاد روزانه را جلو نیندازد.
+  function refreshConnectivity(state) {
+    computeFlow(state, { dailyAvg: true, noDailyEffects: true });
+    state.problems = buildProblems(state);
+    return state.lastFlow;
+  }
+
+  // ---------- انشعاب فیبر دستی ساختمان‌ها ----------
+  // ساختمان فقط با انشعاب دستی به منبع فیبر (FTTH/تجمیع/هستهٔ متصل) از فیبر سرویس می‌گیرد؛
+  // فناوری‌های بی‌سیم همچنان پوشش‌محور و خودکارند.
+  function fiberDropFor(state, buildingId) {
+    return (state.fiberDrops || []).find((x) => x.buildingId === buildingId) || null;
+  }
+  function activeFiberDropSet(state) {
+    return new Set((state.fiberDrops || []).filter((x) => x.status === 'active').map((x) => x.buildingId));
+  }
+  function districtFiberRatio(state, d) {
+    const bs = (state.buildings || []).filter((b) => b.districtId === d.id);
+    if (!bs.length) return 1;
+    const active = activeFiberDropSet(state);
+    return bs.filter((b) => active.has(b.id)).length / bs.length;
+  }
+  function buildingFiberStatus(state, buildingId) {
+    const fd = fiberDropFor(state, buildingId);
+    if (!fd) return { status: 'none', nodeId: null, nodeName: null };
+    const n = nodeById(state, fd.nodeId);
+    return { status: fd.status, nodeId: fd.nodeId, nodeName: n ? n.name : null };
+  }
+  function fiberSourceNodes(state) {
+    return (state.nodes || []).filter((n) =>
+      (n.type === 'ftth' || n.type === 'aggregation' || n.type === 'core_router') && n.connected && isUsableNode(n));
+  }
+  function connectBuildingFiber(state, buildingId, nodeId) {
+    const b = (state.buildings || []).find((x) => x.id === buildingId);
+    if (!b) return { ok: false, error: 'ساختمان پیدا نشد.' };
+    if (fiberDropFor(state, buildingId)) return { ok: false, error: 'این ساختمان قبلاً به فیبر وصل شده است.' };
+    const cx = b.x + (b.w || 26) / 2, cy = b.y + (b.h || 20) / 2;
+    let src = nodeId ? nodeById(state, nodeId) : null;
+    if (src && !(src.connected && isUsableNode(src) && ['ftth', 'aggregation', 'core_router'].includes(src.type))) src = null;
+    if (!src) {
+      let bd = Infinity;
+      for (const n of fiberSourceNodes(state)) {
+        const dd = dist(cx, cy, n.x, n.y);
+        if (dd < bd) { bd = dd; src = n; }
+      }
+    }
+    if (!src) return { ok: false, error: 'منبع فیبر متصل (FTTH/تجمیع/هسته) در دسترس نیست؛ اول یک گره فیبر بسازید و به شبکه وصل کنید.' };
+    const dd = dist(cx, cy, src.x, src.y);
+    const cost = 600 + Math.round(dd * 1.2);
+    const workDays = 1 + Math.floor(dd / 400);
+    if (state.cash < cost) return { ok: false, error: 'بودجه کافی برای اتصال فیبر نیست. هزینه: ' + cost };
+    state.cash -= cost;
+    state.totalCosts = (state.totalCosts || 0) + cost;
+    if (!Array.isArray(state.fiberDrops)) state.fiberDrops = [];
+    if (state.counters.fiberDrop == null) state.counters.fiberDrop = 0;
+    const drop = { id: 'fd' + (++state.counters.fiberDrop), buildingId, nodeId: src.id, status: 'building', work: workDays };
+    state.fiberDrops.push(drop);
+    log(state, 'اتصال فیبر ساختمان به «' + (src.name || 'منبع فیبر') + '» شروع شد (' + workDays + ' روز).', 'build');
+    refreshConnectivity(state);
+    return { ok: true, cost, days: workDays, nodeId: src.id, nodeName: src.name };
+  }
+  function disconnectBuildingFiber(state, buildingId) {
+    const before = (state.fiberDrops || []).length;
+    state.fiberDrops = (state.fiberDrops || []).filter((x) => x.buildingId !== buildingId);
+    if (state.fiberDrops.length === before) return { ok: false, error: 'این ساختمان انشعاب فیبر ندارد.' };
+    log(state, 'انشعاب فیبر ساختمان قطع شد.', 'build');
+    refreshConnectivity(state);
+    return { ok: true };
+  }
+  function buildingAtPoint(state, x, y) {
+    return (state.buildings || []).find((b) => x >= b.x && x <= b.x + (b.w || 26) && y >= b.y && y <= b.y + (b.h || 20)) || null;
   }
 
   // ---------- failover ----------
@@ -1708,6 +1819,16 @@
           n.repairWork = 0; n.status = 'active'; n.health = n.repairHealth || 85;
           log(state, 'تعمیر «' + (n.name || 'گره') + '» تمام شد و به شبکه برگشت.', 'repair');
         }
+      } else if (n.status === 'upgrading') {
+        n.upgradeWork = (n.upgradeWork || 0) - dtDays * fxTick.buildSpeed;
+        if (n.upgradeWork <= 0) {
+          n.upgradeWork = 0;
+          n.level = clamp((n.level || 1) + 1, 1, MAX_LEVEL);
+          applyNodeLevel(n);
+          n.status = n._preUpgradeStatus || 'active';
+          delete n._preUpgradeStatus;
+          log(state, 'ارتقای «' + (n.name || 'گره') + '» به سطح ' + n.level + ' تمام شد؛ ظرفیت جدید: ' + n.capacity + ' Mbps.', 'build');
+        }
       }
     }
     for (const l of state.links) {
@@ -1716,6 +1837,16 @@
         if (l.repairWork <= 0) {
           l.repairWork = 0; l.status = 'active';
           log(state, 'تعمیر لینک ' + mediumFa(l.medium) + ' تمام شد.', 'repair');
+        }
+      }
+    }
+    // انشعاب‌های فیبر در حال نصب (سرعت تکنسین‌ها)
+    for (const fd of (state.fiberDrops || [])) {
+      if (fd.status === 'building') {
+        fd.work = (fd.work || 0) - dtDays * fxTick.buildSpeed;
+        if (fd.work <= 0) {
+          fd.work = 0; fd.status = 'active';
+          log(state, 'انشعاب فیبر یک ساختمان فعال شد.', 'build');
         }
       }
     }
@@ -1870,8 +2001,10 @@
     const refund = eq ? Math.round(eq.cost * 0.5) : 0; // بازپرداخت ۵۰٪ هزینهٔ ساخت
     state.nodes = state.nodes.filter((x) => x.id !== id);
     state.links = state.links.filter((l) => l.from !== id && l.to !== id);
+    state.fiberDrops = (state.fiberDrops || []).filter((x) => x.nodeId !== id);
     state.cash += refund;
     log(state, 'گره «' + (n.name || 'نامشخص') + '» حذف شد. بازگشت: ' + refund, 'build');
+    refreshConnectivity(state);
     return { ok: true, refund };
   }
 
@@ -1914,7 +2047,56 @@
     n.buildTimer = Math.max(1, Math.round((eq ? eq.buildDays || 1 : 1) * 0.3));
     n.connected = false;
     log(state, 'جابه‌جایی «' + (n.name || 'گره') + '» شروع شد؛ تا پایان نصب مجدد سرویس نمی‌دهد.', 'build');
+    refreshConnectivity(state);
     return { ok: true, cost, days: n.buildTimer };
+  }
+
+  // ---------- ارتقای گره‌ها (افزایش پهنای باند) ----------
+  // سطح ۱ تا ۵؛ هر سطح ظرفیت را ×۱٫۵ می‌کند و شعاع گره‌های دسترسی را ۸٪ بیشتر.
+  // هزینهٔ ارتقا = ۰٫۶ × هزینهٔ پایه × سطح فعلی؛ زمان = نصف زمان ساخت × سطح (با سرعت تکنسین‌ها).
+  // گره در طول ارتقا آفلاین است (وضعیت upgrading).
+  const MAX_LEVEL = 5;
+  function levelCapacity(base, level) { return Math.round((base || 0) * Math.pow(1.5, (level || 1) - 1)); }
+  function levelRadius(base, level) { return Math.round((base || 0) * (1 + 0.08 * ((level || 1) - 1))); }
+  function applyNodeLevel(n) {
+    if (!n) return;
+    const lvl = clamp(n.level || 1, 1, MAX_LEVEL);
+    n.level = lvl;
+    if (n.baseCapacity != null) n.capacity = levelCapacity(n.baseCapacity, lvl);
+    if (n.baseRadius != null && n.baseRadius > 0) n.radius = levelRadius(n.baseRadius, lvl);
+  }
+  function upgradeInfo(state, nodeId) {
+    const n = nodeById(state, nodeId);
+    if (!n) return null;
+    const eq = getEq(n.type);
+    if (!eq) return null;
+    const lvl = n.level || 1;
+    if (lvl >= MAX_LEVEL) return { node: n, level: lvl, maxLevel: MAX_LEVEL, maxed: true };
+    const cost = Math.round((eq.cost || 0) * 0.6 * lvl);
+    const workDays = Math.max(1, Math.round((eq.buildDays || 1) * 0.5 * lvl));
+    return {
+      node: n, level: lvl, maxLevel: MAX_LEVEL, maxed: false, cost, workDays,
+      nextCapacity: levelCapacity(n.baseCapacity != null ? n.baseCapacity : (eq.capacity || 0), lvl + 1),
+      nextRadius: levelRadius(n.baseRadius != null ? n.baseRadius : (eq.radius || 0), lvl + 1),
+      canAfford: (state.cash || 0) >= cost,
+      busy: n.status === 'building' || n.status === 'repairing' || n.status === 'upgrading',
+    };
+  }
+  function upgradeNode(state, nodeId) {
+    const info = upgradeInfo(state, nodeId);
+    if (!info) return { ok: false, error: 'گره پیدا نشد.' };
+    const n = info.node;
+    if (info.maxed) return { ok: false, error: 'این گره به حداکثر سطح ارتقا رسیده است.' };
+    if (info.busy) return { ok: false, error: 'گره در حال ساخت/تعمیر/ارتقاست و فعلاً قابل ارتقا نیست.' };
+    if (!info.canAfford) return { ok: false, error: 'بودجه کافی برای ارتقا نیست.' };
+    state.cash -= info.cost;
+    state.totalCosts = (state.totalCosts || 0) + info.cost;
+    n._preUpgradeStatus = n.status;
+    n.status = 'upgrading';
+    n.upgradeWork = info.workDays;
+    log(state, 'ارتقای «' + (n.name || 'گره') + '» به سطح ' + (info.level + 1) + ' شروع شد؛ تا پایان ارتقا آفلاین است.', 'build');
+    refreshConnectivity(state);
+    return { ok: true, cost: info.cost, days: info.workDays, level: info.level + 1 };
   }
 
   function hireStaff(state, roleId) {
@@ -2082,6 +2264,23 @@
     for (const n of state.nodes) {
       if (n.interference == null) n.interference = 0;
       if (n.channel === undefined) n.channel = null;
+      // سازگاری ذخیره‌های قدیمی: تجهیز حذف‌شده از کاتالوگ ساده‌شده → نزدیک‌ترین معادل کلی
+      if (!getEq(n.type)) {
+        const mapped = (DATA.legacyEquipmentMap || {})[n.type] || 'wifi_ap';
+        const eqm = getEq(mapped);
+        if (eqm) {
+          n.type = mapped;
+          n.name = eqm.name;
+          n.baseCapacity = eqm.capacity || 0;
+          n.baseRadius = eqm.radius || 0;
+        }
+      }
+      // سطح ارتقا: ذخیره‌های قدیمی سطح ۱
+      if (n.level == null) n.level = 1;
+      const eqN = getEq(n.type);
+      if (n.baseCapacity == null) n.baseCapacity = eqN ? (eqN.capacity || 0) : (n.capacity || 0);
+      if (n.baseRadius == null) n.baseRadius = eqN ? (eqN.radius || 0) : (n.radius || 0);
+      applyNodeLevel(n);
       if (n.channel == null && channelCountFor(n) > 0) n.channel = leastInterferedChannel(state, n);
     }
     const capMult = (DATA.growth && DATA.growth.capMultiplier) || {};
@@ -2122,6 +2321,35 @@
     for (const d of (state.districts || [])) {
       d.radius = Math.round(capRadiusByNeighbors(state, d, d.radius));
     }
+    // انشعاب فیبر دستی: ذخیره‌های قدیمی که فیبر خودکار داشتند، انشعاب فعال می‌گیرند تا شبکه‌شان نشکند
+    if (!Array.isArray(state.fiberDrops)) {
+      state.fiberDrops = [];
+      if (state.counters.fiberDrop == null) state.counters.fiberDrop = 0;
+      refreshConnectivity(state); // وضعیت اتصال تازه برای تشخیص پوشش فعلی فیبر
+      const ftths = (state.nodes || []).filter((n) => n.type === 'ftth' && n.connected && isUsableNode(n));
+      if (ftths.length) {
+        const nearestFtth = (x, y) => {
+          let best = null, bd = Infinity;
+          for (const n of ftths) { const dd = dist(x, y, n.x, n.y); if (dd < bd) { bd = dd; best = n; } }
+          return best;
+        };
+        // مناطق: اگر مرکز منطقه زیر پوشش FTTH بود، همهٔ ساختمان‌هایش انشعاب می‌گیرند (حفظ سرویس قبلی)
+        const coveredDistricts = new Set();
+        for (const d of (state.districts || [])) {
+          if (ftths.some((n) => dist(d.x, d.y, n.x, n.y) <= (n.radius || 0) + d.radius * 0.6 && inWedge(n, d.x, d.y))) coveredDistricts.add(d.id);
+        }
+        for (const b of (state.buildings || [])) {
+          const cx = b.x + (b.w || 26) / 2, cy = b.y + (b.h || 20) / 2;
+          const inCoveredDistrict = b.districtId && coveredDistricts.has(b.districtId);
+          const selfCovered = !b.districtId && ftths.some((n) => dist(cx, cy, n.x, n.y) <= (n.radius || 0) && inWedge(n, cx, cy));
+          if (inCoveredDistrict || selfCovered) {
+            const src = nearestFtth(cx, cy);
+            if (src) state.fiberDrops.push({ id: 'fd' + (++state.counters.fiberDrop), buildingId: b.id, nodeId: src.id, status: 'active', work: 0 });
+          }
+        }
+      }
+      refreshConnectivity(state);
+    }
     return state;
   }
 
@@ -2131,6 +2359,8 @@
     failover, saveGame, loadGame, unlockTech, isUnlocked, traceSatellitePath,
     // عملیات کمکی UI
     demolishNode, moveNode, isValidPlacement, hireStaff, fireStaff, staffEffects, updatePackage, applyFix,
+    upgradeNode, upgradeInfo,
+    refreshConnectivity, connectBuildingFiber, disconnectBuildingFiber, buildingFiberStatus, fiberDropFor,
     // کمکی‌ها
     nodeById, linkById, getEq, getTech, rand, ACCESS_TYPES, computeTechDemand, TECH_KEYS, speedTestAt,
     isAccessNode, nodeCategory, updateDistrictSizes, mergeDistricts, desiredRadius,
