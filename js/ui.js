@@ -38,7 +38,10 @@
     cable: svgIcon('<path d="M9 3v5M15 3v5"/><path d="M6 8h12v3a6 6 0 0 1-12 0z"/><path d="M12 17v4"/>'),
     backhaul: svgIcon('<path d="M4 8h13M13 4l4 4-4 4"/><path d="M20 16H7M11 12l-4 4 4 4"/>'),
     satellite: svgIcon('<path d="M4 16a8 8 0 0 0 12 4"/><path d="M6 18 16 8"/><circle cx="16" cy="8" r="1.6" fill="currentColor" stroke="none"/><path d="M10 20v2"/>'),
-    core: svgIcon('<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>')
+    core: svgIcon('<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>'),
+    info: svgIcon('<circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/>'),
+    trash: svgIcon('<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/><path d="M10 11v6M14 11v6"/>'),
+    move: svgIcon('<path d="M12 3v18M3 12h18"/><path d="m8 7 4-4 4 4M8 17l4 4 4-4M7 8 3 12l4 4M17 8l4 4-4 4"/>')
   };
   var CAT_ICONS = { cable: ICONS.cable, access: ICONS.antenna, backhaul: ICONS.backhaul, satellite: ICONS.satellite, core: ICONS.core };
 
@@ -129,10 +132,11 @@
       groups[cat].forEach(function (it) {
         var locked = !isUnlocked(it);
         var sel = selectedTool === it.id ? ' selected' : '';
-        html += '<button class="build-item' + (locked ? ' locked' : '') + sel + '" data-equip="' + esc(it.id) + '"' + (locked ? ' disabled title="قفل است — ابتدا فناوری لازم را در تحقیق و توسعه باز کنید"' : '') + '>' +
+        html += '<button class="build-item' + (locked ? ' locked' : '') + sel + '" data-equip="' + esc(it.id) + '"' + (locked ? ' title="قفل است — ابتدا فناوری لازم را در تحقیق و توسعه باز کنید"' : '') + '>' +
           '<span class="bi-icon">' + (CAT_ICONS[it.category] || ICONS.antenna) + '</span>' +
           '<span class="bi-main"><span class="bi-name">' + esc(it.name || it.id) + '</span><br><span class="bi-sub">' + esc(it.description || '') + '</span></span>' +
           (locked ? '<span class="lock">' + ICONS.lock + '</span>' : '<span class="bi-cost">' + fmt(it.cost || 0) + '</span>') +
+          '<span class="bi-info" data-guide="' + esc(it.id) + '" title="راهنمای این تجهیز" role="button" aria-label="راهنما">' + ICONS.info + '</span>' +
           '</button>';
       });
     });
@@ -140,19 +144,90 @@
     menu.querySelectorAll('[data-equip]').forEach(function (btn) {
       btn.addEventListener('click', function () { selectTool(btn.getAttribute('data-equip')); });
     });
+    menu.querySelectorAll('[data-guide]').forEach(function (el) {
+      el.addEventListener('click', function (e) {
+        e.stopPropagation(); e.preventDefault();
+        openGuide(el.getAttribute('data-guide'));
+      });
+    });
   }
 
+  /* ---------- راهنمای تجهیزات و فناوری‌ها ---------- */
+  function techNameForEquip(item) {
+    var techs = (window.GAME_DATA && (GAME_DATA.techList || GAME_DATA.techs)) || [];
+    techs = Array.isArray(techs) ? techs : Object.values(techs);
+    var t = techs.find(function (x) { return (x.unlocks || []).indexOf(item.id) >= 0; }) ||
+      techs.find(function (x) { return x.id === item.unlock; });
+    return t ? (t.name || t.id) : (item.unlock || '');
+  }
+  function openGuide(equipId) {
+    var item = equipList().find(function (i) { return i.id === equipId; });
+    if (!item) return;
+    var locked = !isUnlocked(item);
+    $('guide-title').textContent = item.name || item.id;
+    var html = '<p class="guide-text">' + esc(item.guide || item.description || 'توضیحی ثبت نشده است.') + '</p>';
+    html += '<dl class="kv">' +
+      '<dt>هزینه ساخت</dt><dd>' + fmt(item.cost || 0) + ' تومان</dd>' +
+      '<dt>هزینه ماهانه</dt><dd>' + fmt(item.monthlyCost || 0) + ' تومان</dd>' +
+      '<dt>ظرفیت</dt><dd>' + fmt(item.capacity || 0) + ' Mbps</dd>' +
+      (item.radius ? '<dt>برد/پوشش</dt><dd>' + fmt(item.radius) + '</dd>' : '') +
+      '<dt>زمان ساخت</dt><dd>' + fmt(item.buildDays || 0) + ' روز</dd>' +
+      '</dl>';
+    if (locked) html += '<div class="warn-box">' + ICONS.lock + ' این تجهیز قفل است. برای باز شدن، تحقیق «' + esc(techNameForEquip(item)) + '» را در بخش تحقیق و توسعه انجام دهید.</div>';
+    $('guide-body').innerHTML = html;
+    $('guide-popover').classList.remove('hidden');
+  }
+  /* ---------- تست سرعت در نقطه‌ای از نقشه ---------- */
+  var SPEED_REASON_FA = {
+    no_coverage: 'خارج از پوشش', unconnected: 'گره متصل نیست', congestion: 'ازدحام مسیر',
+    distance: 'فاصله زیاد', los: 'ساختمان بلند مانع دید', no_path: 'مسیر تا دروازه نیست'
+  };
+  function runSpeedTest(wx, wy) {
+    if (!window.GameSim || !GameSim.speedTestAt || !state) return;
+    var res = GameSim.speedTestAt(state, wx, wy);
+    var TECH_FA = { fiber: 'فیبر/مسی', cellular: 'سلولار', fwa: 'وایرلس ثابت', wifi: 'وای‌فای', satellite: 'ماهواره' };
+    var html = '<p class="muted">سرعت مؤثر در این نقطه، به تفکیک فناوری:</p>';
+    ['fiber', 'cellular', 'fwa', 'wifi', 'satellite'].forEach(function (t) {
+      var e = res[t] || { speed: 0, reason: 'no_coverage' };
+      var sub = e.nodeName ? esc(e.nodeName) : '';
+      if (e.reason) sub += (sub ? ' — ' : '') + esc(SPEED_REASON_FA[e.reason] || e.reason);
+      html += '<div class="tech-row"><div class="tech-head"><span>' + TECH_FA[t] + '</span>' +
+        '<span><strong>' + fmt(e.speed || 0) + ' Mbps</strong></span></div>' +
+        (sub ? '<div class="muted tech-sub">' + sub + '</div>' : '') + '</div>';
+    });
+    $('speedtest-body').innerHTML = html;
+    $('speedtest-popover').classList.remove('hidden');
+  }
+  function renderGuideOverview() {
+    var guides = (window.GAME_DATA && GAME_DATA.techGuides) || [];
+    var eqs = equipList();
+    $('guide-overview-body').innerHTML = guides.map(function (g) {
+      var names = (g.equipmentIds || []).map(function (id) {
+        var e = eqs.find(function (x) { return x.id === id; });
+        return e ? (e.name || e.id) : id;
+      }).join('، ');
+      return '<div class="guide-tech"><h4>' + esc(g.name || g.id) + '</h4>' +
+        '<p>' + esc(g.desc || '') + '</p>' +
+        (g.whenToUse ? '<p><strong>کی استفاده کنیم؟</strong> ' + esc(g.whenToUse) + '</p>' : '') +
+        (names ? '<p class="muted">تجهیزات: ' + esc(names) + '</p>' : '') + '</div>';
+    }).join('') || '<p class="muted">راهنمایی ثبت نشده است.</p>';
+  }
+
+  var moveNodeId = null, pendingDeleteId = null;
   function setMode(m) {
     mode = m; connectFirst = null;
-    if (window.CityMap && CityMap.setPlacementMode) CityMap.setPlacementMode(m === 'place');
-    ['tool-select', 'tool-connect', 'tool-demolish'].forEach(function (id) {
-      var b = $(id); if (b) b.classList.toggle('active', (m === 'select' && id === 'tool-select') || (m === 'connect' && id === 'tool-connect') || (m === 'demolish' && id === 'tool-demolish'));
+    if (m !== 'move') moveNodeId = null;
+    if (window.CityMap && CityMap.setPlacementMode) CityMap.setPlacementMode(m === 'place' || m === 'move');
+    ['tool-select', 'tool-connect', 'tool-demolish', 'tool-speedtest'].forEach(function (id) {
+      var b = $(id); if (b) b.classList.toggle('active', (m === 'select' && id === 'tool-select') || (m === 'connect' && id === 'tool-connect') || (m === 'demolish' && id === 'tool-demolish') || (m === 'speedtest' && id === 'tool-speedtest'));
     });
     var hint = $('map-hint');
     var hints = {
       place: 'روی نقشه کلیک کنید تا دستگاه نصب شود (Esc برای لغو)',
       connect: 'روی گره اول کلیک کنید، سپس گره دوم را انتخاب کنید',
-      demolish: 'روی گره کلیک کنید تا تخریب شود',
+      demolish: 'روی گره کلیک کنید تا حذف شود',
+      move: 'روی محل جدید گره کلیک کنید (Esc برای لغو) — گره در مدت جابه‌جایی سرویس نمی‌دهد',
+      speedtest: 'روی هر نقطه از نقشه کلیک کنید تا سرعت اتصال آنجا سنجیده شود',
       select: ''
     };
     if (hints[m]) { hint.textContent = hints[m]; hint.classList.remove('hidden'); }
@@ -171,7 +246,37 @@
   }
 
   /* ---------- Placement / connect (called from map via main) ---------- */
+  function startMove(id) {
+    moveNodeId = id;
+    setMode('move');
+    if (isMobile()) { $('panel-detail').classList.remove('open'); $('panel-right').classList.remove('open'); }
+    toast('محل جدید را روی نقشه انتخاب کنید.');
+  }
+
+  function openDeleteConfirm(id) {
+    var found = findNode(id);
+    if (!found || found.kind !== 'node') return;
+    var n = found.node;
+    pendingDeleteId = id;
+    var eq = equipList().find(function (e) { return e.id === n.type; });
+    var refund = eq ? Math.round((eq.cost || 0) * 0.5) : 0;
+    $('delete-title').textContent = 'حذف «' + (n.name || n.type) + '»؟';
+    $('delete-desc').textContent = n.type === 'internet_gateway'
+      ? 'حذف دروازه اینترنت کل شبکه را از اینترنت قطع می‌کند؛ همهٔ مناطق سرویس را از دست می‌دهند تا دروازهٔ جدیدی ساخته و وصل شود.'
+      : n.type === 'core_router'
+        ? 'حذف روتر هسته همهٔ مسیرها به دروازه اینترنت را قطع می‌کند؛ شبکه تا ساخت هستهٔ جدید سرویس نمی‌دهد.'
+        : 'با حذف این گره، همهٔ لینک‌هایش هم حذف می‌شوند و گره‌ها و مناطق وابسته به آن سرویس را از دست می‌دهند.';
+    $('delete-refund').textContent = fmt(refund) + ' تومان (۵۰٪ هزینهٔ ساخت)';
+    $('delete-confirm').classList.remove('hidden');
+  }
+
   function onPlace(x, y) {
+    if (mode === 'move' && moveNodeId != null) {
+      var r = (window.GameSim && GameSim.moveNode) ? GameSim.moveNode(state, moveNodeId, x, y) : { ok: false, error: 'جابه‌جایی در این نسخه موجود نیست.' };
+      toast(r && r.ok === false ? (r.error || 'جابه‌جایی انجام نشد.') : 'جابه‌جایی شروع شد؛ گره تا پایان نصب مجدد سرویس نمی‌دهد.', r && r.ok === false ? 'error' : 'success');
+      if (r && r.ok !== false) { setMode('select'); refresh(); }
+      return;
+    }
     if (mode !== 'place' || !selectedTool) return;
     var item = equipList().find(function (i) { return i.id === selectedTool; });
     if (!item) return;
@@ -198,7 +303,8 @@
     refresh();
   }
 
-  function onMapSelect(id, kind) {
+  function onMapSelect(id, kind, wx, wy) {
+    if (mode === 'speedtest') { if (wx != null && wy != null) runSpeedTest(wx, wy); return; }
     if (id == null) { if (mode === 'select') selectNode(null, kind); return; } // empty tap: clear selection only
     if (mode === 'connect') {
       if (connectFirst == null) {
@@ -212,11 +318,8 @@
       return;
     }
     if (mode === 'demolish') {
-      if (window.GameSim && GameSim.demolishNode) {
-        var r = GameSim.demolishNode(state, id);
-        toast(r && r.ok === false ? (r.error || 'تخریب انجام نشد.') : 'گره تخریب شد.', r && r.ok === false ? 'error' : 'success');
-      } else toast('تخریب در این نسخه پشتیبانی نمی‌شود.', 'warn');
-      refresh(); return;
+      openDeleteConfirm(id);
+      return;
     }
     selectNode(id, kind);
   }
@@ -248,7 +351,7 @@
   /* ---------- Detail panel ---------- */
   var STATUS_FA = {
     active: 'فعال', building: 'در حال ساخت', failed: 'خراب', unconnected: 'متصل‌نشده',
-    congested: 'شلوغ', cut: 'قطع', online: 'آنلاین', offline: 'آفلاین'
+    congested: 'شلوغ', cut: 'قطع', repairing: 'در حال تعمیر', online: 'آنلاین', offline: 'آفلاین'
   };
   function findNode(id) {
     if (!state) return null;
@@ -264,10 +367,10 @@
   function selectNode(id, kind) {
     selectedId = id;
     renderDetail();
-    if (isMobile()) {
-      if (id != null) openPanel('panel-detail');
-      else $('panel-detail').classList.remove('open');
-    }
+    // details panel appears on selection on every viewport (desktop: slide-in
+    // overlay, mobile: bottom sheet) and hides again on deselect
+    if (id != null) openPanel('panel-detail');
+    else $('panel-detail').classList.remove('open');
     if (window.GameSim && GameSim.tracePath && kind !== 'building') {
       var path = GameSim.tracePath(state, id);
       if (window.CityMap && CityMap.setHighlightPath) CityMap.setHighlightPath(path || []);
@@ -284,7 +387,8 @@
     var name = n.name || (equipList().find(function (e) { return e.id === n.type || e.id === n.equipId; }) || {}).name || n.type || ('گره ' + n.id);
     var html = '<h4>' + esc(name) + '</h4>';
     if (found.kind === 'district') {
-      var TYPE_FA = { commercial: 'تجاری', residential: 'مسکونی', dense: 'پرتراکم', sparse: 'کم‌تراکم', industrial: 'صنعتی', landmark: 'مرکز مهم' };
+      var TYPE_FA = { commercial: 'تجاری', residential: 'مسکونی', dense: 'پرتراکم', sparse: 'کم‌تراکم', industrial: 'صنعتی', landmark: 'مرکز مهم',
+        academic: 'دانشگاهی', medical: 'درمانی', heavy_industrial: 'صنعتی سنگین', tourism: 'گردشگری', transport: 'حمل‌ونقل', villa: 'ویلایی', slum: 'حاشیه‌نشین', government: 'اداری' };
       var qosPct = Math.round((n.qos || 0) * 100);
       html += n.connected
         ? '<p class="status-ok"><span class="dot-ok"></span>دارای سرویس</p>'
@@ -300,6 +404,22 @@
         '<dt>درآمد ماهانه</dt><dd>' + fmt(n.revenue) + ' تومان</dd>' +
         '</dl>';
       html += '<div class="cap-bar"><div class="cap-fill ' + (qosPct < 30 ? 'hot' : qosPct < 60 ? 'warm' : '') + '" style="width:' + qosPct + '%"></div></div>';
+      // تقاضا به تفکیک فناوری: سهم هر فناوری از تقاضا و بخش سرویس‌گرفته‌اش
+      var td = n.techDemand;
+      if (!td && window.GameSim && GameSim.computeTechDemand) td = GameSim.computeTechDemand(n, [], 1);
+      if (td) {
+        var TECH_FA = { fiber: 'فیبر/مسی', cellular: 'سلولار', fwa: 'وایرلس ثابت', wifi: 'وای‌فای', satellite: 'ماهواره' };
+        var totalD = Math.max(1, n.demand || 0);
+        html += '<h5>تقاضا به تفکیک فناوری</h5>';
+        ['fiber', 'cellular', 'fwa', 'wifi', 'satellite'].forEach(function (t) {
+          var e = td[t] || { demand: 0, served: 0 };
+          var share = Math.round((e.demand || 0) / totalD * 100);
+          var pct = e.demand > 0 ? Math.min(100, Math.round((e.served || 0) / e.demand * 100)) : 0;
+          html += '<div class="tech-row"><div class="tech-head"><span>' + TECH_FA[t] + '</span>' +
+            '<span class="muted">' + fmt(e.served || 0) + ' از ' + fmt(e.demand || 0) + ' Mbps (' + fmt(share) + '٪ تقاضا)</span></div>' +
+            '<div class="cap-bar"><div class="cap-fill ' + (pct < 30 ? 'hot' : pct < 60 ? 'warm' : '') + '" style="width:' + pct + '%"></div></div></div>';
+        });
+      }
       box.innerHTML = html;
       return;
     }
@@ -332,6 +452,11 @@
         return '<li>' + esc(pn ? (pn.node.name || pn.node.type || pn.node.id) : p) + '</li>';
       }).join('') + '</ol>';
     }
+    if (found.kind === 'node') {
+      html += '<div class="fix-btns" style="margin-top:10px">' +
+        '<button class="btn sm" data-move-node="' + esc(n.id) + '">' + ICONS.move + ' جابه‌جایی</button>' +
+        '<button class="btn sm danger" data-delete-node="' + esc(n.id) + '">' + ICONS.trash + ' حذف</button></div>';
+    }
     var problems = (state.problems || []).filter(function (p) { return String(p.nodeId) === String(n.id) || String(p.targetId) === String(n.id); });
     problems.forEach(function (p, i) {
       html += '<div class="problem-box"><strong>' + esc(p.title || 'مشکل') + ':</strong> ' + esc(p.message || 'نامشخص');
@@ -343,6 +468,12 @@
       html += '</div>';
     });
     box.innerHTML = html;
+    box.querySelectorAll('[data-move-node]').forEach(function (btn) {
+      btn.addEventListener('click', function () { startMove(btn.getAttribute('data-move-node')); });
+    });
+    box.querySelectorAll('[data-delete-node]').forEach(function (btn) {
+      btn.addEventListener('click', function () { openDeleteConfirm(btn.getAttribute('data-delete-node')); });
+    });
     box.querySelectorAll('[data-fix]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         var parts = btn.getAttribute('data-fix').split(':');
@@ -359,7 +490,7 @@
   /* ---------- Modals ---------- */
   function openModal(id) { closeSideMenu(); $(id).classList.remove('hidden'); $('modal-backdrop').classList.remove('hidden'); }
   function closeModals() {
-    ['modal-finance', 'modal-rd', 'modal-staff', 'modal-missions', 'modal-packages'].forEach(function (id) { $(id).classList.add('hidden'); });
+    document.querySelectorAll('.modal').forEach(function (m) { m.classList.add('hidden'); });
     $('modal-backdrop').classList.add('hidden');
   }
 
@@ -371,6 +502,7 @@
       ['هزینه روزانه', fmt(f.expensePerDay != null ? f.expensePerDay : state.expensePerDay)],
       ['سود خالص روزانه', fmt((f.incomePerDay || state.incomePerDay || 0) - (f.expensePerDay || state.expensePerDay || 0))],
       ['کل درآمد', fmt(f.totalIncome)], ['کل هزینه', fmt(f.totalExpense)],
+      ['هزینهٔ کارکنان (ماهانه)', fmt((state.staff || []).reduce(function (s, m) { return s + (m.salary || 0); }, 0)) + ' تومان — ' + fmt((state.staff || []).length) + ' نفر'],
       ['وام', fmt(f.loan || state.loan)], ['مالیات روزانه', fmt(f.taxPerDay)]
     ];
     $('finance-body').innerHTML = '<table>' + rows.map(function (r) { return '<tr><th>' + r[0] + '</th><td>' + r[1] + '</td></tr>'; }).join('') + '</table>' +
@@ -397,22 +529,49 @@
     });
   }
 
+  function faMult(x) { return '×' + String(Math.round(x * 10) / 10).replace('.', '٫'); }
   function renderStaff() {
     var staff = (state && state.staff) || [];
     var roles = (window.GAME_DATA && GAME_DATA.staffRoles) || [];
-    var html = '<table><tr><th>نام/نقش</th><th>حقوق روزانه</th><th>وضعیت</th></tr>';
-    html += staff.map(function (s) { return '<tr><td>' + esc(s.name || s.role || s.id) + '</td><td>' + fmt(s.salary || s.wage) + '</td><td>' + esc(s.status || 'فعال') + '</td></tr>'; }).join('') || '<tr><td colspan="3" class="muted">کارکنانی استخدام نشده است.</td></tr>';
-    html += '</table>';
-    if (roles.length) {
-      html += '<h4>استخدام</h4>' + roles.map(function (r) {
-        return '<button class="btn sm" style="margin:4px" data-hire="' + esc(r.id) + '">+ ' + esc(r.name || r.id) + ' (' + fmt(r.salary || r.wage || 0) + '/روز)</button>';
-      }).join('');
-    }
+    var fx = (window.GameSim && GameSim.staffEffects && state) ? GameSim.staffEffects(state) : null;
+    var countOf = function (id) { return staff.filter(function (s) { return s.role === id; }).length; };
+    var nowLine = function (r) {
+      if (!fx) return '';
+      if (r.id === 'technician') return 'سرعت ساخت ' + faMult(fx.buildSpeed) + ' — سرعت تعمیر ' + faMult(fx.repairSpeed) + ' — پیشنهاد برای شبکهٔ فعلی: ' + fmt(fx.reqTechs) + ' نفر';
+      if (r.id === 'engineer') return 'ظرفیت مؤثر شبکه ' + faMult(fx.capMult) + ' — پیشنهاد برای شبکهٔ فعلی: ' + fmt(fx.reqEngs) + ' نفر';
+      if (r.id === 'support') return 'افت رضایت ' + faMult(fx.satDecayRate / 0.25) + ' — بازگشت رضایت ' + faMult(fx.satRecoveryRate / 0.25) + ' — پیشنهاد برای شبکهٔ فعلی: ' + fmt(fx.reqSups) + ' نفر';
+      if (r.id === 'sales') return 'رشد مشترک ' + faMult(fx.growthMult) + ' — پیشنهاد برای شبکهٔ فعلی: ' + fmt(fx.reqSales) + ' نفر';
+      return '';
+    };
+    var reqOf = function (r) {
+      if (!fx) return 1;
+      return r.id === 'technician' ? fx.reqTechs : r.id === 'engineer' ? fx.reqEngs : r.id === 'support' ? fx.reqSups : r.id === 'sales' ? fx.reqSales : 1;
+    };
+    var html = roles.map(function (r) {
+      var c = countOf(r.id), req = reqOf(r);
+      var warn = '';
+      if (c === 0) warn = '<div class="staff-warn">' + ICONS.warn + ' ' + esc(r.absence || '') + '</div>';
+      else if (c < req) warn = '<div class="staff-warn">' + ICONS.warn + ' نیرو کم است: شبکهٔ شما به ' + fmt(req) + ' نفر «' + esc(r.name) + '» نیاز دارد و الان ' + fmt(c) + ' نفر دارید؛ اثر این نقش ضعیف‌تر از حالت کامل است.</div>';
+      return '<div class="staff-card">' +
+        '<div class="staff-head"><h4>' + esc(r.name) + '</h4>' +
+        '<div class="staff-count"><button class="btn sm" data-fire="' + esc(r.id) + '" ' + (c === 0 ? 'disabled' : '') + '>−</button><span class="num">' + fmt(c) + '</span><button class="btn sm" data-hire="' + esc(r.id) + '">+</button></div></div>' +
+        '<div class="staff-meta">حقوق ماهانه هر نفر: ' + fmt(r.salary || 0) + ' تومان — جمع این نقش: ' + fmt(c * (r.salary || 0)) + ' تومان/ماه</div>' +
+        '<p class="staff-effect">' + esc(r.effect || r.description || '') + '</p>' +
+        '<div class="staff-now">اثر فعلی: ' + esc(nowLine(r)) + '</div>' + warn + '</div>';
+    }).join('');
+    var total = staff.reduce(function (s, m) { return s + (m.salary || 0); }, 0);
+    html += '<div class="staff-summary">جمع حقوق کارکنان: ' + fmt(total) + ' تومان در ماه (' + fmt(staff.length) + ' نفر)</div>';
     $('staff-body').innerHTML = html;
     $('staff-body').querySelectorAll('[data-hire]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         if (GameSim.hireStaff) { var r = GameSim.hireStaff(state, btn.getAttribute('data-hire')); toast(r && r.ok === false ? (r.error || 'استخدام نشد.') : 'استخدام شد.', r && r.ok === false ? 'error' : 'success'); }
         else toast('استخدام در این نسخه فعال نیست.', 'warn');
+        renderStaff(); refresh();
+      });
+    });
+    $('staff-body').querySelectorAll('[data-fire]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        if (GameSim.fireStaff) { var r = GameSim.fireStaff(state, btn.getAttribute('data-fire')); toast(r && r.ok === false ? (r.error || 'اخراج نشد.') : 'اخراج شد.', r && r.ok === false ? 'error' : 'success'); }
         renderStaff(); refresh();
       });
     });
@@ -435,7 +594,7 @@
     $('packages-body').innerHTML = '<table><tr><th>بسته</th><th>سرعت (Mbps)</th><th>قیمت ماهانه</th><th></th></tr>' +
       pkgs.map(function (p, i) {
         return '<tr><td>' + esc(p.name || p.id) + '</td>' +
-          '<td><input type="number" min="1" value="' + (p.speed || 0) + '" data-pkg-speed="' + i + '"></td>' +
+          '<td><input type="number" min="1" value="' + (p.speedMbps || p.speed || 0) + '" data-pkg-speed="' + i + '"></td>' +
           '<td><input type="number" min="0" value="' + (p.price || 0) + '" data-pkg-price="' + i + '"></td>' +
           '<td><button class="btn sm primary" data-pkg-save="' + i + '">ذخیره</button></td></tr>';
       }).join('') + '</table><p class="muted">تغییر قیمت/سرعت از روز بعد روی تقاضا و درآمد اثر می‌گذارد.</p>';
@@ -445,7 +604,7 @@
         var speed = +document.querySelector('[data-pkg-speed="' + i + '"]').value;
         var price = +document.querySelector('[data-pkg-price="' + i + '"]').value;
         if (GameSim.updatePackage) { var r = GameSim.updatePackage(state, pkgs[i].id, { speed: speed, price: price }); toast(r && r.ok === false ? (r.error || 'ذخیره نشد.') : 'بسته به‌روزرسانی شد.', r && r.ok === false ? 'error' : 'success'); }
-        else { pkgs[i].speed = speed; pkgs[i].price = price; toast('بسته به‌روزرسانی شد.', 'success'); }
+        else { pkgs[i].speedMbps = speed; pkgs[i].price = price; toast('بسته به‌روزرسانی شد.', 'success'); }
         refresh();
       });
     });
@@ -488,14 +647,35 @@
     $('tool-select').addEventListener('click', function () { selectedTool = null; setMode('select'); renderBuildMenu(); if (isMobile()) $('panel-right').classList.remove('open'); });
     $('tool-connect').addEventListener('click', function () { selectedTool = null; setMode('connect'); renderBuildMenu(); if (isMobile()) $('panel-right').classList.remove('open'); });
     $('tool-demolish').addEventListener('click', function () { selectedTool = null; setMode('demolish'); renderBuildMenu(); if (isMobile()) $('panel-right').classList.remove('open'); });
+    $('tool-speedtest').addEventListener('click', function () { selectedTool = null; setMode('speedtest'); renderBuildMenu(); if (isMobile()) $('panel-right').classList.remove('open'); });
+    $('speedtest-close').addEventListener('click', function () { $('speedtest-popover').classList.add('hidden'); });
     $('confirm-yes').addEventListener('click', confirmBuild);
     $('confirm-no').addEventListener('click', function () { pendingBuild = null; $('build-confirm').classList.add('hidden'); });
+    $('delete-yes').addEventListener('click', function () {
+      $('delete-confirm').classList.add('hidden');
+      if (pendingDeleteId == null) return;
+      var r = (window.GameSim && GameSim.demolishNode) ? GameSim.demolishNode(state, pendingDeleteId) : { ok: false, error: 'حذف در این نسخه موجود نیست.' };
+      toast(r && r.ok === false ? (r.error || 'حذف انجام نشد.') : 'گره حذف شد. بازگشت: ' + fmt(r.refund || 0) + ' تومان', r && r.ok === false ? 'error' : 'success');
+      pendingDeleteId = null;
+      selectNode(null);
+      refresh();
+    });
+    $('delete-no').addEventListener('click', function () { pendingDeleteId = null; $('delete-confirm').classList.add('hidden'); });
     $('medium-cancel').addEventListener('click', function () { $('medium-picker').classList.add('hidden'); });
     $('btn-finance').addEventListener('click', function () { renderFinance(); openModal('modal-finance'); });
     $('btn-rd').addEventListener('click', function () { renderRD(); openModal('modal-rd'); });
     $('btn-staff').addEventListener('click', function () { renderStaff(); openModal('modal-staff'); });
     $('btn-missions').addEventListener('click', function () { renderMissions(); openModal('modal-missions'); });
     $('btn-packages').addEventListener('click', function () { renderPackages(); openModal('modal-packages'); });
+    $('btn-guide').addEventListener('click', function () { renderGuideOverview(); openModal('modal-guide'); });
+    $('btn-log').addEventListener('click', function () { renderLog(); openModal('modal-log'); });
+    $('btn-layers').addEventListener('click', function (e) { e.stopPropagation(); $('layers-popover').classList.toggle('hidden'); });
+    $('layers-close').addEventListener('click', function () { $('layers-popover').classList.add('hidden'); });
+    document.addEventListener('click', function (e) {
+      var pop = $('layers-popover');
+      if (pop && !pop.classList.contains('hidden') && !pop.contains(e.target) && e.target !== $('btn-layers') && !$('btn-layers').contains(e.target)) pop.classList.add('hidden');
+    });
+    $('guide-close').addEventListener('click', function () { $('guide-popover').classList.add('hidden'); });
     document.querySelectorAll('.modal-close').forEach(function (b) { b.addEventListener('click', closeModals); });
     $('modal-backdrop').addEventListener('click', closeModals);
     $('btn-alerts').addEventListener('click', function () { closeSideMenu(); renderAlerts(); $('alerts-drawer').classList.toggle('hidden'); });
@@ -526,7 +706,7 @@
       });
     });
     document.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape') { setMode('select'); selectedTool = null; $('build-confirm').classList.add('hidden'); $('medium-picker').classList.add('hidden'); closeModals(); closePanels(); closeSideMenu(); }
+      if (e.key === 'Escape') { setMode('select'); selectedTool = null; pendingDeleteId = null; $('build-confirm').classList.add('hidden'); $('delete-confirm').classList.add('hidden'); $('medium-picker').classList.add('hidden'); $('guide-popover').classList.add('hidden'); $('speedtest-popover').classList.add('hidden'); $('layers-popover').classList.add('hidden'); closeModals(); closePanels(); closeSideMenu(); }
     });
     refresh();
     if (state && (state.tutorialStep == null || state.tutorialStep < TUTORIAL.length) && state.isNewGame) showTutorial(state.tutorialStep || 0);
