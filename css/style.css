@@ -96,7 +96,23 @@ button{font-family:inherit}
 }
 #zoom-controls{position:absolute;bottom:12px;inset-inline-end:12px;display:flex;flex-direction:column;gap:4px;z-index:5}
 
+/* PWA update banner + version line + update dot on the hamburger */
+#update-banner{position:fixed;bottom:14px;inset-inline-start:50%;transform:translateX(50%);z-index:90;display:flex;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--accent);border-radius:12px;padding:10px 14px;font-size:13px;box-shadow:0 8px 28px rgba(0,0,0,.5);max-width:92vw}
+[dir="ltr"] #update-banner{transform:translateX(-50%)}
+.side-version{padding:10px 14px;font-size:12px;color:var(--muted);border-top:1px dashed var(--border);margin-top:6px}
+#btn-menu{position:relative}
+#btn-menu.has-update::after{content:"";position:absolute;top:5px;inset-inline-end:5px;width:9px;height:9px;border-radius:50%;background:var(--accent2);box-shadow:0 0 0 2px var(--bg)}
+
+/* Tech-demand layer legend (shown only while that layer is active) */
+#tech-legend{position:absolute;top:10px;inset-inline-start:10px;z-index:6;background:rgba(13,17,23,.88);border:1px solid var(--border);border-radius:10px;padding:8px 12px;font-size:12px;color:var(--text);pointer-events:none;max-width:230px}
+#tech-legend .tech-legend-title{font-weight:700;margin-bottom:5px;font-size:12px}
+#tech-legend .tech-legend-item{display:flex;align-items:center;gap:7px;padding:1.5px 0}
+.tech-dot{width:11px;height:11px;border-radius:50%;display:inline-block;flex-shrink:0;vertical-align:middle;margin-inline-end:5px}
+#tech-legend .tech-dot{margin-inline-end:0}
+
 /* Build menu */
+#build-search{width:100%;box-sizing:border-box;margin-bottom:8px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-family:inherit;font-size:13px}
+#build-search:focus{outline:none;border-color:var(--accent)}
 .tool-row{display:flex;gap:6px;margin-bottom:10px}
 .tool{flex:1}
 .build-cat{font-size:12px;color:var(--muted);margin:12px 0 6px;border-bottom:1px dashed var(--border);padding-bottom:4px}
