@@ -126,22 +126,51 @@
     const bridgeCands = roads.ah.filter((y) => y > 300 && y < WORLD_H - 300);
     const bridges = [0.15, 0.38, 0.62, 0.85].map((f) => bridgeCands[Math.min(bridgeCands.length - 1, Math.floor(f * bridgeCands.length))]);
 
-    // ---------- مناطق ----------
+    // ---------- مناطق (بدون هم‌پوشانی: فاصلهٔ مراکز ≥ مجموع شعاع‌ها + حاشیه) ----------
+    const DISTRICT_GAP = 40;
     const districts = [];
+    function clearOfDistricts(x, y, radius) {
+      for (const d of districts) {
+        if (Math.hypot(x - d.x, y - d.y) < radius + d.radius + DISTRICT_GAP) return false;
+      }
+      return true;
+    }
     function placeDistrict(arch, fixedPos) {
-      const radius = Math.round(arch.radius * R(0.85, 1.15));
+      let radius = Math.round(arch.radius * R(0.85, 1.15));
       let pos = fixedPos || null;
-      if (!pos) {
-        for (let attempt = 0; attempt < 400 && !pos; attempt++) {
-          const relax = attempt < 200 ? 0.52 : (attempt < 320 ? 0.42 : 0.32);
+      if (pos) {
+        // موقعیت ثابت (مرکز/حاشیه شمالی): اگر با منطقهٔ قبلی هم‌پوشانی دارد، در همان جهت بیرون رانده شود
+        for (const d of districts) {
+          const need = radius + d.radius + DISTRICT_GAP;
+          const dd = Math.hypot(pos.x - d.x, pos.y - d.y);
+          if (dd < need) {
+            const ang = Math.atan2(pos.y - d.y, pos.x - d.x);
+            pos = {
+              x: Math.round(clamp(d.x + Math.cos(ang) * need, 220, WORLD_W - 220)),
+              y: Math.round(clamp(d.y + Math.sin(ang) * need, 220, WORLD_H - 220)),
+            };
+          }
+        }
+        // مرکز منطقه داخل رودخانه نباشد
+        const rxp = riverXAtY(river, pos.y);
+        if (Math.abs(pos.x - rxp) < 170) pos.x = Math.round(clamp(pos.x + (pos.x >= rxp ? 170 : -170), 220, WORLD_W - 220));
+      } else {
+        for (let attempt = 0; attempt < 1200 && !pos; attempt++) {
+          if (attempt > 0 && attempt % 200 === 0) radius = Math.max(170, Math.round(radius * 0.9));
           const x = Math.round(R(radius * 0.55, WORLD_W - radius * 0.55));
           const y = Math.round(R(radius * 0.55, WORLD_H - radius * 0.55));
           if (Math.abs(x - riverXAtY(river, y)) < 130) continue; // مرکز منطقه داخل رودخانه نباشد
-          let ok = true;
-          for (const d of districts) {
-            if (Math.hypot(x - d.x, y - d.y) < (radius + d.radius) * relax) { ok = false; break; }
+          if (clearOfDistricts(x, y, radius)) pos = { x, y };
+        }
+        if (!pos) {
+          // آخرین راه: اسکن شبکه‌ای با کمترین شعاع
+          radius = 170;
+          scan: for (let gy = 300; gy < WORLD_H - 300; gy += 110) {
+            for (let gx = 300; gx < WORLD_W - 300; gx += 110) {
+              if (Math.abs(gx - riverXAtY(river, gy)) < 130) continue;
+              if (clearOfDistricts(gx, gy, radius)) { pos = { x: gx, y: gy }; break scan; }
+            }
           }
-          if (ok) pos = { x, y };
         }
         if (!pos) pos = { x: Math.round(R(300, WORLD_W - 300)), y: Math.round(R(300, WORLD_H - 300)) };
       }
@@ -160,8 +189,9 @@
     ARCHETYPES.forEach((a) => { byId[a.id] = a; });
     placeDistrict(byId.center, { x: hq.x, y: hq.y }); // مرکز شهر روی HQ
     // حاشیه شمالی: نزدیک HQ تا آموزش و اولین سرویس همیشه ممکن باشد
+    // (فاصله به‌اندازه‌ای است که با مرکز شهر هم‌پوشانی نداشته باشد؛ در صورت نیاز بیرون رانده می‌شود)
     const northAng = -Math.PI / 2 + R(-0.6, 0.6);
-    const northDist = R(620, 880);
+    const northDist = R(1120, 1350);
     placeDistrict(byId.north, {
       x: Math.round(clamp(hq.x + Math.cos(northAng) * northDist, 320, WORLD_W - 320)),
       y: Math.round(clamp(hq.y + Math.sin(northAng) * northDist, 320, WORLD_H - 320)),
@@ -219,6 +249,37 @@
         });
       }
     });
+
+    // ---------- ساختمان‌های پراکندهٔ خارج از مناطق (روستایی/حاشیه‌ای، تراکم کم) ----------
+    const OUTSIDE_COUNT = 130;
+    for (let i = 0; i < OUTSIDE_COUNT; i++) {
+      let placed = null;
+      for (let attempt = 0; attempt < 40 && !placed; attempt++) {
+        const w = 22 + Math.floor(rnd() * 30);
+        const h = 22 + Math.floor(rnd() * 30);
+        const x = Math.round(R(20, WORLD_W - w - 20));
+        const y = Math.round(R(20, WORLD_H - h - 20));
+        const cx = x + w / 2, cy = y + h / 2;
+        // بیرون از همهٔ مناطق (با حاشیه)
+        if (districts.some((d) => Math.hypot(cx - d.x, cy - d.y) < d.radius + 30)) continue;
+        if (rectHitsRoad(x, y, w, h, roads)) continue;
+        if (rectHitsRiver(x, y, w, h, river)) continue;
+        if (rectOverlaps(x, y, w, h, buildings)) continue;
+        placed = { x, y, w, h };
+      }
+      if (!placed) continue;
+      bIdx++;
+      const bType = rnd() < 0.7 ? 'residential' : (rnd() < 0.5 ? 'industrial' : 'commercial');
+      const palette = palettes[bType] || palettes.residential;
+      buildings.push({
+        id: 'b' + bIdx,
+        districtId: null, // خارج از مناطق
+        x: placed.x, y: placed.y, w: placed.w, h: placed.h,
+        height: 1 + Math.floor(rnd() * 4),
+        type: bType,
+        color: palette[Math.floor(rnd() * palette.length)],
+      });
+    }
 
     // ---------- پارک‌ها ----------
     const parks = [];
