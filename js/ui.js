@@ -27,7 +27,7 @@
     { title: 'گام ۵: فعال‌سازی سرویس', text: 'حالا مسیر کامل است و مشتریان آنلاین می‌شوند. از پنل «بسته‌ها» قیمت و سرعت بسته‌ها را تنظیم کنید؛ قیمت بالاتر درآمد بیشتر اما تقاضای کمتر می‌دهد.' },
     { title: 'گام ۶: بررسی ظرفیت و رفع مشکل', text: 'اگر لینک یا دستگاه اشباع شود، هشدار ظاهر می‌شود. روی گره مشکل‌دار کلیک کنید: علت مشکل و گزینه‌های رفع آن (ارتقا، لینک موازی، تغییر رسانه) نمایش داده می‌شود.' },
     { title: 'گام ۷: گسترش به منطقه جدید', text: 'با درآمد حاصل، در مناطق دیگر شهر دستگاه نصب کنید و به شبکه وصل کنید. با «تحقیق و توسعه» فناوری‌های جدید مثل فیبر نوری و 5G را باز کنید.' },
-    { title: 'گام ۸: مسیر جایگزین (افزونگی)', text: 'برای جلوگیری از قطعی هنگام خرابی، بین گره‌های کلیدی یک مسیر دوم بسازید. اگر مسیر اصلی قطع شود، ترافیک از مسیر جایگزین (مثلاً ماهواره) عبور می‌کند. موفق باشید!' }
+    { title: 'گام ۸: مسیر جایگزین (افزونگی)', text: 'برای جلوگیری از قطعی هنگام خرابی، بین گره‌های کلیدی یک مسیر دوم بسازید. اگر مسیر اصلی قطع شود، ترافیک از مسیر جایگزین (مثلاً لینک نقطه‌به‌نقطه) عبور می‌کند. موفق باشید!' }
   ];
 
   function $(id) { return document.getElementById(id); }
@@ -57,7 +57,6 @@
     antenna: svgIcon('<path d="M12 21v-8"/><circle cx="12" cy="10" r="1.6" fill="currentColor" stroke="none"/><path d="M7.5 6.5a6.5 6.5 0 0 1 9 0"/><path d="M4.8 3.8a10.5 10.5 0 0 1 14.4 0"/>'),
     cable: svgIcon('<path d="M9 3v5M15 3v5"/><path d="M6 8h12v3a6 6 0 0 1-12 0z"/><path d="M12 17v4"/>'),
     backhaul: svgIcon('<path d="M4 8h13M13 4l4 4-4 4"/><path d="M20 16H7M11 12l-4 4 4 4"/>'),
-    satellite: svgIcon('<path d="M4 16a8 8 0 0 0 12 4"/><path d="M6 18 16 8"/><circle cx="16" cy="8" r="1.6" fill="currentColor" stroke="none"/><path d="M10 20v2"/>'),
     core: svgIcon('<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>'),
     info: svgIcon('<circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/>'),
     trash: svgIcon('<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/><path d="M10 11v6M14 11v6"/>'),
@@ -80,10 +79,10 @@
     trophy: ICONS.trophy, medal: ICONS.medal, star: ICONS.star, users: ICONS.users,
     chart: ICONS.chart, money: ICONS.money, globe: ICONS.globe, rocket: ICONS.rocket,
     signal: ICONS.signal, target: ICONS.target, antenna: ICONS.antenna, bolt: ICONS.bolt,
-    satellite: ICONS.satellite, core: ICONS.core, cable: ICONS.cable
+    core: ICONS.core, cable: ICONS.cable
   };
   function achIcon(key) { return ACH_ICONS[key] || ICONS.trophy; }
-  var CAT_ICONS = { cable: ICONS.cable, access: ICONS.antenna, antenna: ICONS.antenna, backhaul: ICONS.backhaul, satellite: ICONS.satellite, core: ICONS.core, power: ICONS.bolt, tools: ICONS.wrench };
+  var CAT_ICONS = { cable: ICONS.cable, access: ICONS.antenna, antenna: ICONS.antenna, backhaul: ICONS.backhaul, core: ICONS.core, power: ICONS.bolt, tools: ICONS.wrench };
 
   /* ---------- Mobile panels (drawer / bottom sheet, one at a time) ---------- */
   function isMobile() { return window.innerWidth <= 900; }
@@ -200,8 +199,8 @@
     return !item.unlockTech && !item.tech;
   }
 
-  var CAT_FA = { cable: 'کابل‌ها و اتصالات', access: 'دسترسی', antenna: 'آنتن‌ها', backhaul: 'انتقال', satellite: 'ماهواره‌ای', core: 'هسته و تجمیع', power: 'برق و پشتیبان', tools: 'ابزار و اندازه‌گیری' };
-  var CAT_ORDER = ['access', 'antenna', 'cable', 'backhaul', 'core', 'satellite', 'power', 'tools'];
+  var CAT_FA = { cable: 'کابل‌ها و اتصالات', access: 'دسترسی', antenna: 'آنتن‌ها', backhaul: 'انتقال', core: 'هسته و تجمیع', power: 'برق و پشتیبان', tools: 'ابزار و اندازه‌گیری' };
+  var CAT_ORDER = ['access', 'antenna', 'cable', 'backhaul', 'core', 'power', 'tools'];
   var buildQuery = '';
   function renderBuildMenu() {
     var menu = $('build-menu'); if (!menu) return;
@@ -247,7 +246,7 @@
   }
 
   /* ---------- راهنمای تجهیزات و فناوری‌ها ---------- */
-  var CONN_MEDIUM_FA = { fiber: 'فیبر', copper: 'سیم مسی', ptp: 'نقطه‌به‌نقطه', wireless: 'بی‌سیم', satellite: 'ماهواره‌ای', internet: 'اینترنت', power: 'برق', tools: 'ابزار' };
+  var CONN_MEDIUM_FA = { fiber: 'فیبر', copper: 'سیم مسی', ptp: 'نقطه‌به‌نقطه', wireless: 'بی‌سیم', internet: 'اینترنت', power: 'برق', tools: 'ابزار' };
   // متن «اتصال‌ها» از مشخصهٔ connects تجهیز ساخته می‌شود (همان منبعی که اعتبارسنجی سیم‌کشی می‌خواند)
   function connectsText(eq) {
     var spec = (eq && eq.connects) || [];
@@ -257,8 +256,6 @@
       return (c.targets || []).indexOf('node') >= 0 && (c.direction === 'both' || c.direction === 'upstream') && c.medium !== 'power' && c.medium !== 'tools';
     }).map(function (c) { return CONN_MEDIUM_FA[c.medium] || c.medium; });
     if (nodeMedia.length) parts.push('لینک با گره‌های شبکه: ' + nodeMedia.join('، '));
-    if (spec.some(function (c) { return c.medium === 'satellite' && c.direction === 'upstream'; })) parts.push('لینک ماهواره‌ای به دروازه زمینی');
-    if (spec.some(function (c) { return c.medium === 'satellite' && c.direction === 'downstream'; })) parts.push('لینک ماهواره‌ای از پایانه‌ها');
     var bld = spec.filter(function (c) { return (c.targets || []).indexOf('building') >= 0 && !c.legacy; });
     var bldLegacy = spec.some(function (c) { return (c.targets || []).indexOf('building') >= 0 && c.legacy; });
     if (bld.length) parts.push('انشعاب به ساختمان‌ها: ' + bld.map(function (c) { return CONN_MEDIUM_FA[c.medium] || c.medium; }).join(' یا ') + (eq.ports ? ' (تا ' + fmt(eq.ports) + ' پورت در سطح ۱)' : ''));
@@ -306,9 +303,9 @@
   function runSpeedTest(wx, wy) {
     if (!window.GameSim || !GameSim.speedTestAt || !state) return;
     var res = GameSim.speedTestAt(state, wx, wy);
-    var TECH_FA = { fiber: 'فیبر/مسی', cellular: 'سلولار', fwa: 'TD-LTE', wifi: 'وای‌فای داخل ساختمان', satellite: 'ماهواره' };
+    var TECH_FA = { fiber: 'فیبر/مسی', cellular: 'سلولار', fwa: 'TD-LTE', wifi: 'وای‌فای داخل ساختمان' };
     var html = '<p class="muted">سرعت بالقوه در این نقطه (با اشتراک)، به تفکیک فناوری:</p>';
-    ['fiber', 'cellular', 'fwa', 'wifi', 'satellite'].forEach(function (t) {
+    ['fiber', 'cellular', 'fwa', 'wifi'].forEach(function (t) {
       var e = res[t] || { speed: 0, reason: 'no_coverage' };
       var sub = e.nodeName ? esc(e.nodeName) : '';
       if (e.reason) sub += (sub ? ' — ' : '') + esc(SPEED_REASON_FA[e.reason] || e.reason);
@@ -604,7 +601,6 @@
     var t = String(n.type || '').toLowerCase();
     if (t.indexOf('cell') >= 0 || t.indexOf('rru') >= 0 || t.indexOf('ant') >= 0) return 'cellular';
     if (t.indexOf('fwa') >= 0 || t.indexOf('cpe') >= 0) return 'fwa';
-    if (t.indexOf('sat') >= 0) return 'satellite';
     if (t.indexOf('ftth') >= 0 || t.indexOf('fiber') >= 0) return 'fiber';
     return null;
   }
@@ -712,9 +708,9 @@
   // ردیف‌های ترجیح نوع اینترنت (رتبه‌بندی‌شده با درصد و نوار) — رنگ‌ها همان لایهٔ تقاضای فناوری روی نقشه
   function prefHtml(pref) {
     if (!pref) return '';
-    var TECH_FA = { fiber: 'فیبر/مسی', cellular: 'سلولار', fwa: 'TD-LTE', satellite: 'ماهواره' };
-    var TECH_COLOR = { fiber: '#22d3ee', cellular: '#3fb950', fwa: '#fb923c', satellite: '#e879f9' };
-    var rows = ['fiber', 'cellular', 'fwa', 'satellite'].map(function (t) {
+    var TECH_FA = { fiber: 'فیبر/مسی', cellular: 'سلولار', fwa: 'TD-LTE' };
+    var TECH_COLOR = { fiber: '#22d3ee', cellular: '#3fb950', fwa: '#fb923c' };
+    var rows = ['fiber', 'cellular', 'fwa'].map(function (t) {
       return { t: t, pct: Math.round((pref[t] || 0) * 100) };
     }).sort(function (a, b) { return b.pct - a.pct; });
     var out = '';
@@ -907,12 +903,12 @@
       var td = n.techDemand;
       if (!td && window.GameSim && GameSim.computeTechDemand) td = GameSim.computeTechDemand(n, [], 1, null, state);
       if (td) {
-        var TECH_FA = { fiber: 'فیبر/مسی', cellular: 'سلولار', fwa: 'TD-LTE', satellite: 'ماهواره' };
+        var TECH_FA = { fiber: 'فیبر/مسی', cellular: 'سلولار', fwa: 'TD-LTE' };
         // همان رنگ‌های لایهٔ «تقاضای فناوری» روی نقشه (map.js TECH_TINT)
-        var TECH_COLOR = { fiber: '#22d3ee', cellular: '#3fb950', fwa: '#fb923c', satellite: '#e879f9' };
+        var TECH_COLOR = { fiber: '#22d3ee', cellular: '#3fb950', fwa: '#fb923c' };
         var totalD = Math.max(1, n.demand || 0);
         html += '<h5>ترافیک به تفکیک فناوری</h5>';
-        ['fiber', 'cellular', 'fwa', 'satellite'].forEach(function (t) {
+        ['fiber', 'cellular', 'fwa'].forEach(function (t) {
           var e = td[t] || { demand: 0, served: 0 };
           var share = Math.round((e.demand || 0) / totalD * 100);
           var pct = e.demand > 0 ? Math.min(100, Math.round((e.served || 0) / e.demand * 100)) : 0;
@@ -1471,55 +1467,6 @@
     });
   }
 
-  /* ---------- Constellation ---------- */
-  function renderConstellation() {
-    var body = $('constellation-body'); if (!body) return;
-    var launch = (window.GAME_DATA && GAME_DATA.satelliteLaunch) || {};
-    var sats = (state && state.satellites) || [];
-    var cap = 0;
-    try { if (window.GameSim && typeof GameSim.constellationCapacity === 'function') cap = GameSim.constellationCapacity(state) || 0; } catch (e) { /* ignore */ }
-    var hasTech = false;
-    try {
-      if (window.GameSim && GameSim.isUnlocked) hasTech = !!GameSim.isUnlocked(state, 'own_satellite');
-      else hasTech = !!((state && state.unlockedTechs && state.unlockedTechs.own_satellite) || (state && state.techs && state.techs.own_satellite));
-    } catch (e) { /* ignore */ }
-    var STATUS_FA_SAT = { launching: 'در حال پرتاب', active: 'فعال', failed: 'خراب', deorbited: 'از مدار خارج شده', building: 'در حال پرتاب' };
-    function launchBtn(kind, label) {
-      var def = launch[kind] || {};
-      var cost = def.cost || 0;
-      var dis = !hasTech || (state.cash || 0) < cost;
-      var reason = !hasTech ? 'نیازمند تحقیق «ماهواره اختصاصی»' : ((state.cash || 0) < cost ? 'نقدینگی کافی نیست' : '');
-      return '<div class="contract-card"><h5>' + label + '</h5>' +
-        '<p class="muted">هزینه ' + fmt(cost) + ' تومان — پرتاب: آنی — ظرفیت ' + fmt(def.capacity || 0) + ' Mbps — عمر ' + fmt(def.lifetimeDays || 0) + ' روز</p>' +
-        '<button class="btn sm primary" data-launch="' + kind + '"' + (dis ? ' disabled title="' + esc(reason) + '"' : '') + '>پرتاب</button>' +
-        (reason ? ' <span class="muted">' + esc(reason) + '</span>' : '') + '</div>';
-    }
-    var html = '<p>ظرفیت کل صورت فلکی: <strong>' + fmt(cap) + ' Mbps</strong></p>' +
-      launchBtn('leo', 'ماهواره مدار پایین (LEO)') + launchBtn('geo', 'ماهواره زمین‌آهنگ (GEO)') +
-      '<h4>ماهواره‌های شما</h4>';
-    if (!sats.length) html += '<p class="muted">هنوز ماهواره‌ای پرتاب نکرده‌اید.</p>';
-    else {
-      html += sats.map(function (s) {
-        var pct = s.lifetimeDays > 0 ? Math.max(0, Math.min(100, Math.round((s.ageDays || 0) / s.lifetimeDays * 100))) : 0;
-        return '<div class="contract-card"><h5>' + esc(s.name || s.id) + ' — ' + esc(String(s.kind || '').toUpperCase()) + '</h5>' +
-          '<p class="muted">وضعیت: ' + esc(STATUS_FA_SAT[s.status] || s.status || '—') + ' — ظرفیت ' + fmt(s.capacity || 0) + ' Mbps — سلامت ' + fmt(Math.round((s.health != null ? s.health : 1) * 100)) + '٪ — هزینه ماهانه ' + fmt(s.monthlyCost || 0) + ' تومان</p>' +
-          '<div class="cap-bar"><div class="cap-fill ' + (pct > 85 ? 'hot' : pct > 65 ? 'warm' : '') + '" style="width:' + pct + '%"></div></div>' +
-          '<div class="muted">عمر: ' + fmt(s.ageDays || 0) + ' از ' + fmt(s.lifetimeDays || 0) + ' روز' + (s.launchTimer ? ' — تا فعال‌سازی: ' + fmt(s.launchTimer) + ' روز' : '') + '</div></div>';
-      }).join('');
-    }
-    body.innerHTML = html;
-    body.querySelectorAll('[data-launch]').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        if (!window.GameSim || typeof GameSim.launchSatellite !== 'function') { toast('پرتاب ماهواره در این نسخه موجود نیست.', 'warn'); return; }
-        var r = null;
-        try { r = GameSim.launchSatellite(state, btn.getAttribute('data-launch')); } catch (e) { r = null; }
-        toast(r && r.ok === false ? (r.error || 'پرتاب انجام نشد.') : 'پرتاب ماهواره آغاز شد.', r && r.ok === false ? 'error' : 'success');
-        if (r && r.ok !== false) playSound('complete');
-        renderConstellation(); refresh();
-      });
-    });
-  }
-
   /* ---------- Stats charts ---------- */
   function drawLineChart(canvas, series, color, label) {
     var dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -1601,13 +1548,13 @@
     ];
     var html = subsHtml + charts.map(function (c) { return '<div class="stats-chart"><canvas id="chart-' + c.id + '" class="chart-canvas"></canvas></div>'; }).join('');
     html += '<div class="stats-chart"><canvas id="chart-bytech" class="chart-canvas"></canvas></div>' +
-      '<p class="muted">مشترکان به تفکیک فناوری: فیبر (فیروزه‌ای)، سلولار (سبز)، TD-LTE (نارنجی)، وای‌فای (بنفش)، ماهواره (صورتی).</p>';
+      '<p class="muted">مشترکان به تفکیک فناوری: فیبر (فیروزه‌ای)، سلولار (سبز)، TD-LTE (نارنجی).</p>';
     body.innerHTML = html;
     charts.forEach(function (c) {
       var cv = $('chart-' + c.id);
       if (cv) drawLineChart(cv, hist.map(c.get), c.color, c.label);
     });
-    // by-tech stacked lines: draw 5 lines on one canvas
+    // by-tech stacked lines: draw 3 lines on one canvas
     var cv2 = $('chart-bytech');
     if (cv2) {
       var dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -1620,7 +1567,7 @@
         ctx2.font = '11px Vazirmatn, Tahoma, sans-serif';
         ctx2.fillStyle = '#8b949e'; ctx2.textAlign = 'right';
         ctx2.fillText('مشترکان به تفکیک فناوری', w - 8, 14);
-        var techs = [['fiber', '#22d3ee'], ['cellular', '#3fb950'], ['fwa', '#fb923c'], ['satellite', '#e879f9']];
+        var techs = [['fiber', '#22d3ee'], ['cellular', '#3fb950'], ['fwa', '#fb923c']];
         var maxV = 1;
         hist.forEach(function (r) { techs.forEach(function (t) { maxV = Math.max(maxV, (r.byTech && r.byTech[t[0]]) || 0); }); });
         var padL = 46, padR = 8, padT = 20, padB = 16;
@@ -1708,7 +1655,6 @@
       if ((m = $('modal-achievements')) && !m.classList.contains('hidden')) renderAchievements();
       if ((m = $('modal-contracts')) && !m.classList.contains('hidden')) renderContracts();
       if ((m = $('modal-campaigns')) && !m.classList.contains('hidden')) renderCampaigns();
-      if ((m = $('modal-constellation')) && !m.classList.contains('hidden')) renderConstellation();
       if ((m = $('modal-stats')) && !m.classList.contains('hidden')) renderStats();
     } catch (e3) { /* ignore */ }
   }
@@ -1759,7 +1705,6 @@
     if ($('btn-achievements')) $('btn-achievements').addEventListener('click', function () { renderAchievements(); openModal('modal-achievements'); });
     if ($('btn-contracts')) $('btn-contracts').addEventListener('click', function () { renderContracts(); openModal('modal-contracts'); });
     if ($('btn-campaigns')) $('btn-campaigns').addEventListener('click', function () { renderCampaigns(); openModal('modal-campaigns'); });
-    if ($('btn-constellation')) $('btn-constellation').addEventListener('click', function () { renderConstellation(); openModal('modal-constellation'); });
     if ($('btn-stats')) $('btn-stats').addEventListener('click', function () { renderStats(); openModal('modal-stats'); });
     if ($('btn-suggest')) $('btn-suggest').addEventListener('click', runSuggest);
     if ($('stats-range')) $('stats-range').addEventListener('change', renderStats);
