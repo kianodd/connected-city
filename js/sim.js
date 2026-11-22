@@ -362,6 +362,14 @@
     };
   }
 
+  // سرعت تجمیعی مؤثر در یک نقطه: بهترین سرعت قابل‌دستیابی بین فناوری‌ها (برای لایهٔ «سرعت اتصال»)
+  function aggregateSpeedAt(state, x, y) {
+    const r = speedTestAt(state, x, y);
+    let m = 0;
+    for (const t of TECH_KEYS) if (r[t] && r[t].speed > m) m = r[t].speed;
+    return m;
+  }
+
   function speedTestAt(state, x, y) {
     const fx = staffEffects(state);
     const satBonus = constellationBonusPerLink(state);
@@ -675,7 +683,7 @@
     // کانال فرکانسی: برای فناوری‌های بی‌سیم، کم‌تداخل‌ترین کانال انتخاب می‌شود
     if (channelCountFor(node) > 0) node.channel = leastInterferedChannel(state, node);
     state.nodes.push(node);
-    log(state, 'ساخت «' + eq.name + '» آغاز شد (' + node.buildTimer + ' روز).', 'build');
+    log(state, 'ساخت «' + eq.name + '» آغاز شد (' + (Math.round(node.buildTimer * 100) / 100) + ' روز).', 'build');
     return node;
   }
 
@@ -1847,8 +1855,8 @@
         }
       } else if (s.status === 'active') {
         s.ageDays = (s.ageDays || 0) + dtDays;
-        s.health = clamp((s.health == null ? 100 : s.health) - 0.02 * dtDays, 0, 100);
-        if (rand2(state) < 0.0005 * dtDays) {
+        s.health = clamp((s.health == null ? 100 : s.health) - 0.004 * dtDays, 0, 100);
+        if (rand2(state) < 0.0001 * dtDays) {
           s.status = 'failed'; s.health = 0;
           log(state, 'ماهوارهٔ «' + s.name + '» دچار خرابی شد و از مدار خارج شد.', 'error');
         } else if (s.ageDays >= s.lifetimeDays) {
@@ -2008,16 +2016,16 @@
     for (const n of state.nodes) {
       if (isHQ(n)) continue;
       const prot = isProtected(n);
-      if (n.status === 'active' && rand(state) < 0.002 * dtDays * (prot ? 0.3 : 1)) {
+      if (n.status === 'active' && rand(state) < 0.0004 * dtDays * (prot ? 0.3 : 1)) {
         n.status = 'failed'; n.health = 0;
         log(state, 'گره «' + (n.name || 'نامشخص') + '» خراب شد.', 'error');
       } else if (n.status === 'active') {
-        n.health = clamp(n.health - 0.1 * dtDays * (prot ? 0.5 : 1), 10, 100);
+        n.health = clamp(n.health - 0.02 * dtDays * (prot ? 0.5 : 1), 10, 100);
       }
     }
     for (const l of state.links) {
       if (isHQ(nodeById(state, l.from)) && isHQ(nodeById(state, l.to))) continue;
-      if (l.status === 'active' && rand(state) < 0.001 * dtDays) {
+      if (l.status === 'active' && rand(state) < 0.0002 * dtDays) {
         l.status = 'cut';
         log(state, 'یک لینک ' + mediumFa(l.medium) + ' قطع شد.', 'error');
       }
@@ -2025,7 +2033,7 @@
 
     // آب‌وهوا: قرعه‌کشی دوره‌ای + خرابی تصادفی در طوفان
     rollWeather(state);
-    if (state.weather && state.weather.kind === 'storm' && rand2(state) < 0.01 * dtDays) {
+    if (state.weather && state.weather.kind === 'storm' && rand2(state) < 0.002 * dtDays) {
       const wireless = state.nodes.filter((n) => isAccessNode(n) && isUsableNode(n) && ['cellular', 'fwa', 'wifi'].includes(techOfNode(n.type)));
       if (wireless.length) {
         const victim = wireless[Math.floor(rand2(state) * wireless.length)];
@@ -2576,7 +2584,7 @@
     subscriberStats, buildingServiceStatus, individualTargetFor, CONCURRENCY, INDIVIDUAL_CAP,
     buildingAttenuation, ptpLosFactor,
     // کمکی‌ها
-    nodeById, linkById, getEq, getTech, rand, ACCESS_TYPES, computeTechDemand, TECH_KEYS, speedTestAt,
+    nodeById, linkById, getEq, getTech, rand, ACCESS_TYPES, computeTechDemand, TECH_KEYS, speedTestAt, aggregateSpeedAt,
     isAccessNode, nodeCategory, updateDistrictSizes, mergeDistricts, desiredRadius,
     // ویژگی‌های جدید: دستاورد، کانال، جهت، سیگنال، پیشنهاد مکان، ماهواره، قرارداد، کمپین، ساعت و فصل
     checkAchievements, achievementProgress, setNodeChannel, autoChannel, setNodeDirection,
