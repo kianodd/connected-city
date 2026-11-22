@@ -50,6 +50,119 @@
   }
 
   const ACCESS_TYPES = ['cell_2g', 'cell_3g', 'cell_4g', 'cell_5g', 'fwa_ap', 'wifi_ap', 'ftth', 'sat_terminal_leo', 'sat_terminal_geo'];
+
+  // ---------- تقاضا به تفکیک فناوری ----------
+  const TECH_KEYS = ['fiber', 'cellular', 'fwa', 'wifi', 'satellite'];
+  function techOfNode(type) {
+    if (type === 'ftth') return 'fiber';
+    if (type && type.indexOf('cell_') === 0) return 'cellular';
+    if (type === 'fwa_ap') return 'fwa';
+    if (type === 'wifi_ap') return 'wifi';
+    if (type && type.indexOf('sat_terminal') === 0) return 'satellite';
+    return null;
+  }
+  // سهم تقاضای هر فناوری از تقاضای کل منطقه + بخش سرویس‌گرفته با ظرفیت همان فناوری
+  function computeTechDemand(d, servers, congestionFactor) {
+    const split = (DATA.techDemandSplit && DATA.techDemandSplit[d.type]) || DATA.techDemandSplitDefault || {};
+    const techCap = { fiber: 0, cellular: 0, fwa: 0, wifi: 0, satellite: 0 };
+    for (const srv of (servers || [])) { const t = techOfNode(srv.type); if (t) techCap[t] += srv.capacity || 0; }
+    const demand = d.demand != null ? d.demand : (d.demandBase || 0);
+    const cf = congestionFactor == null ? 1 : congestionFactor;
+    const out = {};
+    for (const t of TECH_KEYS) {
+      const td = demand * (split[t] || 0);
+      out[t] = { demand: Math.round(td), served: Math.round(Math.min(td, techCap[t]) * cf) };
+    }
+    return out;
+  }
+
+  // ---------- تست سرعت در یک نقطه از نقشه، به تفکیک فناوری ----------
+  // سرعت مؤثر = گلوگاه مسیر (ظرفیت گره و لینک‌ها) × افت فاصله × افت دید × افت ازدحام
+  // ---------- اثرات کارکنان ----------
+  // نرخ‌های پایه با صفر کارمند برای شبکهٔ کوچک کاملاً قابل بازی‌اند؛
+  // کمبود نیرو فقط وقتی شبکه بزرگ می‌شود واقعاً گلوگیر می‌شود (نسبت نیرو به نیاز).
+  function staffEffects(state) {
+    const staff = state.staff || [];
+    const count = (role) => staff.filter((s) => s.role === role).length;
+    const techs = count('technician'), engs = count('engineer'), sups = count('support'), sales = count('sales');
+    const nodeCount = (state.nodes || []).filter((n) => n.type !== 'core_router' && n.type !== 'internet_gateway').length;
+    const linkCount = (state.links || []).length;
+    const totalSubs = (state.districts || []).reduce((s, d) => s + (d.subscribers || 0), 0);
+    const servedDistricts = (state.districts || []).filter((d) => d.connected).length;
+    const reqTechs = Math.max(1, Math.ceil(nodeCount / 8));
+    const reqEngs = Math.max(1, Math.ceil(linkCount / 10));
+    const reqSups = Math.max(1, Math.ceil(totalSubs / 1500));
+    const reqSales = Math.max(1, Math.ceil(servedDistricts / 4));
+    const ratio = (c, r) => (r > 0 ? c / r : 1);
+    const buildSpeed = clamp(0.6 + 0.4 * Math.min(1, ratio(techs, reqTechs)) + 0.1 * Math.max(0, techs - reqTechs), 0.6, 2.0);
+    const repairSpeed = clamp(0.3 + 0.7 * Math.min(1, ratio(techs, reqTechs)) + 0.15 * Math.max(0, techs - reqTechs), 0.3, 2.5);
+    const capMult = clamp(0.88 + 0.12 * Math.min(1, ratio(engs, reqEngs)) + 0.04 * Math.max(0, engs - reqEngs), 0.88, 1.35);
+    const supR = Math.min(1, ratio(sups, reqSups));
+    const satDecayRate = 0.25 * (1 - 0.45 * supR);
+    const satRecoveryRate = 0.25 * (1 + 0.8 * supR);
+    const churnKeepUnserved = 1 - 0.03 * (1 - 0.6 * supR);
+    const churnKeepLowQos = 1 - 0.04 * (1 - 0.6 * supR);
+    const growthMult = clamp(1 + 0.5 * Math.min(1, ratio(sales, reqSales)) + 0.05 * Math.max(0, sales - reqSales), 1, 2.0);
+    return {
+      techs, engs, sups, sales, reqTechs, reqEngs, reqSups, reqSales,
+      nodeCount, linkCount, totalSubs, servedDistricts,
+      buildSpeed, repairSpeed, capMult, satDecayRate, satRecoveryRate,
+      churnKeepUnserved, churnKeepLowQos, growthMult,
+      monthlySalaryTotal: staff.reduce((s, m) => s + (m.salary || 0), 0),
+    };
+  }
+
+  function speedTestAt(state, x, y) {
+    const fx = staffEffects(state);
+    const out = {};
+    for (const t of TECH_KEYS) {
+      const covering = state.nodes.filter((n) =>
+        techOfNode(n.type) === t && isUsableNode(n) && dist(x, y, n.x, n.y) <= (n.radius || 0));
+      if (!covering.length) { out[t] = { speed: 0, nodeId: null, nodeName: null, reason: 'no_coverage' }; continue; }
+      const connected = covering.filter((n) => n.connected);
+      if (!connected.length) {
+        const n0 = covering[0];
+        out[t] = { speed: 0, nodeId: n0.id, nodeName: n0.name, reason: 'unconnected' };
+        continue;
+      }
+      let best = null;
+      for (const n of connected) {
+        const path = bfsPath(state, n.id);
+        if (!path) continue;
+        let bottleneck = n.capacity || 0;
+        let congFactor = 1;
+        for (const id of path) {
+          const l = linkById(state, id);
+          if (!l) continue;
+          const effCap = (l.capacity || 0) * fx.capMult;
+          bottleneck = Math.min(bottleneck, effCap);
+          if (effCap > 0 && (l.usage || 0) > effCap) congFactor = Math.min(congFactor, effCap / l.usage);
+        }
+        const d = dist(x, y, n.x, n.y);
+        const distFactor = 1 - 0.5 * clamp(d / Math.max(1, n.radius || 1), 0, 1);
+        let blocked = false;
+        if (n.type !== 'ftth') {
+          for (const b of (state.buildings || DATA.buildings || [])) {
+            if (b.height < 10) continue;
+            const tt = clamp(((b.x - n.x) * (x - n.x) + (b.y - n.y) * (y - n.y)) /
+              (Math.pow(x - n.x, 2) + Math.pow(y - n.y, 2) || 1), 0, 1);
+            const px = n.x + tt * (x - n.x), py = n.y + tt * (y - n.y);
+            if (dist(b.x, b.y, px, py) < 45) { blocked = true; break; }
+          }
+        }
+        const losFactor = blocked ? 0.35 : 1;
+        const speed = Math.round(bottleneck * distFactor * losFactor * congFactor);
+        if (!best || speed > best.speed) best = { speed, nodeId: n.id, nodeName: n.name, blocked, congFactor, distFactor };
+      }
+      if (!best) { out[t] = { speed: 0, nodeId: connected[0].id, nodeName: connected[0].name, reason: 'no_path' }; continue; }
+      let reason = null;
+      if (best.congFactor < 0.7) reason = 'congestion';
+      else if (best.blocked) reason = 'los';
+      else if (best.distFactor < 0.65) reason = 'distance';
+      out[t] = { speed: best.speed, nodeId: best.nodeId, nodeName: best.nodeName, reason };
+    }
+    return out;
+  }
   const CELL_TECH = { cell_2g: '2g', cell_3g: '3g', cell_4g: '4g', cell_5g: '5g' };
 
   function log(state, msg, kind) {
@@ -112,7 +225,7 @@
       finance: { incomePerDay: 0, expensePerDay: 0 },
       incomePerDay: 0,
       expensePerDay: 0,
-      satisfaction: 20,
+      satisfaction: 0,
       completedMissions: [],
       missionsDone: 0,
       loan: 0,
@@ -132,12 +245,14 @@
       population: d.population, demandBase: d.demandBase,
       priceSensitivity: d.priceSensitivity, potentialRevenue: d.potentialRevenue,
       demand: d.demandBase, servedDemand: 0, subscribers: 0,
-      qos: 0, satisfaction: 20, revenue: 0, complaints: 0, connected: false,
+      qos: 0, satisfaction: 0, revenue: 0, complaints: 0, connected: false,
     }));
+    state.districts.forEach((d) => { d.techDemand = computeTechDemand(d, [], 1); });
     // گروه مشتری هر منطقه
     state.customers = state.districts.map((d) => ({
       id: 'cust_' + d.id, districtId: d.id,
-      packageId: d.type === 'industrial' ? 'enterprise' : (d.type === 'commercial' ? 'business' : 'home'),
+      packageId: (d.type === 'industrial' || d.type === 'heavy_industrial') ? 'enterprise'
+        : (['commercial', 'government', 'medical', 'academic'].includes(d.type) ? 'business' : 'home'),
       count: 0, servingNodeId: null,
     }));
 
@@ -153,12 +268,21 @@
     };
     const gw = {
       id: 'n' + (++state.counters.node), type: 'internet_gateway', name: gwEq ? gwEq.name : 'دروازه اینترنت',
-      x: hq.x + 40, y: hq.y, status: 'active', health: 100,
+      x: hq.x + 140, y: hq.y, status: 'active', health: 100,
       capacity: gwEq ? gwEq.capacity : 40000, radius: 0,
       tech: null, direction: 0, angle: 360, power: 1,
       buildTimer: 0, usage: 0, connected: true,
     };
     state.nodes.push(core, gw);
+
+    // خدمهٔ شروع: یک تکنسین میدانی تا آموزش و شبکهٔ اول بدون استخدام هم کامل شود
+    const startRole = (DATA.staffRoles || []).find((r) => r.id === 'technician');
+    if (startRole) {
+      state.staff.push({
+        id: 's' + (++state.counters.staff), role: startRole.id,
+        name: startRole.name, salary: startRole.salary, skill: startRole.skill,
+      });
+    }
     state.links.push({
       id: 'l' + (++state.counters.link), from: core.id, to: gw.id,
       medium: 'fiber', capacity: 10000, latency: 2,
@@ -389,8 +513,11 @@
       else if (n.status === 'unconnected' && n.connected) n.status = 'active';
     });
 
+    const fx = staffEffects(state);
+
     // ترتیب اولویت هنگام failover: اضطراری (بیمارستان) و سازمانی/صنعتی اول
-    const priority = (d) => (d.id === 'hospital' ? 0 : (d.type === 'industrial' || d.type === 'commercial' ? 1 : 2));
+    const priority = (d) => (d.id === 'hospital' || d.type === 'medical' ? 0
+      : (['industrial', 'heavy_industrial', 'commercial', 'government'].includes(d.type) ? 1 : 2));
     const ordered = state.districts.slice().sort((a, b) => priority(a) - priority(b));
 
     let totalRevenue = 0, qosSum = 0, servedDistricts = 0;
@@ -404,11 +531,11 @@
       const cust = (state.customers || []).find((c) => c.districtId === d.id);
       if (!servers.length) {
         d.servedDemand = 0; d.qos = 0; d.connected = false;
+        d.techDemand = computeTechDemand(d, [], 1);
         if (cust) cust.servingNodeId = null;
-        d.subscribers = Math.max(0, Math.floor(d.subscribers * 0.97));
-        // قطعی/از دست رفتن سرویس: رضایت منطقه‌ای که قبلاً سرویس گرفته به سمت صفر افت می‌کند
-        // (منطقه‌ای که هرگز سرویس نگرفته روی مقدار شروع می‌ماند تا رضایت کلی بی‌دلیل سقوط نکند)
-        if (d.everServed) d.satisfaction = clamp(d.satisfaction + (0 - d.satisfaction) * 0.25, 0, 100);
+        d.subscribers = Math.max(0, Math.floor(d.subscribers * fx.churnKeepUnserved));
+        // بدون سرویس رضایت منطقه به سمت صفر می‌رود (جمعیت بدون اینترنت ناراضی است)؛ پشتیبانی افت را کند می‌کند
+        d.satisfaction = clamp(d.satisfaction + (0 - d.satisfaction) * fx.satDecayRate, 0, 100);
         d.revenue = 0;
         continue;
       }
@@ -431,35 +558,44 @@
         }
         remaining -= share;
       }
-      // گلوگاه لینک‌ها: اگر مصرف > ظرفیت، کیفیت افت می‌کند
+      // گلوگاه لینک‌ها: اگر مصرف > ظرفیت مؤثر (با ضریب مهندسان شبکه)، کیفیت افت می‌کند
       let congestionFactor = 1;
       for (const l of state.links) {
-        if (l.usage > l.capacity && l.capacity > 0) {
+        const effCap = l.capacity * fx.capMult;
+        if (l.usage > effCap && effCap > 0) {
           l.status = 'congested';
-          congestionFactor = Math.min(congestionFactor, l.capacity / l.usage);
+          congestionFactor = Math.min(congestionFactor, effCap / l.usage);
         }
       }
       if (state.failoverActive && priority(d) === 2) congestionFactor *= 0.6; // throttling عادی‌ها
       served = served * congestionFactor;
 
       d.servedDemand = Math.round(served);
+      d.techDemand = computeTechDemand(d, servers, congestionFactor);
       d.qos = d.demand > 0 ? clamp(served / d.demand, 0, 1) : 0;
       d.connected = d.qos > 0;
       qosSum += d.qos; if (d.qos > 0) servedDistricts++;
 
-      // مشترکان: رشد متناسب با کیفیت سرویس (حتی کیفیت متوسط هم مشترک می‌آورد)، ریزش فقط با کیفیت خیلی بد
+      // مشترکان: رشد متناسب با کیفیت سرویس و تیم فروش، ریزش فقط با کیفیت خیلی بد (پشتیبانی ریزش را کم می‌کند)
       const maxSubs = Math.floor(d.population * 0.35);
-      if (d.qos >= 0.12) d.subscribers = Math.min(maxSubs, d.subscribers + Math.max(1, Math.ceil(d.population * 0.004 * d.qos)));
-      else if (d.qos < 0.05) d.subscribers = Math.max(0, Math.floor(d.subscribers * 0.96));
+      if (d.qos >= 0.12) d.subscribers = Math.min(maxSubs, d.subscribers + Math.max(1, Math.ceil(d.population * 0.004 * d.qos * fx.growthMult)));
+      else if (d.qos < 0.05) d.subscribers = Math.max(0, Math.floor(d.subscribers * fx.churnKeepLowQos));
       if (cust) cust.count = d.subscribers;
 
-      // رضایت به سمت کیفیت حرکت می‌کند
-      const target = d.qos * 100;
-      d.satisfaction = clamp(d.satisfaction + (target - d.satisfaction) * 0.25, 0, 100);
+      // بستهٔ منطقه: قیمت برای درآمد، سرعت برای رضایت (نسبت به انتظار نوع منطقه)
+      const pkg = (state.packages || []).find((p) => p.id === (cust ? cust.packageId : 'home'));
+      const pkgSpeed = pkg ? (pkg.speedMbps || pkg.speed || 50) : 50;
+      const expectedSpeed = (d.type === 'industrial' || d.type === 'heavy_industrial') ? 1000
+        : (['commercial', 'government', 'medical', 'academic'].includes(d.type) ? 200 : 50);
+      const speedFactor = clamp(pkgSpeed / expectedSpeed, 0.5, 1.1);
+
+      // رضایت به سمت کیفیت حرکت می‌کند؛ پشتیبانی بازگشت را سریع‌تر و افت را کندتر می‌کند
+      const target = clamp(d.qos * 100 * speedFactor, 0, 100);
+      const satRate = target >= d.satisfaction ? fx.satRecoveryRate : fx.satDecayRate;
+      d.satisfaction = clamp(d.satisfaction + (target - d.satisfaction) * satRate, 0, 100);
       d.complaints = d.qos < 0.4 && d.subscribers > 0 ? Math.ceil(d.subscribers * 0.05) : 0;
 
       // درآمد ماهانه: مشترک × قیمت بسته × ضریب رضایت
-      const pkg = (state.packages || []).find((p) => p.id === (cust ? cust.packageId : 'home'));
       const price = pkg ? pkg.price : 120;
       d.revenue = Math.round(d.subscribers * price * (0.4 + 0.6 * (d.satisfaction / 100)));
       totalRevenue += d.revenue;
@@ -473,9 +609,10 @@
       congestedLinks: state.links.filter((l) => l.status === 'congested').length,
     };
     state.lastFlow = summary;
-    // فیلدهای کمکی UI: رضایت کلی و نرخ روزانه مالی
-    state.satisfaction = state.districts.length
-      ? Math.round(state.districts.reduce((s, d) => s + d.satisfaction, 0) / state.districts.length) : 50;
+    // فیلدهای کمکی UI: رضایت کلی (میانگین وزن‌دار با جمعیت؛ مناطق بدون سرویس ~۰)
+    const totalPop = state.districts.reduce((s, d) => s + (d.population || 0), 0);
+    state.satisfaction = totalPop > 0
+      ? Math.round(state.districts.reduce((s, d) => s + d.satisfaction * (d.population || 0), 0) / totalPop) : 0;
     let monthlyCosts = 0;
     for (const n of state.nodes) { const eq = getEq(n.type); if (eq && n.status !== 'building') monthlyCosts += eq.monthlyCost || 0; }
     for (const st of state.staff) monthlyCosts += st.salary || 0;
@@ -741,13 +878,29 @@
     if (state.paused) return { events: [], problems: state.problems || [] };
     state.day += dtDays;
 
-    // تایمر ساخت
+    // تایمر ساخت و تعمیر (سرعتشان به تکنسین‌های میدانی بستگی دارد)
+    const fxTick = staffEffects(state);
     for (const n of state.nodes) {
       if (n.status === 'building') {
-        n.buildTimer -= dtDays;
+        n.buildTimer -= dtDays * fxTick.buildSpeed;
         if (n.buildTimer <= 0) {
           n.buildTimer = 0; n.status = 'active';
           log(state, 'ساخت «' + (n.name || 'گره') + '» تمام شد؛ برای سرویس باید به شبکه وصل شود.', 'build');
+        }
+      } else if (n.status === 'repairing') {
+        n.repairWork = (n.repairWork || 0) - dtDays * fxTick.repairSpeed;
+        if (n.repairWork <= 0) {
+          n.repairWork = 0; n.status = 'active'; n.health = n.repairHealth || 85;
+          log(state, 'تعمیر «' + (n.name || 'گره') + '» تمام شد و به شبکه برگشت.', 'repair');
+        }
+      }
+    }
+    for (const l of state.links) {
+      if (l.status === 'repairing') {
+        l.repairWork = (l.repairWork || 0) - dtDays * fxTick.repairSpeed;
+        if (l.repairWork <= 0) {
+          l.repairWork = 0; l.status = 'active';
+          log(state, 'تعمیر لینک ' + mediumFa(l.medium) + ' تمام شد.', 'repair');
         }
       }
     }
@@ -839,16 +992,55 @@
   function demolishNode(state, id) {
     const n = nodeById(state, id);
     if (!n) return { ok: false, error: 'گره پیدا نشد.' };
-    if (n.type === 'core_router' || n.type === 'internet_gateway') {
-      return { ok: false, error: 'هسته و دروازه اینترنت قابل تخریب نیستند.' };
-    }
     const eq = getEq(n.type);
-    const refund = eq ? Math.round(eq.cost * 0.3) : 0;
+    const refund = eq ? Math.round(eq.cost * 0.5) : 0; // بازپرداخت ۵۰٪ هزینهٔ ساخت
     state.nodes = state.nodes.filter((x) => x.id !== id);
     state.links = state.links.filter((l) => l.from !== id && l.to !== id);
     state.cash += refund;
-    log(state, 'گره «' + (n.name || 'نامشخص') + '» تخریب شد. بازگشت: ' + refund, 'build');
+    log(state, 'گره «' + (n.name || 'نامشخص') + '» حذف شد. بازگشت: ' + refund, 'build');
     return { ok: true, refund };
+  }
+
+  // مکان معتبر برای نصب/جابه‌جایی: داخل نقشه، بیرون رودخانه و بیرون ساختمان‌ها
+  function isValidPlacement(state, x, y) {
+    const W = (DATA.world && DATA.world.width) || 7200;
+    const H = (DATA.world && DATA.world.height) || 5400;
+    if (x < 20 || y < 20 || x > W - 20 || y > H - 20) return { ok: false, error: 'این نقطه بیرون از نقشه است.' };
+    const river = state.map && state.map.river;
+    if (river && river.length > 1) {
+      for (let i = 0; i < river.length - 1; i++) {
+        const a = river[i], b = river[i + 1];
+        const tt = clamp(((x - a.x) * (b.x - a.x) + (y - a.y) * (b.y - a.y)) / ((b.x - a.x) ** 2 + (b.y - a.y) ** 2 || 1), 0, 1);
+        if (dist(x, y, a.x + tt * (b.x - a.x), a.y + tt * (b.y - a.y)) < 35) return { ok: false, error: 'نمی‌توان روی رودخانه دستگاه نصب کرد.' };
+      }
+    }
+    for (const b of (state.buildings || [])) {
+      if (x >= b.x - 4 && x <= b.x + (b.w || 26) + 4 && y >= b.y - 4 && y <= b.y + (b.h || 20) + 4) {
+        return { ok: false, error: 'این نقطه روی یک ساختمان است.' };
+      }
+    }
+    return { ok: true };
+  }
+
+  // جابه‌جایی گره: هزینه ۱۰٪ هزینهٔ ساخت + توقف سرویس به اندازهٔ ۳۰٪ زمان ساخت (لینک‌ها حفظ می‌شوند)
+  function moveNode(state, id, x, y) {
+    const n = nodeById(state, id);
+    if (!n) return { ok: false, error: 'گره پیدا نشد.' };
+    if (n.status === 'building') return { ok: false, error: 'این گره در حال ساخت است و فعلاً قابل جابه‌جایی نیست.' };
+    if (n.status === 'repairing') return { ok: false, error: 'این گره در حال تعمیر است و فعلاً قابل جابه‌جایی نیست.' };
+    const valid = isValidPlacement(state, x, y);
+    if (!valid.ok) return valid;
+    const eq = getEq(n.type);
+    const cost = Math.max(500, Math.round((eq ? eq.cost : 5000) * 0.1));
+    if (state.cash < cost) return { ok: false, error: 'بودجه کافی برای جابه‌جایی نیست. هزینه: ' + cost };
+    state.cash -= cost;
+    state.totalCosts += cost;
+    n.x = Math.round(x); n.y = Math.round(y);
+    n.status = 'building';
+    n.buildTimer = Math.max(1, Math.round((eq ? eq.buildDays || 1 : 1) * 0.3));
+    n.connected = false;
+    log(state, 'جابه‌جایی «' + (n.name || 'گره') + '» شروع شد؛ تا پایان نصب مجدد سرویس نمی‌دهد.', 'build');
+    return { ok: true, cost, days: n.buildTimer };
   }
 
   function hireStaff(state, roleId) {
@@ -860,6 +1052,14 @@
     };
     state.staff.push(member);
     log(state, '«' + role.name + '» استخدام شد.', 'staff');
+    return { ok: true, staff: member };
+  }
+
+  function fireStaff(state, roleId) {
+    const idx = (state.staff || []).map((s) => s.role).lastIndexOf(roleId);
+    if (idx < 0) return { ok: false, error: 'کسی با این نقش استخدام نشده است.' };
+    const member = state.staff.splice(idx, 1)[0];
+    log(state, '«' + (member.name || roleId) + '» اخراج شد.', 'staff');
     return { ok: true, staff: member };
   }
 
@@ -894,30 +1094,33 @@
       case 'repair': {
         const n = nodeById(state, fix.nodeId || prob.nodeId);
         if (!n) return fail('گره پیدا نشد.');
+        if (n.status === 'repairing') return fail('این گره در حال تعمیر است.');
         const eq = getEq(n.type);
         const cost = eq ? Math.round(eq.cost * 0.1) : 500;
         if (state.cash < cost) return fail('بودجه کافی برای تعمیر نیست.');
-        state.cash -= cost; n.status = 'active'; n.health = 85;
-        log(state, 'گره «' + (n.name || 'نامشخص') + '» تعمیر شد.', 'repair');
+        state.cash -= cost; n.status = 'repairing'; n.repairWork = 3; n.repairHealth = 85;
+        log(state, 'تعمیر «' + (n.name || 'نامشخص') + '» شروع شد.', 'repair');
         return { ok: true, cost };
       }
       case 'replace': {
         const n = nodeById(state, fix.nodeId || prob.nodeId);
         if (!n) return fail('گره پیدا نشد.');
+        if (n.status === 'repairing') return fail('این گره در حال تعمیر است.');
         const eq = getEq(n.type);
         const cost = eq ? Math.round(eq.cost * 0.25) : 1000;
         if (state.cash < cost) return fail('بودجه کافی برای جایگزینی نیست.');
-        state.cash -= cost; n.status = 'active'; n.health = 100;
-        log(state, 'گره «' + (n.name || 'نامشخص') + '» جایگزین شد.', 'repair');
+        state.cash -= cost; n.status = 'repairing'; n.repairWork = 2; n.repairHealth = 100;
+        log(state, 'جایگزینی «' + (n.name || 'نامشخص') + '» شروع شد.', 'repair');
         return { ok: true, cost };
       }
       case 'repair_link': {
         const l = linkById(state, fix.linkId || prob.linkId);
         if (!l) return fail('لینک پیدا نشد.');
+        if (l.status === 'repairing') return fail('این لینک در حال تعمیر است.');
         const cost = 800;
         if (state.cash < cost) return fail('بودجه کافی برای تعمیر لینک نیست.');
-        state.cash -= cost; l.status = 'active';
-        log(state, 'لینک ' + mediumFa(l.medium) + ' تعمیر شد.', 'repair');
+        state.cash -= cost; l.status = 'repairing'; l.repairWork = 2;
+        log(state, 'تعمیر لینک ' + mediumFa(l.medium) + ' شروع شد.', 'repair');
         return { ok: true, cost };
       }
       case 'connect': {
@@ -993,6 +1196,25 @@
         const initial = (DATA.buildings || []).filter((b) => b.districtId === d.id).length;
         d.buildingCap = Math.max(1, Math.round(initial * (capMult[d.type] || 1.5)));
       }
+      if (!d.techDemand) {
+        const srv = (state.nodes || []).filter((n) =>
+          ACCESS_TYPES.includes(n.type) && n.connected && isUsableNode(n) &&
+          dist(d.x, d.y, n.x, n.y) <= (n.radius || 0) + d.radius * 0.6);
+        d.techDemand = computeTechDemand(d, srv, 1);
+      }
+    }
+    // بسته‌های ذخیره‌های قدیمی: سرعت پیش‌فرض متناسب با قیمت (صفر/خالی نماند)
+    const pkgDefaults = {};
+    for (const p of (DATA.packageList || DATA.packages || [])) pkgDefaults[p.id] = p;
+    if (!Array.isArray(state.packages) || !state.packages.length) {
+      state.packages = JSON.parse(JSON.stringify(DATA.packageList || DATA.packages || []));
+    }
+    for (const p of state.packages) {
+      if (!(p.speedMbps > 0)) {
+        if (p.speed > 0) p.speedMbps = p.speed; // فیلد قدیمی
+        else if (pkgDefaults[p.id]) p.speedMbps = pkgDefaults[p.id].speedMbps;
+      }
+      if (p.price == null && pkgDefaults[p.id]) p.price = pkgDefaults[p.id].price;
     }
     return state;
   }
@@ -1002,9 +1224,9 @@
     newGame, buildNode, connect, tracePath, computeFlow, tick, growCity,
     failover, saveGame, loadGame, unlockTech, isUnlocked, traceSatellitePath,
     // عملیات کمکی UI
-    demolishNode, hireStaff, updatePackage, applyFix,
+    demolishNode, moveNode, isValidPlacement, hireStaff, fireStaff, staffEffects, updatePackage, applyFix,
     // کمکی‌ها
-    nodeById, linkById, getEq, getTech, rand, ACCESS_TYPES,
+    nodeById, linkById, getEq, getTech, rand, ACCESS_TYPES, computeTechDemand, TECH_KEYS, speedTestAt,
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = GameSim;
