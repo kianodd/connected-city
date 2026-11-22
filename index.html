@@ -59,7 +59,6 @@
   <button id="btn-achievements" class="side-item"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="5"/><path d="m9 12.5-1.5 7L12 16.5 16.5 19.5 15 12.5"/><path d="M9.5 8h5M12 5.5v5"/></svg><span>دستاوردها</span></button>
   <button id="btn-contracts" class="side-item"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4"/><path d="M9 12h7M9 16h5"/></svg><span>قراردادهای سازمانی</span></button>
   <button id="btn-campaigns" class="side-item"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11v3l4 1 1.5 5h3L10 15l8 3V6L6 9z"/><path d="M18 8a4 4 0 0 1 0 8"/></svg><span>کمپین‌های تبلیغاتی</span></button>
-  <button id="btn-constellation" class="side-item"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="6" height="6" rx="1"/><path d="M3 12h6M15 12h6M12 3v6M12 15v6"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/></svg><span>صورت فلکی ماهواره‌ای</span></button>
   <button id="btn-stats" class="side-item"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10M9 20V4M14 20v-8M19 20v-5"/><path d="M3 20h18"/></svg><span>آمار و نمودارها</span></button>
   <div class="side-menu-section">صدا</div>
   <div class="side-audio">
@@ -125,7 +124,6 @@
         <label><input type="checkbox" data-layer="weather" checked> آب‌وهوا</label>
         <label><input type="checkbox" data-layer="fiber" checked> لینک فیبر</label>
         <label><input type="checkbox" data-layer="copper" checked> لینک مسی</label>
-        <label><input type="checkbox" data-layer="satellite" checked> لینک ماهواره‌ای</label>
       </div>
     </div>
     <div id="legend-dock">
@@ -134,7 +132,6 @@
       <div class="tech-legend-item"><span class="tech-dot" style="background:#22d3ee"></span>فیبر/مسی</div>
       <div class="tech-legend-item"><span class="tech-dot" style="background:#3fb950"></span>سلولار</div>
       <div class="tech-legend-item"><span class="tech-dot" style="background:#fb923c"></span>TD-LTE</div>
-      <div class="tech-legend-item"><span class="tech-dot" style="background:#e879f9"></span>ماهواره</div>
     </div>
     <div id="signal-legend" class="hidden" role="note" aria-label="راهنمای نقشه حرارتی سیگنال">
       <div class="tech-legend-title">قدرت سیگنال</div>
@@ -208,7 +205,6 @@
 <div id="modal-achievements" class="modal hidden"><div class="modal-head"><h3>دستاوردها</h3><button class="btn icon sm modal-close" data-close="modal-achievements"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div><div class="modal-body" id="achievements-body"></div></div>
 <div id="modal-contracts" class="modal hidden"><div class="modal-head"><h3>قراردادهای سازمانی</h3><button class="btn icon sm modal-close" data-close="modal-contracts"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div><div class="modal-body" id="contracts-body"></div></div>
 <div id="modal-campaigns" class="modal hidden"><div class="modal-head"><h3>کمپین‌های تبلیغاتی</h3><button class="btn icon sm modal-close" data-close="modal-campaigns"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div><div class="modal-body" id="campaigns-body"></div></div>
-<div id="modal-constellation" class="modal hidden"><div class="modal-head"><h3>صورت فلکی ماهواره‌ای</h3><button class="btn icon sm modal-close" data-close="modal-constellation"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div><div class="modal-body" id="constellation-body"></div></div>
 <div id="modal-stats" class="modal hidden"><div class="modal-head"><h3>آمار و نمودارها</h3><button class="btn icon sm modal-close" data-close="modal-stats"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div><div class="modal-body"><label>بازه: <select id="stats-range"><option value="30">۳۰ روز</option><option value="90">۹۰ روز</option><option value="all" selected>کل</option></select></label><div id="stats-body"></div></div></div>
 
 <!-- Equipment guide popover -->
