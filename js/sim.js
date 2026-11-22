@@ -668,6 +668,14 @@
       }
     }
 
+    // لینک تکراری (همان دو گره + همان رسانه) مجاز نیست
+    const dup = (state.links || []).some((l) => l.medium === medium &&
+      ((l.from === fromId && l.to === toId) || (l.from === toId && l.to === fromId)));
+    if (dup) {
+      log(state, 'این دو گره قبلاً با همین رسانه به هم وصل شده‌اند.', 'error');
+      return null;
+    }
+
     const link = {
       id: 'l' + (++state.counters.link),
       from: fromId, to: toId, medium,
@@ -681,6 +689,48 @@
     log(state, 'لینک ' + mediumFa(medium) + ' بین «' + (a.name || 'گره') + '» و «' + (b.name || 'گره') + '» برقرار شد.', 'build');
     refreshConnectivity(state); // وضعیت اتصال به هسته فوراً تازه شود، نه در تیک روزانهٔ بعدی
     return link;
+  }
+
+  // ---------- قطع اتصال لینک ----------
+  function linksOfNode(state, nodeId) {
+    return (state.links || []).filter((l) => l.from === nodeId || l.to === nodeId);
+  }
+  function connectedSetExcluding(state, excludeLinkId) {
+    const set = new Set();
+    const gateways = state.nodes.filter((n) => n.type === 'internet_gateway' && isUsableNode(n));
+    const q = gateways.map((g) => g.id);
+    q.forEach((id) => set.add(id));
+    while (q.length) {
+      const cur = q.shift();
+      for (const l of state.links) {
+        if (l.id === excludeLinkId) continue;
+        if (!isUsableLink(l)) continue;
+        if (l.isBackup && !state.failoverActive) continue;
+        let nxt = null;
+        if (l.from === cur) nxt = l.to; else if (l.to === cur) nxt = l.from; else continue;
+        if (set.has(nxt)) continue;
+        const nn = nodeById(state, nxt);
+        if (!nn || !isUsableNode(nn)) continue;
+        set.add(nxt); q.push(nxt);
+      }
+    }
+    return set;
+  }
+  function linkDisconnectImpact(state, linkId) {
+    const before = connectedSetExcluding(state, null);
+    const after = connectedSetExcluding(state, linkId);
+    const orphans = [...before].filter((id) => !after.has(id))
+      .map((id) => nodeById(state, id)).filter(Boolean);
+    return { orphanCount: orphans.length, orphanNames: orphans.slice(0, 3).map((n) => n.name || n.type) };
+  }
+  function disconnectLink(state, linkId) {
+    const l = linkById(state, linkId);
+    if (!l) return { ok: false, error: 'لینک پیدا نشد.' };
+    const a = nodeById(state, l.from), b = nodeById(state, l.to);
+    state.links = state.links.filter((x) => x.id !== linkId);
+    log(state, 'اتصال ' + mediumFa(l.medium) + ' بین «' + ((a && a.name) || 'گره') + '» و «' + ((b && b.name) || 'گره') + '» قطع شد.', 'build');
+    refreshConnectivity(state); // وضعیت اتصال گره‌های پایین‌دست فوراً تازه شود
+    return { ok: true };
   }
 
   // ---------- ردیابی مسیر تا دروازه اینترنت (BFS) ----------
@@ -1075,7 +1125,9 @@
     if (fiberDropFor(state, buildingId)) return { ok: false, error: 'این ساختمان قبلاً به فیبر وصل شده است.' };
     const cx = b.x + (b.w || 26) / 2, cy = b.y + (b.h || 20) / 2;
     let src = nodeId ? nodeById(state, nodeId) : null;
-    if (src && !(src.connected && isUsableNode(src) && ['ftth', 'aggregation', 'core_router'].includes(src.type))) src = null;
+    if (nodeId && !(src && src.connected && isUsableNode(src) && ['ftth', 'aggregation', 'core_router'].includes(src.type))) {
+      return { ok: false, error: 'این گره منبع فیبر معتبر نیست؛ یک گره FTTH/تجمیع/هستهٔ متصل به شبکه انتخاب کنید.' };
+    }
     if (!src) {
       let bd = Infinity;
       for (const n of fiberSourceNodes(state)) {
@@ -1539,12 +1591,17 @@
       const d = ind.districtId ? (state.districts || []).find((x) => x.id === ind.districtId) : null;
       const qos = d ? (d.qos || 0) : ((state.scattered && state.scattered.qos) || 0);
       if (ind.status !== 'subscribed') {
-        const price = districtPackagePrice(state, ind.districtId);
-        const willingness = ind.needMbps * 3 / Math.max(0.1, ind.priceSensitivity);
-        if (qos >= 0.3 && price <= willingness * 2) {
-          ind.status = 'subscribed';
-          ind.joinedDay = Math.floor(state.day);
-          ind.satisfaction = Math.round(qos * 100);
+        // پیوستن عمدتاً تابع کیفیت سرویس است (مثل مدل تجمیعی مشترکان منطقه)؛ قیمت فقط احتمال روزانه را کم‌وزیاد می‌کند،
+        // نه اینکه در مناطق با بستهٔ گران تقریباً همه را برای همیشه بیرون نگه دارد و لیست با آمار منطقه ناسازگار شود.
+        if (qos >= 0.3) {
+          const price = districtPackagePrice(state, ind.districtId);
+          const willingness = ind.needMbps * 3 / Math.max(0.1, ind.priceSensitivity);
+          const affordP = clamp((willingness * 2) / Math.max(1, price), 0.1, 1);
+          if (rand2(state) < affordP) {
+            ind.status = 'subscribed';
+            ind.joinedDay = Math.floor(state.day);
+            ind.satisfaction = Math.round(qos * 100);
+          }
         }
       } else {
         ind.satisfaction = clamp(ind.satisfaction + (qos * 100 - ind.satisfaction) * 0.3, 0, 100);
@@ -2361,6 +2418,7 @@
     demolishNode, moveNode, isValidPlacement, hireStaff, fireStaff, staffEffects, updatePackage, applyFix,
     upgradeNode, upgradeInfo,
     refreshConnectivity, connectBuildingFiber, disconnectBuildingFiber, buildingFiberStatus, fiberDropFor,
+    disconnectLink, linkDisconnectImpact, linksOfNode,
     // کمکی‌ها
     nodeById, linkById, getEq, getTech, rand, ACCESS_TYPES, computeTechDemand, TECH_KEYS, speedTestAt,
     isAccessNode, nodeCategory, updateDistrictSizes, mergeDistricts, desiredRadius,
