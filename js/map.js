@@ -112,6 +112,25 @@
     [0.00, 239, 68, 68], [0.30, 249, 115, 22], [0.50, 250, 204, 21],
     [0.72, 163, 230, 53], [1.00, 34, 197, 94]
   ];
+  /* گرادیان سرعت اتصال: آبی = بیشترین سرعت، قرمز = کمترین سرعت (مقیاس لگاریتمی Mbps) */
+  var SPEED_STOPS = [
+    [0.00, 239, 68, 68], [0.30, 249, 115, 22], [0.50, 250, 204, 21],
+    [0.72, 34, 211, 238], [1.00, 37, 99, 235]
+  ];
+  function speedRGBA(speed, out) {
+    if (!(speed > 0.5)) { out[0] = out[1] = out[2] = out[3] = 0; return out; }
+    var v = clamp(Math.log10(speed + 1) / Math.log10(2501), 0, 1);
+    var i = 0;
+    while (i < SPEED_STOPS.length - 2 && v > SPEED_STOPS[i + 1][0]) i++;
+    var a = SPEED_STOPS[i], b = SPEED_STOPS[i + 1];
+    var t = clamp((v - a[0]) / Math.max(0.0001, b[0] - a[0]), 0, 1);
+    out[0] = Math.round(a[1] + (b[1] - a[1]) * t);
+    out[1] = Math.round(a[2] + (b[2] - a[2]) * t);
+    out[2] = Math.round(a[3] + (b[3] - a[3]) * t);
+    out[3] = Math.round(128 * clamp(v / 0.25, 0, 1)); // محو تدریجی لبه تا شفاف
+    return out;
+  }
+
   function signalRGBA(s, out) {
     if (s <= 0.02) { out[0] = out[1] = out[2] = out[3] = 0; return out; }
     var i = 0;
@@ -278,7 +297,7 @@
     districts: true, buildings: true, links: true, coverage: true, labels: true,
     cellular: true, fiber: true, copper: true, fwa: true, satellite: true,
     demand: false, traffic: false, failures: true, revenue: false, qos: false, techdemand: false,
-    signal: false, weather: true, indivsubs: true
+    signal: false, weather: true, indivsubs: true, speed: false
   };
 
   /* ---------- ویژگی‌های جدید: سکشن، هیت‌مپ سیگنال، پیشنهادها، آب‌وهوا ---------- */
@@ -489,6 +508,7 @@
     if (!canStatic) drawStaticScene(); // fallback: no offscreen canvas available
     drawRiverFlow();
     if (layers.signal) drawSignalHeat(); // بالای زمین، زیر پوشش/لینک/گره
+    if (layers.speed) drawSpeedHeat(); // لایهٔ سرعت اتصال (با سیگنال ناسازگار/انحصاری)
     var srcs = coverageSources();
     if (layers.qos) drawQosTint();
     if (layers.techdemand) drawTechDemandTint();
@@ -1467,6 +1487,65 @@
     ctx.restore();
   }
 
+  /* لایهٔ سرعت اتصال: میدان رنگی هموار از سرعت تجمیعی مؤثر (aggregateSpeedAt) — آبی=سریع، قرمز=ضعیف */
+  var _speedCache = null;
+  function drawSpeedHeat() {
+    if (!global.GameSim || typeof global.GameSim.speedTestAt !== 'function' || !state) return;
+    var now = Date.now();
+    // ازدحام به ساعت روز بستگی دارد؛ روز و ساعت هم در امضا می‌آیند تا در ساعت اوج سرعت‌ها افت کنند
+    var sig = nodesSignature() + '|' + ((state.weather && state.weather.kind) || 'clear') +
+      '|' + Math.floor(state.day || 0) + '|' + Math.floor(state.hour || 0);
+    var sigChanged = !_speedCache || _speedCache.sig !== sig;
+    var vr = visibleRect(0);
+    var camMoved = false;
+    if (_speedCache) {
+      var m = 120;
+      if (vr.x0 < _speedCache.x0 + m || vr.y0 < _speedCache.y0 + m ||
+          vr.x1 > _speedCache.x1 - m || vr.y1 > _speedCache.y1 - m) camMoved = true;
+    }
+    var elapsed = _speedCache ? (now - _speedCache.ts) : Infinity;
+    var need = !_speedCache || (elapsed >= 250 && (sigChanged || camMoved || elapsed > 1500));
+    if (need) {
+      var pad = 160;
+      var x0 = vr.x0 - pad, y0 = vr.y0 - pad, x1 = vr.x1 + pad, y1 = vr.y1 + pad;
+      var wW = Math.max(1, x1 - x0), wH = Math.max(1, y1 - y0);
+      var step = Math.max(8, wW / 120, wH / 120); // شبکهٔ درشت‌تر از سیگنال: speedTestAt سنگین‌تر است
+      var pw = Math.max(2, Math.ceil(wW / step)), ph = Math.max(2, Math.ceil(wH / step));
+      var off = document.createElement('canvas');
+      off.width = pw; off.height = ph;
+      var octx = off.getContext('2d');
+      var img = octx.createImageData(pw, ph);
+      var px = img.data;
+      var rgba = [0, 0, 0, 0];
+      var agg = (typeof global.GameSim.aggregateSpeedAt === 'function')
+        ? function (x, y) { return global.GameSim.aggregateSpeedAt(state, x, y); }
+        : function (x, y) {
+            var r = global.GameSim.speedTestAt(state, x, y), mx = 0;
+            for (var k in r) if (r[k] && r[k].speed > mx) mx = r[k].speed;
+            return mx;
+          };
+      for (var j = 0; j < ph; j++) {
+        var wy = y0 + (j + 0.5) * step;
+        for (var i = 0; i < pw; i++) {
+          var wx = x0 + (i + 0.5) * step;
+          var spd = 0;
+          try { spd = agg(wx, wy) || 0; } catch (e) { spd = 0; }
+          speedRGBA(spd, rgba);
+          var o = (j * pw + i) * 4;
+          px[o] = rgba[0]; px[o + 1] = rgba[1]; px[o + 2] = rgba[2]; px[o + 3] = rgba[3];
+        }
+      }
+      octx.putImageData(img, 0, 0);
+      _speedCache = { sig: sig, ts: now, canvas: off, x0: x0, y0: y0, x1: x1, y1: y1 };
+    }
+    if (!_speedCache || !_speedCache.canvas) return;
+    ctx.save();
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(_speedCache.canvas, _speedCache.x0, _speedCache.y0,
+      _speedCache.x1 - _speedCache.x0, _speedCache.y1 - _speedCache.y0);
+    ctx.restore();
+  }
+
   /* نقاط پیشنهادی ساخت: حلقهٔ تپنده + ضربدر + برچسب مشترک مورد انتظار */
   function drawSuggestions() {
     if (!suggestions || !suggestions.length) return;
@@ -1845,7 +1924,13 @@
 
     layers: layers,
     setLayer: function (name, val) {
-      if (name in layers) { layers[name] = !!val; staticCam = null; } // static cache must rebuild (buildings/labels live there)
+      if (name in layers) {
+        layers[name] = !!val;
+        // لایه‌های «سیگنال» و «سرعت اتصال» انحصاری‌اند: روشن‌شدن یکی، دیگری را خاموش می‌کند
+        if (val && name === 'speed') layers.signal = false;
+        if (val && name === 'signal') layers.speed = false;
+        staticCam = null;
+      } // static cache must rebuild (buildings/labels live there)
     },
     setLayers: function (obj) {
       if (!obj) return;
