@@ -34,6 +34,19 @@
     { id: 'south_sparse',name: 'حاشیه جنوبی',   type: 'sparse',      radius: 380, population: 4200,  demandBase: 950,  priceSensitivity: 1.0,  potentialRevenue: 18000 },
     { id: 'west_town',   name: 'شهرک غربی',      type: 'residential', radius: 360, population: 10500, demandBase: 2700, priceSensitivity: 0.75, potentialRevenue: 50000 },
     { id: 'old_town',    name: 'بافت قدیم',      type: 'dense',       radius: 280, population: 13500, demandBase: 3300, priceSensitivity: 0.8,  potentialRevenue: 58000 },
+    { id: 'uni_town',    name: 'شهرک دانشگاهی',  type: 'academic',    radius: 340, population: 8000,  demandBase: 2600, priceSensitivity: 0.85, potentialRevenue: 42000 },
+    { id: 'medical',     name: 'مرکز درمانی',    type: 'medical',     radius: 300, population: 4500,  demandBase: 2000, priceSensitivity: 0.25, potentialRevenue: 50000 },
+    { id: 'heavy_ind',   name: 'صنایع سنگین',    type: 'heavy_industrial', radius: 520, population: 2500, demandBase: 3800, priceSensitivity: 0.25, potentialRevenue: 98000 },
+    { id: 'tourism',     name: 'منطقه گردشگری',  type: 'tourism',     radius: 380, population: 6000,  demandBase: 2800, priceSensitivity: 0.55, potentialRevenue: 64000 },
+    { id: 'terminal',    name: 'پایانه مسافربری', type: 'transport',  radius: 320, population: 5500,  demandBase: 2400, priceSensitivity: 0.5,  potentialRevenue: 45000 },
+    { id: 'old_bazaar',  name: 'بازار قدیمی',    type: 'commercial',  radius: 300, population: 11000, demandBase: 3100, priceSensitivity: 0.75, potentialRevenue: 56000 },
+    { id: 'villa',       name: 'شهرک ویلایی',    type: 'villa',       radius: 420, population: 7000,  demandBase: 2200, priceSensitivity: 0.35, potentialRevenue: 68000 },
+    { id: 'slum',        name: 'سکونتگاه حاشیه‌ای', type: 'slum',     radius: 400, population: 9000,  demandBase: 1200, priceSensitivity: 1.0,  potentialRevenue: 15000 },
+    { id: 'govt',        name: 'شهرک اداری',     type: 'government',  radius: 340, population: 6000,  demandBase: 2500, priceSensitivity: 0.4,  potentialRevenue: 52000 },
+    { id: 'sports',      name: 'مجموعه ورزشی',   type: 'landmark',    radius: 300, population: 3500,  demandBase: 1700, priceSensitivity: 0.6,  potentialRevenue: 36000 },
+    { id: 'techpark',    name: 'پارک فناوری',    type: 'commercial',  radius: 360, population: 5000,  demandBase: 3600, priceSensitivity: 0.35, potentialRevenue: 82000 },
+    { id: 'garden_city', name: 'باغ‌شهر',        type: 'residential', radius: 430, population: 9000,  demandBase: 2400, priceSensitivity: 0.65, potentialRevenue: 48000 },
+    { id: 'port',        name: 'بندر خشک',       type: 'industrial',  radius: 460, population: 2800,  demandBase: 2900, priceSensitivity: 0.3,  potentialRevenue: 76000 },
   ];
 
   function mulberry32(seed) {
@@ -82,22 +95,23 @@
     const R = (a, b) => a + rnd() * (b - a);
 
     // ---------- HQ ----------
-    const hq = { x: Math.round(R(1400, 1800) / 20) * 20, y: Math.round(R(1050, 1350) / 20) * 20 };
+    const hq = { x: Math.round(R(WORLD_W * 0.42, WORLD_W * 0.58) / 20) * 20, y: Math.round(R(WORLD_H * 0.42, WORLD_H * 0.58) / 20) * 20 };
 
     // ---------- رودخانه ----------
-    let riverBase = R(1950, 2300);
+    let riverBase = R(WORLD_W * 0.60, WORLD_W * 0.72);
     const river = [];
     let rx = riverBase;
+    const riverStep = (WORLD_H + 80) / 6;
     for (let i = 0; i < 7; i++) {
-      const y = -40 + i * 413;
-      if (i > 0) rx = clamp(rx + R(-150, 150), 1550, 2650);
-      river.push({ x: Math.round(rx), y });
+      const y = -40 + i * riverStep;
+      if (i > 0) rx = clamp(rx + R(-260, 260), WORLD_W * 0.48, WORLD_W * 0.83);
+      river.push({ x: Math.round(rx), y: Math.round(y) });
     }
     // رودخانه نباید از روی HQ رد شود
     const rxAtHq = riverXAtY(river, hq.y);
     if (Math.abs(rxAtHq - hq.x) < 480) {
       const shift = (rxAtHq >= hq.x ? 1 : -1) * (480 - Math.abs(rxAtHq - hq.x));
-      river.forEach((p) => { p.x = Math.round(clamp(p.x + shift, 1450, 2700)); });
+      river.forEach((p) => { p.x = Math.round(clamp(p.x + shift, WORLD_W * 0.45, WORLD_W * 0.85)); });
     }
 
     // ---------- شبکهٔ خیابان‌ها ----------
@@ -108,9 +122,9 @@
       av: roadLines(WORLD_W, 400, offset),
       ah: roadLines(WORLD_H, 400, offset),
     };
-    // پل‌ها: سه بلوار افقی پخش‌شده در ارتفاع شهر
+    // پل‌ها: چهار بلوار افقی پخش‌شده در ارتفاع شهر
     const bridgeCands = roads.ah.filter((y) => y > 300 && y < WORLD_H - 300);
-    const bridges = [0.2, 0.5, 0.8].map((f) => bridgeCands[Math.min(bridgeCands.length - 1, Math.floor(f * bridgeCands.length))]);
+    const bridges = [0.15, 0.38, 0.62, 0.85].map((f) => bridgeCands[Math.min(bridgeCands.length - 1, Math.floor(f * bridgeCands.length))]);
 
     // ---------- مناطق ----------
     const districts = [];
@@ -165,11 +179,12 @@
     const buildings = [];
     let bIdx = 0;
     districts.forEach((d) => {
-      const count = (d.type === 'dense' || d.type === 'commercial') ? 16
+      const count = (d.type === 'dense' || d.type === 'commercial' || d.type === 'slum') ? 16
         : d.type === 'sparse' ? 7
-        : d.type === 'landmark' ? 10 : 12;
-      // خوشهٔ برج‌ها در مناطق متراکم/تجاری
-      const cluster = (d.type === 'dense' || d.type === 'commercial')
+        : d.type === 'villa' ? 8
+        : (d.type === 'landmark' || d.type === 'medical' || d.type === 'transport') ? 10 : 12;
+      // خوشهٔ برج‌ها در مناطق متراکم/تجاری/اداری
+      const cluster = (d.type === 'dense' || d.type === 'commercial' || d.type === 'government')
         ? { x: d.x + R(-0.35, 0.35) * d.radius, y: d.y + R(-0.35, 0.35) * d.radius } : null;
       for (let i = 0; i < count; i++) {
         let placed = null;
@@ -189,9 +204,9 @@
         if (!placed) continue;
         bIdx++;
         const inCluster = cluster && Math.hypot(placed.x + placed.w / 2 - cluster.x, placed.y + placed.h / 2 - cluster.y) < 170;
-        const tall = (d.type === 'dense' || d.type === 'commercial') && rnd() > (inCluster ? 0.25 : 0.55);
+        const tall = (d.type === 'dense' || d.type === 'commercial' || d.type === 'government' || d.type === 'academic') && rnd() > (inCluster ? 0.25 : 0.55);
         const height = tall ? 10 + Math.floor(rnd() * 18) : 2 + Math.floor(rnd() * 7);
-        const bType = d.type === 'industrial' ? 'industrial' : bTypes[Math.floor(rnd() * 3)];
+        const bType = (d.type === 'industrial' || d.type === 'heavy_industrial') ? 'industrial' : bTypes[Math.floor(rnd() * 3)];
         const palette = palettes[bType] || palettes.residential;
         buildings.push({
           id: 'b' + bIdx,
@@ -207,13 +222,13 @@
 
     // ---------- پارک‌ها ----------
     const parks = [];
-    for (let i = 0; i < 70; i++) {
+    for (let i = 0; i < 160; i++) {
       const w = 60 + rnd() * 150, h = 45 + rnd() * 100;
       const x = rnd() * (WORLD_W - 200), y = rnd() * (WORLD_H - 160);
       if (Math.abs(x + w / 2 - riverXAtY(river, y + h / 2)) < 90) continue;
       parks.push({ x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) });
     }
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 5; i++) {
       parks.push({ x: Math.round(R(200, WORLD_W - 600)), y: Math.round(R(200, WORLD_H - 500)), w: Math.round(R(280, 380)), h: Math.round(R(180, 260)) });
     }
 
