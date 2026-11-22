@@ -41,7 +41,7 @@
     if (t.indexOf('core') >= 0) return 'core';
     if (t.indexOf('router') >= 0) return 'router';
     if (t.indexOf('switch') >= 0 || t.indexOf('agg') >= 0) return 'switch';
-    if (t.indexOf('ptp') >= 0 || t.indexOf('relay') >= 0) return 'ptp';
+    if (t.indexOf('ptp') >= 0 || t.indexOf('relay') >= 0 || t.indexOf('repeater') >= 0) return 'ptp';
     if (t.indexOf('customer') >= 0 || t.indexOf('cpe') >= 0 || t.indexOf('home') >= 0) return 'customer';
     if (t.indexOf('gateway') >= 0 || t.indexOf('pop') >= 0) return 'gateway';
     return 'generic';
@@ -295,7 +295,8 @@
     districts: true, buildings: true, links: true, coverage: true, labels: true,
     cellular: true, fiber: true, copper: true, fwa: true,
     demand: false, traffic: false, failures: true, revenue: false, qos: false, techdemand: false,
-    signal: false, weather: true, indivsubs: true, speed: false
+    signal: false, weather: true, indivsubs: true, speed: false,
+    packets: true, commute: true, problems: true, latency: false, locked: true
   };
 
   /* ---------- ویژگی‌های جدید: سکشن، هیت‌مپ سیگنال، پیشنهادها، آب‌وهوا ---------- */
@@ -327,7 +328,7 @@
   function districtSig() {
     var ds = (state && state.districts) || [];
     var s = ds.length + ':';
-    for (var i = 0; i < ds.length; i++) s += Math.round(ds[i].radius || 0) + ',';
+    for (var i = 0; i < ds.length; i++) s += Math.round(ds[i].radius || 0) + (ds[i].unlocked === false ? 'L' : '') + ',';
     return s;
   }
   var _prevCamZ = 0, _lastZoomChangeTs = 0;
@@ -361,7 +362,7 @@
         d = rt[i];
         out.push({
           id: d.id, name: d.nameFa || d.name || d.id, x: d.x, y: d.y, w: d.w, h: d.h,
-          radius: d.radius, color: d.color,
+          radius: d.radius, color: d.color, unlocked: d.unlocked,
           demand: (typeof d.demand === 'number' ? d.demand : (d.demandBase || 0)),
           revenue: (typeof d.revenue === 'number' ? d.revenue : 0),
           qos: (typeof d.qos === 'number' ? d.qos : null),
@@ -418,6 +419,15 @@
         direction: (typeof n.direction === 'number' ? n.direction : null),
         angle: (typeof n.angle === 'number' ? n.angle : null)
       });
+      // دکل 4G/5G دارای ماژول TD-LTE: پوشش TD-LTE هم روی نقشه دیده می‌شود
+      if (k === 'cell' && layers.fwa && (n.type === 'cell_4g' || n.type === 'cell_5g') &&
+          Array.isArray(n.modules) && n.modules.indexOf('tdlte') >= 0) {
+        out.push({
+          node: n, kind: 'fwa', r: r,
+          direction: (typeof n.direction === 'number' ? n.direction : null),
+          angle: (typeof n.angle === 'number' ? n.angle : null)
+        });
+      }
     }
     return out;
   }
@@ -505,6 +515,7 @@
 
     if (!canStatic) drawStaticScene(); // fallback: no offscreen canvas available
     drawRiverFlow();
+    if (layers.locked) drawLockedDistricts(); // مناطق قفل‌شده خاکستری با قفل
     if (layers.signal) drawSignalHeat(); // بالای زمین، زیر پوشش/لینک/گره
     if (layers.speed) drawSpeedHeat(); // لایهٔ سرعت اتصال (با سیگنال ناسازگار/انحصاری)
     var srcs = coverageSources();
@@ -516,7 +527,10 @@
     if (layers.indivsubs) drawIndivBadges(); // نشان تعداد مشترکان فردی روی ساختمان‌ها
     if (layers.links) drawLinks();
     drawFiberDrops();
+    if (layers.packets) drawPackets(); // پالس‌های نور بسته‌ها روی کابل‌ها
+    if (layers.commute) drawCommute(); // پالس‌های رفت‌وآمد روی خیابان‌ها
     drawNodes();
+    if (layers.problems) drawProblemBadges(); // مثلث هشدار روی گره/لینک مشکل‌دار
     drawHighlights();
     if (layers.revenue) drawRevenue();
     drawSuggestions();
@@ -526,6 +540,179 @@
 
     if (layers.weather) drawWeather();
     drawHud();
+  }
+
+  /* ---------- مناطق قفل‌شده: خاکستری + قفل ---------- */
+  function drawLockedDistricts() {
+    var ds = getDistricts();
+    for (var i = 0; i < ds.length; i++) {
+      var d = ds[i];
+      if (d.unlocked !== false) continue;
+      if (!circleInRect(d.x, d.y, d.radius || 0, cullRect)) continue;
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(d.x, d.y, d.radius || 0, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(24,28,38,0.74)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(170,182,205,0.85)';
+      ctx.lineWidth = 2.4 / cam.z;
+      ctx.setLineDash([12 / cam.z, 8 / cam.z]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // قفل (بدنه + کمان)
+      var s = 36 / cam.z;
+      ctx.translate(d.x, d.y - (d.radius || 0) * 0.35);
+      ctx.strokeStyle = '#c9d2e0';
+      ctx.lineWidth = 2.4 / cam.z;
+      ctx.beginPath();
+      ctx.arc(0, -s * 0.28, s * 0.42, Math.PI, 0);
+      ctx.stroke();
+      ctx.fillStyle = '#c9d2e0';
+      ctx.beginPath();
+      ctx.rect(-s * 0.55, -s * 0.28, s * 1.1, s * 0.85);
+      ctx.fill();
+      ctx.fillStyle = '#1b2330';
+      ctx.beginPath();
+      ctx.arc(0, s * 0.05, s * 0.14, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  /* ---------- عمق گره‌ها از دروازه (برای جهت پالس بسته‌ها) ---------- */
+  var _depthCache = null, _depthCacheTs = 0;
+  function gatewayDepths() {
+    var now = Date.now();
+    if (_depthCache && now - _depthCacheTs < 1000) return _depthCache;
+    var depth = {}, q = [], nodes = (state && state.nodes) || [], links = (state && state.links) || [];
+    for (var i = 0; i < nodes.length; i++) if (nodes[i].type === 'internet_gateway') { depth[nodes[i].id] = 0; q.push(nodes[i].id); }
+    while (q.length) {
+      var cur = q.shift();
+      for (var j = 0; j < links.length; j++) {
+        var l = links[j];
+        if (l.status === 'cut' || l.status === 'repairing') continue;
+        var nxt = null;
+        if (l.from === cur) nxt = l.to; else if (l.to === cur) nxt = l.from; else continue;
+        if (depth[nxt] != null) continue;
+        depth[nxt] = depth[cur] + 1;
+        q.push(nxt);
+      }
+    }
+    _depthCache = depth; _depthCacheTs = now;
+    return depth;
+  }
+
+  /* ---------- پالس‌های بسته‌ها روی کابل‌ها ---------- */
+  var PACKET_CAP = 200;
+  var _packetPool = [];
+  function drawPackets() {
+    var links = (state && state.links) || [];
+    var depth = gatewayDepths();
+    var tNow = Date.now() / 1000;
+    var drawn = 0;
+    ctx.save();
+    for (var i = 0; i < links.length && drawn < PACKET_CAP; i++) {
+      var l = links[i];
+      if (l.status === 'cut' || l.status === 'repairing' || (l.usage || 0) <= 0) continue;
+      var a = nodeById(state, l.from), b = nodeById(state, l.to);
+      if (!a || !b) continue;
+      if (!segInRect(a.x, a.y, b.x, b.y, cullRect)) continue;
+      // جهت: از گره دورتر از دروازه به گره نزدیک‌تر (به سمت اینترنت) و برعکس (دانلود)
+      var da = depth[a.id], db = depth[b.id];
+      var up = (da != null && db != null) ? (da > db) : true;
+      var from = up ? a : b, to = up ? b : a;
+      var util = clamp((l.usage || 0) / Math.max(1, l.capacity || 1), 0.05, 1);
+      var count = Math.max(1, Math.round(util * 4));
+      for (var k = 0; k < count && drawn < PACKET_CAP; k++) {
+        var ph = (tNow * (0.25 + util * 0.5) + k / count + i * 0.37) % 1;
+        // رفت (آپلود) به سمت دروازه و برگشت (دانلود) با رنگ متفاوت
+        var dir = (k % 2 === 0) ? 1 : -1;
+        var tt = dir > 0 ? ph : 1 - ph;
+        var px = from.x + (to.x - from.x) * tt, py = from.y + (to.y - from.y) * tt;
+        ctx.fillStyle = dir > 0 ? 'rgba(120,220,255,0.95)' : 'rgba(255,205,120,0.95)';
+        ctx.beginPath();
+        ctx.arc(px, py, (2.4 + util * 1.6) / cam.z, 0, Math.PI * 2);
+        ctx.fill();
+        drawn++;
+      }
+    }
+    ctx.restore();
+  }
+
+  /* ---------- پالس‌های رفت‌وآمد مردم روی خیابان‌ها ---------- */
+  // چرخهٔ کامل روزانه و تصادفی در سیم محاسبه می‌شود (صبح کار، ظهر خانه، عصر تفریح، شب خانه؛
+  // نیمه‌شب سکوت) و به ساعت بازی گره خورده است؛ اینجا فقط رسم می‌شود. سقف پالس در سیم است.
+  function drawCommute() {
+    var G = global.GameSim;
+    if (!G || !G.commutePulses) return;
+    var pulses = G.commutePulses(state, (state && state.hour != null) ? state.hour : 8);
+    if (!pulses.length) return;
+    ctx.save();
+    for (var i = 0; i < pulses.length; i++) {
+      var p = pulses[i];
+      if (!inRect(p.x, p.y, cullRect)) continue;
+      ctx.fillStyle = p.covered ? 'rgba(110,255,170,0.95)' : 'rgba(255,110,110,0.95)';
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 3.4 / cam.z, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  /* ---------- مثلث هشدار روی گره/لینک مشکل‌دار ---------- */
+  function drawWarningTriangle(x, y, s) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.beginPath();
+    ctx.moveTo(0, -s);
+    ctx.lineTo(s * 0.9, s * 0.75);
+    ctx.lineTo(-s * 0.9, s * 0.75);
+    ctx.closePath();
+    ctx.fillStyle = '#ffb020';
+    ctx.fill();
+    ctx.strokeStyle = '#5a3c00';
+    ctx.lineWidth = 1 / cam.z;
+    ctx.stroke();
+    ctx.fillStyle = '#3a2800';
+    ctx.font = 'bold ' + (s * 1.1) + 'px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('!', 0, s * 0.25);
+    ctx.restore();
+  }
+  function drawProblemBadges() {
+    var probs = (state && state.problems) || [];
+    var seen = {};
+    for (var i = 0; i < probs.length; i++) {
+      var p = probs[i];
+      if (p.nodeId && !seen['n' + p.nodeId]) {
+        seen['n' + p.nodeId] = true;
+        var n = nodeById(state, p.nodeId);
+        if (n && inRect(n.x, n.y, cullRect)) drawWarningTriangle(n.x + 14 / cam.z, n.y - 16 / cam.z, 8 / cam.z);
+      }
+      if (p.linkId && !seen['l' + p.linkId]) {
+        seen['l' + p.linkId] = true;
+        var links = (state && state.links) || [];
+        for (var j = 0; j < links.length; j++) {
+          if (links[j].id !== p.linkId) continue;
+          var a = nodeById(state, links[j].from), b = nodeById(state, links[j].to);
+          if (a && b) drawWarningTriangle((a.x + b.x) / 2, (a.y + b.y) / 2, 8 / cam.z);
+          break;
+        }
+      }
+    }
+    // لینک‌های فرسوده (افت سیگنال) حتی بدون مشکل ثبت‌شده هم هشدار بگیرند
+    var allLinks = (state && state.links) || [];
+    for (var k = 0; k < allLinks.length; k++) {
+      var l = allLinks[k];
+      if (l._attFactor != null && l._attFactor < 0.8 && !seen['l' + l.id]) {
+        seen['l' + l.id] = true;
+        var a2 = nodeById(state, l.from), b2 = nodeById(state, l.to);
+        if (a2 && b2 && inRect((a2.x + b2.x) / 2, (a2.y + b2.y) / 2, cullRect)) {
+          drawWarningTriangle((a2.x + b2.x) / 2, (a2.y + b2.y) / 2, 8 / cam.z);
+        }
+      }
+    }
   }
 
   function drawGround() {
@@ -1077,7 +1264,12 @@
       if (!segInRect(a.x, a.y, b.x, b.y, cullRect)) continue;
       var cg = congestion(l);
       var col = st.color;
-      if (cg > 0.85) col = '#ef4444';
+      if (layers.latency) {
+        // لایهٔ تأخیر: رنگ لینک بر اساس پینگ (سبز <۲۰ms، زرد <۵۰ms، قرمز ≥۵۰ms)
+        var G = global.GameSim;
+        var ms = (G && G.linkLatency) ? G.linkLatency(l, a, b) * 2 : (l.latency || 0) * 2;
+        col = ms < 20 ? '#34d399' : (ms < 50 ? '#f59e0b' : '#ef4444');
+      } else if (cg > 0.85) col = '#ef4444';
       else if (cg > 0.65) col = '#f59e0b';
       if (isFailed(l) && layers.failures) col = '#ef4444';
       var w = st.width;
@@ -1239,16 +1431,17 @@
       // inner vector mark per kind (canvas paths, no text glyphs)
       drawNodeMark(k, n.x, n.y, r);
 
-      // نشان سطح ارتقا (فقط سطح ۲ به بالا): دایرهٔ کوچک با عدد سطح
-      if ((n.level || 1) > 1) {
+      // نشان ماژول‌ها: دایرهٔ کوچک با تعداد ماژول‌های نصب‌شده (TD-LTE با رنگ متفاوت)
+      var modCount = Array.isArray(n.modules) ? n.modules.length : 0;
+      if (modCount > 0) {
         var bx = n.x + r * 0.95, by = n.y + r * 0.95, br = Math.max(6, 7 / Math.sqrt(cam.z));
         ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI * 2);
-        ctx.fillStyle = '#f59e0b'; ctx.fill();
+        ctx.fillStyle = (Array.isArray(n.modules) && n.modules.indexOf('tdlte') >= 0) ? '#38bdf8' : '#f59e0b'; ctx.fill();
         ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 1 / Math.sqrt(cam.z); ctx.stroke();
         ctx.fillStyle = '#111827';
         ctx.font = 'bold ' + Math.max(7, br * 1.15) + 'px Vazirmatn, Tahoma, sans-serif';
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(String(n.level), bx, by + 0.5);
+        ctx.fillText(String(modCount), bx, by + 0.5);
       }
 
       // تیک جهت برای سکشن‌ها (قرارداد: ۰=شرق، پادساعتگرد، y با علامت منفی)
@@ -1408,7 +1601,7 @@
     var ns = (state && state.nodes) || [];
     for (var i = 0; i < ns.length; i++) {
       var n = ns[i];
-      s += n.id + ':' + Math.round(n.x) + ',' + Math.round(n.y) + ',' + n.status + ',' + (n.level || 1) + ',' +
+      s += n.id + ':' + Math.round(n.x) + ',' + Math.round(n.y) + ',' + n.status + ',' + (Array.isArray(n.modules) ? n.modules.join('+') : '') + ',' +
         (n.connected ? 1 : 0) + ',' + (n.channel == null ? '-' : n.channel) + ',' +
         (typeof n.direction === 'number' ? Math.round(n.direction) : '-') + ',' +
         (typeof n.angle === 'number' ? Math.round(n.angle) : '-') + ',' +
