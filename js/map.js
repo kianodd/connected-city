@@ -38,7 +38,6 @@
     if (t.indexOf('cell') >= 0 || t.indexOf('bs') >= 0 || t.indexOf('mast') >= 0 || t.indexOf('tower') >= 0 || t.indexOf('bts') >= 0 || t.indexOf('antenna') >= 0) return 'cell';
     if (t.indexOf('fwa') >= 0 || t.indexOf('fixed') >= 0) return 'fwa';
     if (t.indexOf('wifi') >= 0 || t.indexOf('wi-fi') >= 0 || t.indexOf('ap') >= 0 || t.indexOf('hotspot') >= 0) return 'wifi';
-    if (t.indexOf('sat') >= 0) return 'satellite';
     if (t.indexOf('core') >= 0) return 'core';
     if (t.indexOf('router') >= 0) return 'router';
     if (t.indexOf('switch') >= 0 || t.indexOf('agg') >= 0) return 'switch';
@@ -52,7 +51,6 @@
     if (m.indexOf('fiber') >= 0 || m.indexOf('fibre') >= 0 || m.indexOf('optic') >= 0) return 'fiber';
     if (m.indexOf('copper') >= 0 || m.indexOf('dsl') >= 0 || m.indexOf('adsl') >= 0 || m.indexOf('vdsl') >= 0) return 'copper';
     if (m.indexOf('ptp') >= 0 || m.indexOf('wireless') >= 0 || m.indexOf('microwave') >= 0) return 'ptp';
-    if (m.indexOf('sat') >= 0) return 'satellite';
     if (m.indexOf('eth') >= 0 || m.indexOf('lan') >= 0) return 'ethernet';
     return 'ethernet';
   }
@@ -295,7 +293,7 @@
   var pinchDist = 0, pinchMid = null;
   var layers = {
     districts: true, buildings: true, links: true, coverage: true, labels: true,
-    cellular: true, fiber: true, copper: true, fwa: true, satellite: true,
+    cellular: true, fiber: true, copper: true, fwa: true,
     demand: false, traffic: false, failures: true, revenue: false, qos: false, techdemand: false,
     signal: false, weather: true, indivsubs: true, speed: false
   };
@@ -727,7 +725,7 @@
   /* Districts tinted by their dominant technology demand */
   var TECH_TINT = {
     fiber: 'rgba(34,211,238,0.22)', cellular: 'rgba(63,185,80,0.22)',
-    fwa: 'rgba(251,146,60,0.24)', wifi: 'rgba(167,139,250,0.24)', satellite: 'rgba(232,121,249,0.22)'
+    fwa: 'rgba(251,146,60,0.24)', wifi: 'rgba(167,139,250,0.24)'
   };
   function drawTechDemandTint() {
     var ds = (state && state.districts) || [];
@@ -1016,30 +1014,18 @@
     fiber:     { color: '#22d3ee', dash: [],        width: 3.2 },
     copper:    { color: '#fb923c', dash: [9, 6],    width: 2.6 },
     ptp:       { color: '#a78bfa', dash: [2, 5],    width: 1.8, arrow: true },
-    satellite: { color: '#e879f9', dash: [3, 7],    width: 2.0, arc: true },
     ethernet:  { color: '#9ca3af', dash: [12, 4, 3, 4], width: 2.2 }
   };
   function layerAllowsLink(med, l) {
     if (med === 'fiber' && !layers.fiber) return false;
     if (med === 'copper' && !layers.copper) return false;
-    if (med === 'satellite' && !layers.satellite) return false;
     if (med === 'ptp' && !(layers.fwa || layers.cellular)) return false;
     return true;
   }
-  function satellitePos() { return { x: WORLD_W - 220, y: 220 }; }
 
   function linkPath(a, b, st) {
     ctx.beginPath();
-    if (st.arc) {
-      // satellite: arc up to satellite icon position (midpoint lifted)
-      var sp = satellitePos();
-      ctx.moveTo(a.x, a.y);
-      ctx.quadraticCurveTo((a.x + sp.x) / 2, Math.min(a.y, sp.y) - 120, sp.x, sp.y);
-      ctx.moveTo(sp.x, sp.y);
-      ctx.quadraticCurveTo((b.x + sp.x) / 2, Math.min(b.y, sp.y) - 120, b.x, b.y);
-    } else {
-      ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
-    }
+    ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
   }
 
   // انشعاب‌های فیبر ساختمان‌ها: خط باریک فیروزه‌ای (در حال نصب: کهربایی خط‌چین)
@@ -1088,7 +1074,7 @@
       var med = linkMedium(l.medium || l.type);
       if (!layerAllowsLink(med, l)) continue;
       var st = LINK_STYLES[med] || LINK_STYLES.ethernet;
-      if (!segInRect(a.x, a.y, b.x, b.y, cullRect) && !(st.arc && inRect(satellitePos().x, satellitePos().y, cullRect))) continue;
+      if (!segInRect(a.x, a.y, b.x, b.y, cullRect)) continue;
       var cg = congestion(l);
       var col = st.color;
       if (cg > 0.85) col = '#ef4444';
@@ -1121,7 +1107,6 @@
       }
     }
     ctx.restore();
-    drawSatelliteIcon();
   }
   function drawArrow(x1, y1, x2, y2, col) {
     var ang = Math.atan2(y2 - y1, x2 - x1);
@@ -1135,26 +1120,6 @@
     ctx.closePath(); ctx.fill();
     ctx.restore();
   }
-  function drawSatelliteIcon() {
-    var links = (state && state.links) || [];
-    var has = false;
-    for (var i = 0; i < links.length; i++) if (linkMedium(links[i].medium || links[i].type) === 'satellite') { has = true; break; }
-    if (!has || !layers.satellite) return;
-    var sp = satellitePos();
-    ctx.save();
-    ctx.translate(sp.x, sp.y);
-    ctx.fillStyle = '#e879f9';
-    ctx.fillRect(-7, -7, 14, 14);
-    ctx.fillStyle = '#f0abfc';
-    ctx.fillRect(-24, -4, 15, 8); ctx.fillRect(9, -4, 15, 8);
-    ctx.strokeStyle = 'rgba(232,121,249,0.7)'; ctx.lineWidth = 1.4;
-    ctx.beginPath(); ctx.arc(0, 0, 30 + Math.sin(animT * 2) * 3, 0, Math.PI * 2); ctx.stroke();
-    ctx.font = 'bold 12px Vazirmatn, Tahoma, sans-serif';
-    ctx.textAlign = 'center'; ctx.fillStyle = '#f0abfc';
-    ctx.fillText('ماهواره', 0, 46);
-    ctx.restore();
-  }
-
   function drawX(x, y, s, col) {
     ctx.save();
     ctx.strokeStyle = col; ctx.lineWidth = 2.4 / Math.sqrt(cam.z); ctx.lineCap = 'round';
@@ -1166,7 +1131,7 @@
   }
 
   var NODE_COLORS = {
-    cell: '#38bdf8', fwa: '#34d399', wifi: '#c084fc', satellite: '#e879f9',
+    cell: '#38bdf8', fwa: '#34d399', wifi: '#c084fc',
     core: '#facc15', router: '#60a5fa', switch: '#2dd4bf', ptp: '#a78bfa',
     customer: '#fda4af', gateway: '#fbbf24', generic: '#cbd5e1'
   };
@@ -1212,10 +1177,6 @@
       ctx.rect(x - g - u * 0.18, y - g - u * 0.18, g, g); ctx.rect(x + u * 0.18, y - g - u * 0.18, g, g);
       ctx.rect(x - g - u * 0.18, y + u * 0.18, g, g); ctx.rect(x + u * 0.18, y + u * 0.18, g, g);
       ctx.stroke();
-    } else if (k === 'satellite') { // dish: bowl arc + feed dot
-      ctx.beginPath(); ctx.arc(x, y - u * 0.35, u * 0.85, 0.35, Math.PI - 0.35); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(x, y + u * 0.5); ctx.lineTo(x, y + u); ctx.stroke();
-      ctx.beginPath(); ctx.arc(x, y - u * 0.35, u * 0.18, 0, Math.PI * 2); ctx.fill();
     } else if (k === 'customer') { // house
       ctx.moveTo(x - u * 0.8, y - u * 0.1); ctx.lineTo(x, y - u * 0.85); ctx.lineTo(x + u * 0.8, y - u * 0.1);
       ctx.moveTo(x - u * 0.55, y - u * 0.1); ctx.lineTo(x - u * 0.55, y + u * 0.75); ctx.lineTo(x + u * 0.55, y + u * 0.75); ctx.lineTo(x + u * 0.55, y - u * 0.1);
@@ -1270,8 +1231,6 @@
         ctx.rect(n.x - r * 0.85, n.y - r * 0.85, r * 1.7, r * 1.7);
       } else if (k === 'wifi') { // diamond
         ctx.moveTo(n.x, n.y - r); ctx.lineTo(n.x + r, n.y); ctx.lineTo(n.x, n.y + r); ctx.lineTo(n.x - r, n.y); ctx.closePath();
-      } else if (k === 'satellite') { // star-ish cross
-        ctx.rect(n.x - r * 0.5, n.y - r * 0.5, r, r);
       } else { // circle: fwa, ptp, customer, generic
         ctx.arc(n.x, n.y, r * 0.9, 0, Math.PI * 2);
       }
@@ -1618,7 +1577,7 @@
     ctx.font = (small ? '10px' : '12px') + ' Vazirmatn, Tahoma, sans-serif';
     var items = [
       ['#22d3ee', 'فیبر نوری'], ['#fb923c', 'مسی (DSL)'], ['#a78bfa', 'نقطه‌به‌نقطه'],
-      ['#e879f9', 'ماهواره'], ['#9ca3af', 'اترنت'], ['#ef4444', 'ازدحام/خرابی']
+      ['#9ca3af', 'اترنت'], ['#ef4444', 'ازدحام/خرابی']
     ];
     var bw = small ? 118 : 150, rowH = small ? 15 : 18, bh = items.length * rowH + 12;
     ctx.fillStyle = 'rgba(10,14,22,0.72)';
