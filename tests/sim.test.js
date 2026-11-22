@@ -332,7 +332,7 @@ let s1, cell1, link1;
   const node = GameSim.buildNode(s, 'wifi_ap', d.x, d.y);
   finishBuild(s, node);
   GameSim.connect(s, node.id, coreOf(s).id, 'ethernet');
-  for (let i = 0; i < 10; i++) GameSim.tick(s, 1);
+  for (let i = 0; i < 10; i++) { GameSim.tick(s, 1); keepAlive(s); } // keepAlive: خرابی تصادفی گره نباید تست تقاضای فناوری را خراب کند
   const td = d.techDemand || {};
   const sum = Object.values(td).reduce((a, e) => a + e.demand, 0);
   check('16a جمع تقاضای فناوری‌ها برابر تقاضای کل منطقه است', Math.abs(sum - d.demand) <= 5,
@@ -410,10 +410,12 @@ let s1, cell1, link1;
 
 // ---------- 20) کارکنان: اثرات واقعی + پیشرفت بدون کارمند ----------
 {
-  // 20a: بدون هیچ کارمندی هم می‌شود شبکهٔ اول را ساخت و درآمد گرفت
+  // 20a: بازی جدید پیش‌فرض بدون هیچ کارمندی شروع می‌شود و بدون استخدام هم می‌شود شبکهٔ اول را ساخت و درآمد گرفت
   const s = GameSim.newGame(501);
-  GameSim.fireStaff(s, 'technician');
-  check('20a-0 شروع بدون کارمند ممکن است', s.staff.length === 0, 'staff=' + s.staff.length);
+  check('20a-0 بازی جدید پیش‌فرض صفر کارمند دارد (همه نقش‌ها)',
+    s.staff.length === 0 && ['technician', 'engineer', 'support', 'sales'].every(r => s.staff.filter(m => m.role === r).length === 0)
+      && GameSim.staffEffects(s).monthlySalaryTotal === 0,
+    'staff=' + s.staff.length + ' salaryTotal=' + GameSim.staffEffects(s).monthlySalaryTotal);
   const d = s.districts.find(x => x.id === 'north') || s.districts[0];
   const node = GameSim.buildNode(s, 'wifi_ap', d.x, d.y);
   finishBuild(s, node);
@@ -1096,6 +1098,20 @@ let s1, cell1, link1;
   check('41c در ساعت اوج تقاضا بیشتر و کیفیت کمتر از نیمه‌شب است',
     d.demand > dem3 && d.qos < qos3,
     'demand ' + Math.round(dem3) + ' -> ' + Math.round(d.demand) + ' qos ' + qos3.toFixed(2) + ' -> ' + d.qos.toFixed(2));
+  // 41d: عبور از نیمه‌شب دقیقاً یک روز به شمارندهٔ روز اضافه می‌کند (هم‌گامی ساعت و روز)
+  const sc = GameSim.newGame(32);
+  const day0 = sc.day;
+  GameSim.clockTick(sc, 13); // ۱۰ -> ۲۳، هنوز همان روز
+  const noWrap = (sc.pendingDays || 0) === 0 && sc.hour === 23;
+  GameSim.clockTick(sc, 2); // ۲۳ -> ۰۱، یک نیمه‌شب رد شد
+  const oneWrap = (sc.pendingDays || 0) === 1 && sc.hour === 1;
+  while ((sc.pendingDays || 0) > 0) { sc.pendingDays--; GameSim.tick(sc); }
+  check('41d ساعت در نیمه‌شب دور می‌زند و روز دقیقاً یک واحد جلو می‌رود',
+    noWrap && oneWrap && sc.day === day0 + 1,
+    'hour=' + sc.hour + ' day ' + day0 + ' -> ' + sc.day);
+  GameSim.clockTick(sc, 50); // دو روز کامل + ۲ ساعت
+  check('41e پرش چندروزهٔ ساعت: دو نیمه‌شب شمرده می‌شود', (sc.pendingDays || 0) === 2 && sc.hour === 3,
+    'pendingDays=' + sc.pendingDays + ' hour=' + sc.hour);
 }
 
 // ---------- 42) آب‌وهوا و فصل‌ها ----------
