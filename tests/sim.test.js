@@ -106,6 +106,8 @@ let s1, cell1, link1;
   // فاصلهٔ منطقه تا هسته (۳۱۹۹) از برد PtP (۱۸۰۰) بیشتر است؛ مسیر پشتیبان از گره واسط می‌گذرد
   const relay = GameSim.buildNode(s, 'cell_4g', Math.round((d.x + core.x) / 2), Math.round((d.y + core.y) / 2));
   finishBuild(s, relay);
+  keepAlive(s); // خرابی تصادفی لینک اصلی در مدت ساخت واسط، تست فیل‌اور را به شانس گره نزند
+  s.failoverActive = false; // خط مبنای سالم: فیل‌اور هنوز فعال نشده
   const backup1 = GameSim.connect(s, cell.id, relay.id, 'ptp', { isBackup: true });
   const backup2 = GameSim.connect(s, relay.id, core.id, 'ptp', { isBackup: true });
   GameSim.computeFlow(s);
@@ -731,7 +733,7 @@ let s1, cell1, link1;
     if ((e.category === 'access' || e.category === 'antenna') && !GameSim.TECH_KEYS.includes(e.tech)) bad.push(e.id + ' tech=' + e.tech);
     if (!(e.radius >= 0) || !(e.capacity >= 0)) bad.push(e.id + ' radius/capacity');
   }
-  check('28a کاتالوگ: ≥۲۱۸ تجهیز، شناسه یکتا، قیمت/راهنما/دسته/بازشدن معتبر', list.length >= 218 && bad.length === 0,
+  check('28a کاتالوگ کلی ساده: ۱۸ تا ۳۰ تجهیز، شناسه یکتا، قیمت/راهنما/دسته/بازشدن معتبر', list.length >= 18 && list.length <= 30 && bad.length === 0,
     'total=' + list.length + (bad.length ? ' bad: ' + bad.slice(0, 8).join(', ') : ''));
   const unlockMismatch = (DATA.techList || []).some(t => (t.unlocks || []).some(id => !ids.has(id))) ||
     list.some(e => e.unlock && !(DATA.techList.find(t => t.id === e.unlock) || { unlocks: [] }).unlocks.includes(e.id));
@@ -922,6 +924,9 @@ let s1, cell1, link1;
       const n = GameSim.buildNode(s, 'ftth', d.x, d.y);
       finishBuild(s, n);
       GameSim.connect(s, n.id, coreOf(s).id, 'fiber');
+      // فیبر دستی است: همهٔ ساختمان‌های منطقه انشعاب می‌گیرند تا سرویس کامل شود
+      for (const b of s.buildings.filter((x) => x.districtId === d.id)) GameSim.connectBuildingFiber(s, b.id, n.id);
+      for (let i = 0; i < 8; i++) { GameSim.tick(s, 1); keepAlive(s); }
     } else {
       GameSim.unlockTech(s, 'satellite_leo'); GameSim.unlockTech(s, 'satellite_geo');
       const term = GameSim.buildNode(s, 'sat_terminal_geo', d.x, d.y);
@@ -1179,6 +1184,136 @@ let s1, cell1, link1;
     s2.districts.every(x => x.avgLatency === 0 && x.perSubMbps === 0),
     'hour=' + s2.hour + ' weather=' + s2.weather.kind + ' wifiChannel=' + (wifi && wifi.channel));
   check('44b بازی مهاجرت‌کرده بدون خطا ادامه پیدا می‌کند', !!GameSim.tick(s2, 1));
+}
+
+// ---------- 47: کاتالوگ ساده و کلی (۲۰ قلم) ----------
+{
+  const eqs = DATA.equipmentList;
+  check('47a کاتالوگ کلی و ساده است (۱۸ تا ۳۰ قلم)', eqs.length >= 18 && eqs.length <= 30, 'n=' + eqs.length);
+  const ids = new Set(eqs.map((e) => e.id));
+  check('47b شناسه‌های کاتالوگ یکتا هستند', ids.size === eqs.length);
+  const techIds = new Set(DATA.techList.map((t) => t.id));
+  check('47c هر unlock به فناوری واقعی اشاره می‌کند', eqs.every((e) => !e.unlock || techIds.has(e.unlock)));
+  check('47d هر قلم راهنمای فارسی دارد', eqs.every((e) => e.guide && e.guide.length > 20));
+  const coreIds = ['fiber_cable', 'copper_cable', 'ftth', 'cell_2g', 'cell_3g', 'cell_4g', 'cell_5g', 'fwa_ap', 'ptp_link', 'wifi_ap', 'sat_terminal_leo', 'sat_terminal_geo', 'sat_gateway', 'router', 'switch', 'aggregation', 'core_router', 'internet_gateway'];
+  check('47e هر ۱۸ قلم کلی اصلی حاضرند', coreIds.every((id) => ids.has(id)));
+  const guideBad = (DATA.techGuides || []).flatMap((g) => (g.equipmentIds || []).filter((id) => !ids.has(id)));
+  check('47f راهنمای فناوری‌ها فقط به اقلام موجود اشاره می‌کند', guideBad.length === 0, guideBad.join(','));
+}
+
+// ---------- 48: ارتقای گره (افزایش پهنای باند) ----------
+{
+  const s = GameSim.newGame(42);
+  s.cash = 500000;
+  const core = coreOf(s);
+  const t = GameSim.buildNode(s, 'cell_3g', core.x - 220, core.y - 40);
+  finishBuild(s, t);
+  check('48a دکل در سطح ۱ ساخته شد', t.level === 1 && t.status !== 'building', 'lvl=' + t.level + ' st=' + t.status);
+  const eq3 = eq('cell_3g');
+  const cashBefore = s.cash;
+  const r1 = GameSim.upgradeNode(s, t.id);
+  const expectCost = Math.round(eq3.cost * 0.6 * 1);
+  check('48b ارتقا شروع شد، پول کم شد و گره آفلاین است', r1.ok === true && s.cash === cashBefore - expectCost && t.status === 'upgrading', JSON.stringify(r1));
+  check('48c گره در حال ارتقا سرویس نمی‌دهد (آفلاین)', t.status === 'upgrading' && GameSim.signalAt(s, t.x, t.y).signal === 0);
+  const rBusy = GameSim.upgradeNode(s, t.id);
+  check('48d ارتقای هم‌زمان دوم رد می‌شود', rBusy.ok === false);
+  for (let i = 0; i < 30 && t.status === 'upgrading'; i++) { GameSim.tick(s, 1); keepAlive(s); }
+  check('48e ارتقا در سطح ۲ با ظرفیت ×۱٫۵ تمام شد', t.level === 2 && t.capacity === Math.round(eq3.capacity * 1.5), 'lvl=' + t.level + ' cap=' + t.capacity);
+  check('48f شعاع در سطح ۲ هشت درصد بیشتر شد', t.radius === Math.round(eq3.radius * 1.08), 'r=' + t.radius);
+  for (let lvl = 2; lvl < 5; lvl++) {
+    const rr = GameSim.upgradeNode(s, t.id);
+    for (let i = 0; i < 40 && t.status === 'upgrading'; i++) { GameSim.tick(s, 1); keepAlive(s); }
+    if (!rr.ok) break;
+  }
+  check('48g به سقف سطح ۵ با ظرفیت ×۱٫۵^۴ رسید', t.level === 5 && t.capacity === Math.round(eq3.capacity * Math.pow(1.5, 4)), 'lvl=' + t.level + ' cap=' + t.capacity);
+  const rMax = GameSim.upgradeNode(s, t.id);
+  check('48h سطح از ۵ بالاتر نمی‌رود', rMax.ok === false && t.level === 5);
+  const info = GameSim.upgradeInfo(s, t.id);
+  check('48i upgradeInfo سقف را گزارش می‌دهد', info && info.maxed === true);
+}
+
+// ---------- 49: سازگاری ذخیرهٔ قدیمی با تجهیزات حذف‌شده ----------
+{
+  const s = GameSim.newGame(42);
+  const raw = JSON.parse(GameSim.saveGame(s));
+  raw.nodes.push({ id: 'n900', type: 'ant_sector_65_900', name: 'آنتن قدیمی', x: 3000, y: 2000, status: 'unconnected', health: 90, capacity: 220, radius: 380 });
+  raw.nodes.push({ id: 'n901', type: 'pwr_battery_vrla_400ah', name: 'باتری قدیمی', x: 3100, y: 2100, status: 'unconnected', health: 90, capacity: 0, radius: 250 });
+  raw.nodes.push({ id: 'n902', type: 'tool_otdr_pro', name: 'ابزار قدیمی', x: 3200, y: 2200, status: 'unconnected', health: 90, capacity: 0, radius: 0 });
+  raw.nodes.push({ id: 'n903', type: 'mw_23ghz_2000', name: 'مایکروویو قدیمی', x: 3300, y: 2300, status: 'unconnected', health: 90, capacity: 2000, radius: 0 });
+  const s2 = GameSim.loadGame(JSON.stringify(raw));
+  const m = (id) => s2.nodes.find((n) => n.id === id);
+  check('49a آنتن قدیمی به cell_2g نگاشت شد', m('n900') && m('n900').type === 'cell_2g', m('n900') && m('n900').type);
+  check('49b باتری قدیمی به backup_power نگاشت شد', m('n901') && m('n901').type === 'backup_power', m('n901') && m('n901').type);
+  check('49c ابزار قدیمی به test_tools_kit نگاشت شد', m('n902') && m('n902').type === 'test_tools_kit', m('n902') && m('n902').type);
+  check('49d مایکروویو قدیمی به ptp_link نگاشت شد', m('n903') && m('n903').type === 'ptp_link', m('n903') && m('n903').type);
+  check('49e گره نگاشت‌شده سطح ۱ با ظرفیت کلی است', m('n900').level === 1 && m('n900').capacity === eq('cell_2g').capacity);
+  let crashed = false;
+  try { for (let i = 0; i < 5; i++) GameSim.tick(s2, 1); } catch (e) { crashed = true; }
+  check('49f ذخیرهٔ مهاجرت‌کرده بدون کرش تیک می‌خورد', !crashed);
+}
+
+// ---------- 50: انشعاب فیبر دستی ساختمان‌ها ----------
+{
+  const s = GameSim.newGame(42);
+  s.cash = 9999999;
+  GameSim.unlockTech(s, 'fiber'); GameSim.unlockTech(s, 'ftth');
+  const d = s.districts.find((x) => (s.buildings || []).some((b) => b.districtId === x.id)) || s.districts[0];
+  const n = GameSim.buildNode(s, 'ftth', d.x, d.y);
+  finishBuild(s, n);
+  GameSim.connect(s, n.id, coreOf(s).id, 'fiber');
+  GameSim.tick(s, 1); keepAlive(s);
+  check('50a منطقه زیر پوشش FTTH بدون انشعاب دستی از فیبر سرویس نمی‌گیرد',
+    d.servedDemand === 0 && (d.techDemand.fiber.served === 0),
+    'served=' + d.servedDemand + ' fiberServed=' + d.techDemand.fiber.served);
+  const dBuildings = s.buildings.filter((b) => b.districtId === d.id);
+  const b0 = dBuildings[0];
+  const st0 = GameSim.speedTestAt(s, b0.x + 5, b0.y + 5);
+  check('50b تست سرعت فیبر برای ساختمان بدون انشعاب صفر با دلیل «به فیبر متصل نیست»',
+    st0.fiber.speed === 0 && st0.fiber.reason === 'no_fiber_drop', JSON.stringify(st0.fiber));
+  const cashBefore = s.cash;
+  let okAll = true;
+  for (const b of dBuildings) { const r = GameSim.connectBuildingFiber(s, b.id, n.id); if (!r.ok) okAll = false; }
+  check('50c اتصال دستی همهٔ ساختمان‌های منطقه موفق و هزینه کم شد', okAll && s.cash < cashBefore);
+  check('50d وضعیت ساختمان در حال اتصال است', GameSim.buildingFiberStatus(s, b0.id).status === 'building');
+  for (let i = 0; i < 10 && (s.fiberDrops || []).some((x) => x.status === 'building'); i++) { GameSim.tick(s, 1); keepAlive(s); }
+  check('50e انشعاب‌ها فعال شدند', GameSim.buildingFiberStatus(s, b0.id).status === 'active');
+  GameSim.tick(s, 1); keepAlive(s);
+  check('50f بعد از انشعاب، منطقه از فیبر سرویس می‌گیرد', d.servedDemand > 0 && d.techDemand.fiber.served > 0,
+    'served=' + d.servedDemand + ' fiberServed=' + d.techDemand.fiber.served);
+  const st1 = GameSim.speedTestAt(s, b0.x + 5, b0.y + 5);
+  check('50g تست سرعت فیبر بعد از انشعاب مثبت است', st1.fiber.speed > 0, JSON.stringify(st1.fiber));
+  // سازگاری ذخیرهٔ قدیمی: حذف فیلد fiberDrops از ذخیره → هنگام بارگذاری انشعاب خودکار (حفظ سرویس)
+  const raw = JSON.parse(GameSim.saveGame(s));
+  delete raw.fiberDrops;
+  const s2 = GameSim.loadGame(JSON.stringify(raw));
+  const d2 = s2.districts.find((x) => x.id === d.id);
+  check('50h ذخیرهٔ قدیمی بدون fiberDrops هنگام بارگذاری انشعاب فعال می‌گیرد',
+    (s2.fiberDrops || []).length >= dBuildings.length && (s2.fiberDrops || []).every((x) => x.status === 'active'),
+    'drops=' + (s2.fiberDrops || []).length);
+  GameSim.tick(s2, 1);
+  check('50i سرویس فیبر بعد از مهاجرت ذخیرهٔ قدیمی حفظ شد', d2.servedDemand > 0, 'served=' + d2.servedDemand);
+}
+
+// ---------- 51: وضعیت اتصال به هسته بلافاصله بعد از تغییر توپولوژی ----------
+{
+  const s = GameSim.newGame(42);
+  s.cash = 9999999;
+  const core = coreOf(s);
+  const agg = GameSim.buildNode(s, 'aggregation', core.x - 400, core.y);
+  finishBuild(s, agg);
+  const w = GameSim.buildNode(s, 'wifi_ap', core.x - 700, core.y);
+  finishBuild(s, w);
+  check('51a گره تازه‌ساخته بدون لینک متصل نیست', w.connected === false);
+  GameSim.connect(s, agg.id, core.id, 'fiber');
+  check('51b بلافاصله بعد از اتصال (بدون تیک) تجمیع متصل گزارش می‌شود', agg.connected === true);
+  GameSim.connect(s, w.id, agg.id, 'fiber');
+  check('51c بلافاصله بعد از اتصال وای‌فای متصل گزارش می‌شود', w.connected === true);
+  GameSim.demolishNode(s, agg.id);
+  check('51d بلافاصله بعد از حذف گره واسط، وای‌فای نامتصل گزارش می‌شود', w.connected === false);
+  GameSim.connect(s, w.id, core.id, 'fiber');
+  check('51e اتصال مستقیم دوباره فوری متصل است', w.connected === true);
+  GameSim.moveNode(s, w.id, core.x - 800, core.y + 100);
+  check('51f جابه‌جایی بلافاصله گره را نامتصل می‌کند', w.connected === false);
 }
 
 console.log('\nنتیجه: ' + pass + ' پاس، ' + fail + ' رد');
