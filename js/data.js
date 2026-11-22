@@ -355,6 +355,7 @@ const GAME_DATA = (() => {
     { id: 'power_systems', name: 'سامانه‌های برق و پشتیبان', cost: 15000, requires: [],              unlocks: [] },
     { id: 'core_advanced', name: 'هسته پیشرفته',          cost: 60000, requires: ['fiber'],          unlocks: [] },
     { id: 'test_tools',    name: 'ابزارهای اندازه‌گیری و تست', cost: 12000, requires: [],            unlocks: [] },
+    { id: 'own_satellite', name: 'صورت فلکی ماهواره‌ای اختصاصی', cost: 120000, requires: ['satellite_leo'], unlocks: [] },
   ];
   // تکمیل unlocks هر فناوری از روی فیلد unlock تجهیزات کاتالوگ
   techList.forEach((t) => { t.unlocks = Array.from(new Set([...(t.unlocks || []), ...equipmentList.filter((e) => e.unlock === t.id).map((e) => e.id)])); });
@@ -363,11 +364,13 @@ const GAME_DATA = (() => {
 
   // ---------- بسته‌های اشتراک ----------
   const packageList = [
-    { id: 'home',       name: 'خانگی',        speedMbps: 50,   price: 120,  serviceLevel: 'standard' },
-    { id: 'business',   name: 'تجاری',        speedMbps: 200,  price: 450,  serviceLevel: 'priority' },
-    { id: 'fwa',        name: 'بی‌سیم ثابت',  speedMbps: 100,  price: 180,  serviceLevel: 'standard' },
-    { id: 'enterprise', name: 'سازمانی',      speedMbps: 1000, price: 3000, serviceLevel: 'premium' },
-    { id: 'satellite',  name: 'ماهواره‌ای',   speedMbps: 300,  price: 900,  serviceLevel: 'priority' },
+    { id: 'home',       name: 'خانگی',        speedMbps: 50,   price: 120,  serviceLevel: 'standard', kind: 'standard', expectFa: 'اینترنت پایدار برای مصرف روزانه خانه' },
+    { id: 'business',   name: 'تجاری',        speedMbps: 200,  price: 450,  serviceLevel: 'priority', kind: 'standard', expectFa: 'سرعت و پایداری بالا برای کسب‌وکار' },
+    { id: 'fwa',        name: 'بی‌سیم ثابت',  speedMbps: 100,  price: 180,  serviceLevel: 'standard', kind: 'standard', expectFa: 'اتصال بی‌سیم ثابت بدون کابل‌کشی' },
+    { id: 'enterprise', name: 'سازمانی',      speedMbps: 1000, price: 3000, serviceLevel: 'premium',  kind: 'standard', expectFa: 'ظرفیت و اطمینان سازمانی با اولویت بالا' },
+    { id: 'satellite',  name: 'ماهواره‌ای',   speedMbps: 300,  price: 900,  serviceLevel: 'priority', kind: 'standard', expectFa: 'پوشش در مناطق دورافتاده بدون زیرساخت زمینی' },
+    { id: 'gaming',     name: 'گیمینگ (پینگ پایین)', speedMbps: 100, price: 600, serviceLevel: 'priority', kind: 'gaming', expectFa: 'تأخیر کم برای بازی آنلاین' },
+    { id: 'streaming',  name: 'استریم (تماشای آنلاین)', speedMbps: 300, price: 700, serviceLevel: 'priority', kind: 'streaming', expectFa: 'پهنای باند پایدار برای پخش ویدیو' },
   ];
   const packages = packageList.slice();
   packageList.forEach((p) => { packages[p.id] = p; });
@@ -476,6 +479,121 @@ const GAME_DATA = (() => {
       absence: 'بدون تیم فروش، رشد مشترک فقط با نرخ پایهٔ کند انجام می‌شود.' },
   ];
 
+  // ---------- دستاوردها (متریک‌ها را sim محاسبه می‌کند) ----------
+  const achievements = [
+    { id: 'first_sub',      name: 'نخستین مشترک',        desc: 'اولین مشترک فعال شبکه را جذب کنید.',                    icon: 'users',     metric: 'subscribers',       target: 1 },
+    { id: 'subs_100',       name: 'صد مشترک',            desc: 'به ۱۰۰ مشترک فعال برسید.',                             icon: 'users',     metric: 'subscribers',       target: 100 },
+    { id: 'subs_1000',      name: 'هزار مشترک',          desc: 'به ۱۰۰۰ مشترک فعال برسید.',                            icon: 'users',     metric: 'subscribers',       target: 1000 },
+    { id: 'subs_5000',      name: 'پنج هزار مشترک',      desc: 'به ۵۰۰۰ مشترک فعال برسید.',                            icon: 'users',     metric: 'subscribers',       target: 5000 },
+    { id: 'subs_20000',     name: 'بیست هزار مشترک',     desc: 'به ۲۰۰۰۰ مشترک فعال برسید.',                           icon: 'trophy',    metric: 'subscribers',       target: 20000 },
+    { id: 'first_fiber',    name: 'نخستین لینک فیبر',    desc: 'اولین لینک فیبر نوری شبکه را بسازید.',                 icon: 'fiber',     metric: 'fiberLinks',        target: 1 },
+    { id: 'fiber_10',       name: 'شبکه فیبر گسترده',    desc: '۱۰ لینک فیبر نوری فعال در شبکه داشته باشید.',          icon: 'fiber',     metric: 'fiberLinks',        target: 10 },
+    { id: 'districts_3',    name: 'سه منطقه زیر پوشش',   desc: 'در ۳ منطقه به مشترکان سرویس بدهید.',                   icon: 'coverage',  metric: 'servedDistricts',   target: 3 },
+    { id: 'districts_10',   name: 'ده منطقه زیر پوشش',   desc: 'در ۱۰ منطقه به مشترکان سرویس بدهید.',                  icon: 'coverage',  metric: 'servedDistricts',   target: 10 },
+    { id: 'coverage_50',    name: 'نیمی از شهر',         desc: 'پوشش شبکه را به ۵۰٪ جمعیت شهر برسانید.',               icon: 'coverage',  metric: 'coveragePct',       target: 50 },
+    { id: 'coverage_90',    name: 'پوشش سراسری شهر',     desc: 'پوشش شبکه را به ۹۰٪ جمعیت شهر برسانید.',               icon: 'trophy',    metric: 'coveragePct',       target: 90 },
+    { id: 'cash_100k',      name: 'صدهزار تومان نقدینگی', desc: 'نقدینگی شرکت را به ۱۰۰٬۰۰۰ تومان برسانید.',           icon: 'cash',      metric: 'cash',              target: 100000 },
+    { id: 'cash_1m',        name: 'میلیونر شبکه',        desc: 'نقدینگی شرکت را به ۱٬۰۰۰٬۰۰۰ تومان برسانید.',          icon: 'cash',      metric: 'cash',              target: 1000000 },
+    { id: 'revenue_500k',   name: 'نیم‌میلیون درآمد',    desc: 'مجموع درآمد شرکت را به ۵۰۰٬۰۰۰ تومان برسانید.',        icon: 'cash',      metric: 'totalRevenue',      target: 500000 },
+    { id: 'monthly_rev_100k', name: 'درآمد ماهانه صدهزار', desc: 'درآمد یک ماه را به ۱۰۰٬۰۰۰ تومان برسانید.',         icon: 'cash',      metric: 'monthlyRevenue',    target: 100000 },
+    { id: 'sat_path',       name: 'مسیر ماهواره‌ای',     desc: 'یک مسیر فعال ماهواره‌ای تا هسته برقرار کنید.',         icon: 'satellite', metric: 'satellitePath',     target: 1 },
+    { id: 'sat_launch',     name: 'نخستین پرتاب',        desc: 'اولین ماهواره اختصاصی شرکت را پرتاب کنید.',            icon: 'rocket',    metric: 'satellitesLaunched', target: 1 },
+    { id: 'contracts_3',    name: 'سه قرارداد سازمانی',  desc: '۳ قرارداد سازمانی را با موفقیت به پایان برسانید.',     icon: 'shield',    metric: 'contractsDone',     target: 3 },
+    { id: 'campaign_1',     name: 'نخستین کمپین تبلیغاتی', desc: 'اولین کمپین تبلیغاتی شرکت را اجرا کنید.',            icon: 'star',      metric: 'campaignsRun',      target: 1 },
+    { id: 'satisfaction_80', name: 'رضایت هشتاد درصدی',  desc: 'رضایت مشترکان را به ۸۰٪ برسانید.',                     icon: 'star',      metric: 'satisfaction',      target: 80 },
+    { id: 'days_365',       name: 'یک سال پایداری',      desc: '۳۶۵ روز فعالیت شبکه را پشت سر بگذارید.',               icon: 'clock',     metric: 'days',              target: 365 },
+    { id: 'techs_5',        name: 'پنج فناوری',          desc: '۵ فناوری در درخت تحقیق باز کنید.',                     icon: 'trophy',    metric: 'techs',             target: 5 },
+    { id: 'staff_10',       name: 'تیم ده‌نفره',         desc: '۱۰ نفر پرسنل در شرکت داشته باشید.',                    icon: 'users',     metric: 'staff',             target: 10 },
+    { id: 'individual_50',  name: 'پنجاه مشترک فردی',    desc: '۵۰ مشترک فردی (حقیقی) در شبکه داشته باشید.',           icon: 'users',     metric: 'individualSubs',    target: 50 },
+    { id: 'profit_3',       name: 'سه ماه سوددهی',       desc: '۳ ماه را با سود خالص مثبت به پایان برسانید.',          icon: 'cash',      metric: 'profitMonths',      target: 3 },
+  ];
+
+  // ---------- نام‌های فارسی برای مشترکان فردی ----------
+  const firstNames = [
+    'علی', 'محمد', 'رضا', 'حسین', 'مهدی', 'امیر', 'سعید', 'حمید', 'حسن', 'احمد',
+    'یوسف', 'ابراهیم', 'کیان', 'آرش', 'بابک', 'داریوش', 'فرهاد', 'کامران', 'پارسا', 'نیما',
+    'فاطمه', 'زهرا', 'مریم', 'سارا', 'نیلوفر', 'نگار', 'الهه', 'سمیرا', 'الهام', 'رؤیا',
+    'شیما', 'پرستو', 'بهار', 'یاسمن', 'ترانه', 'مرجان', 'کیمیا', 'دریا', 'آوا', 'لیلا',
+  ];
+  const lastNames = [
+    'محمدی', 'حسینی', 'رضایی', 'احمدی', 'کریمی', 'موسوی', 'صادقی', 'رحیمی', 'هاشمی', 'نجفی',
+    'کاظمی', 'مرادی', 'جعفری', 'عزیزی', 'حسنی', 'محمدزاده', 'ابراهیمی', 'قاسمی', 'سلیمانی', 'رستمی',
+    'نوروزی', 'اکبری', 'یوسفی', 'شریفی', 'محمودی', 'علیزاده', 'رضازاده', 'حسینی‌نیا', 'کریمیان', 'امیری',
+  ];
+
+  // ---------- قالب قراردادهای سازمانی ----------
+  const enterpriseTemplates = [
+    { id: 'ent_hospital',   orgName: 'بیمارستان مرکزی',       type: 'medical',    wantSpeed: 800,  wantSla: 97, wantPrice: 45000, months: 12, districtTypes: ['medical', 'landmark'] },
+    { id: 'ent_university', orgName: 'دانشگاه صنعتی',         type: 'academic',   wantSpeed: 1000, wantSla: 95, wantPrice: 38000, months: 12, districtTypes: ['academic', 'landmark'] },
+    { id: 'ent_steel',      orgName: 'کارخانه فولاد پارس',    type: 'industrial', wantSpeed: 600,  wantSla: 96, wantPrice: 52000, months: 6,  districtTypes: ['industrial', 'heavy_industrial'] },
+    { id: 'ent_mall',       orgName: 'مرکز خرید آفتاب',       type: 'commercial', wantSpeed: 500,  wantSla: 94, wantPrice: 28000, months: 6,  districtTypes: ['commercial'] },
+    { id: 'ent_bank',       orgName: 'بانک تجارت نوین',       type: 'commercial', wantSpeed: 400,  wantSla: 99, wantPrice: 65000, months: 12, districtTypes: ['commercial', 'government'] },
+    { id: 'ent_municipality', orgName: 'شهرداری منطقه ۳',     type: 'government', wantSpeed: 300,  wantSla: 96, wantPrice: 24000, months: 12, districtTypes: ['government', 'commercial'] },
+    { id: 'ent_hotel',      orgName: 'هتل پارسیان',           type: 'tourism',    wantSpeed: 350,  wantSla: 93, wantPrice: 22000, months: 3,  districtTypes: ['tourism', 'commercial'] },
+    { id: 'ent_airport',    orgName: 'فرودگاه بین‌المللی',    type: 'transport',  wantSpeed: 2000, wantSla: 98, wantPrice: 80000, months: 12, districtTypes: ['transport', 'landmark'] },
+    { id: 'ent_clinic',     orgName: 'درمانگاه شبانه‌روزی شفا', type: 'medical',  wantSpeed: 250,  wantSla: 95, wantPrice: 18000, months: 6,  districtTypes: ['medical', 'residential'] },
+    { id: 'ent_office',     orgName: 'مجتمع اداری برج نوین',  type: 'commercial', wantSpeed: 700,  wantSla: 95, wantPrice: 34000, months: 6,  districtTypes: ['commercial', 'government'] },
+    { id: 'ent_cement',     orgName: 'کارخانه سیمان کوهستان', type: 'industrial', wantSpeed: 450,  wantSla: 94, wantPrice: 30000, months: 9,  districtTypes: ['industrial', 'heavy_industrial'] },
+    { id: 'ent_meduni',     orgName: 'دانشگاه علوم پزشکی',    type: 'academic',   wantSpeed: 900,  wantSla: 97, wantPrice: 42000, months: 12, districtTypes: ['academic', 'medical'] },
+  ];
+
+  // ---------- انواع کمپین تبلیغاتی ----------
+  const campaignTypes = [
+    { id: 'billboard', name: 'بیلبورد شهری',              costPerDay: 700,  growthMult: 1.4, desc: 'تبلیغ روی بیلبوردهای پرتردد شهر؛ ارزان‌ترین راه دیده‌شدن و جذب آرام مشترک در مناطق سرویس‌گرفته.' },
+    { id: 'social',    name: 'تبلیغات شبکه‌های اجتماعی',  costPerDay: 1500, growthMult: 1.8, desc: 'تبلیغ هدفمند در شبکه‌های اجتماعی؛ رشد سریع‌تر مشترک، به‌ویژه در مناطق جوان و پرتراکم.' },
+    { id: 'discount',  name: 'تخفیف ویژه جذب مشترک',      costPerDay: 900,  growthMult: 1.6, desc: 'پیشنهاد تخفیف نصب و اشتراک برای مشترکان جدید؛ هزینه متوسط و اثر خوب در مناطق حساس به قیمت.' },
+    { id: 'tv',        name: 'تبلیغ تلویزیونی',           costPerDay: 4500, growthMult: 2.5, desc: 'پخش آگهی تلویزیونی سراسری؛ گران‌ترین کمپین ولی با بیشترین جهش در جذب مشترک در کل شهر.' },
+  ];
+
+  // ---------- مجموعه کانال‌های فرکانسی هر فناوری بی‌سیم ----------
+  const channelSets = {
+    cellular: { count: 6, labels: ['کانال ۱', 'کانال ۲', 'کانال ۳', 'کانال ۴', 'کانال ۵', 'کانال ۶'] },
+    fwa:      { count: 4, labels: ['کانال ۱', 'کانال ۲', 'کانال ۳', 'کانال ۴'] },
+    wifi:     { count: 3, labels: ['کانال ۱', 'کانال ۲', 'کانال ۳'] },
+  };
+
+  // ---------- پرتاب ماهواره اختصاصی (نیازمند تحقیق «صورت فلکی ماهواره‌ای اختصاصی») ----------
+  const satelliteLaunch = {
+    leo: { name: 'ماهواره مدار پایین (LEO)', cost: 450000, buildDays: 20, capacity: 4000, lifetimeDays: 720, monthlyCost: 3000,
+      guide: 'ماهواره اختصاصی مدار پایین با تأخیر کم و ظرفیت بالا؛ پایانه‌های LEO شما را بدون وابستگی به ظرفیت اجاره‌ای تغذیه می‌کند. عمر مفید آن حدود دو سال است و پس از پایان عمر باید جایگزین شود. برای شبکه‌های بزرگ با چند پایانه ماهواره‌ای در بلندمدت به‌صرفه‌تر از اجاره ظرفیت است.' },
+    geo: { name: 'ماهواره زمین‌آهنگ (GEO)', cost: 300000, buildDays: 25, capacity: 2000, lifetimeDays: 1500, monthlyCost: 2000,
+      guide: 'ماهواره اختصاصی زمین‌آهنگ با پوشش ثابت و عمر مفید طولانی (حدود چهار سال)، ولی تأخیر بیشتر و ظرفیت کمتر از LEO. برای پوشش پایدار مناطق دورافتاده و مسیر پشتیبان طولانی‌مدت مناسب است. ساخت و پرتاب آن از LEO طولانی‌تر ولی ارزان‌تر است.' },
+  };
+
+  // ---------- پهنای پرتو آنتن‌ها (استخراج خودکار از کاتالوگ تجهیزات) ----------
+  // سکتورها: عدد پیش از «درجه» در نام تجهیز؛ پنل‌ها: «پرتو افقی N درجه» در متن راهنما
+  const _faDigitMap = { '۰': '0', '۱': '1', '۲': '2', '۳': '3', '۴': '4', '۵': '5', '۶': '6', '۷': '7', '۸': '8', '۹': '9', '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4', '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9' };
+  const _toLatinDigits = (s) => String(s).replace(/[۰-۹٠-٩]/g, (ch) => _faDigitMap[ch] || ch);
+  const beamwidthByEq = {};
+  equipmentList.forEach((e) => {
+    if (e.name.includes('سکتور')) {
+      const m = _toLatinDigits(e.name).match(/(\d+)\s*درجه/);
+      if (m) beamwidthByEq[e.id] = parseInt(m[1], 10);
+      return;
+    }
+    if (e.name.includes('پنل') && e.guide) {
+      const g = _toLatinDigits(e.guide).match(/پرتو افقی\s*(\d+)\s*درجه/);
+      if (g) beamwidthByEq[e.id] = parseInt(g[1], 10);
+    }
+  });
+
+  // ---------- آب‌وهوا و فصل‌ها ----------
+  const weatherKinds = {
+    clear: { name: 'صاف',    wirelessFactor: 1,    mmwaveFactor: 1,    satFactor: 1 },
+    rain:  { name: 'بارانی', wirelessFactor: 0.85, mmwaveFactor: 0.45, satFactor: 0.8 },
+    storm: { name: 'طوفانی', wirelessFactor: 0.6,  mmwaveFactor: 0.25, satFactor: 0.5 },
+    snow:  { name: 'برفی',   wirelessFactor: 0.8,  mmwaveFactor: 0.6,  satFactor: 0.85 },
+  };
+  const seasons = [
+    { id: 'spring', name: 'بهار',     demandFactor: 1.0,  weather: { clear: 0.68, rain: 0.18, storm: 0.04, snow: 0.02 } },
+    { id: 'summer', name: 'تابستان',  demandFactor: 1.1,  weather: { clear: 0.85, rain: 0.08, storm: 0.05, snow: 0 } },
+    { id: 'autumn', name: 'پاییز',    demandFactor: 0.97, weather: { clear: 0.6,  rain: 0.22, storm: 0.06, snow: 0.02 } },
+    { id: 'winter', name: 'زمستان',   demandFactor: 1.05, weather: { clear: 0.55, rain: 0.12, storm: 0.03, snow: 0.22 } },
+  ];
+
+  // ---------- منحنی تقاضای ساعتی (شاخص = ساعت ۰ تا ۲۳؛ اوج عصرگاهی) ----------
+  const hourDemandCurve = [0.55, 0.5, 0.48, 0.48, 0.52, 0.6, 0.75, 0.88, 0.95, 1.0, 1.0, 1.0, 1.08, 1.1, 1.05, 1.1, 1.18, 1.25, 1.32, 1.38, 1.4, 1.35, 1.15, 0.85];
+
   return {
     world: { width: 7200, height: 5400 },
     // مسیر رودخانه (همان نقاطی که map.js رسم می‌کند؛ برای جای‌گذاری ساختمان‌های جدید)
@@ -511,6 +629,17 @@ const GAME_DATA = (() => {
     missions,
     events,
     staffRoles,
+    achievements,
+    firstNames,
+    lastNames,
+    enterpriseTemplates,
+    campaignTypes,
+    channelSets,
+    satelliteLaunch,
+    beamwidthByEq,
+    weatherKinds,
+    seasons,
+    hourDemandCurve,
     // رسانه‌های لینک و ویژگی‌هایشان
     linkMedia: {
       fiber:     { name: 'فیبر نوری',  capacity: 10000, latency: 2 },
