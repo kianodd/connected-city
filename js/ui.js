@@ -305,13 +305,13 @@
   function runSpeedTest(wx, wy) {
     if (!window.GameSim || !GameSim.speedTestAt || !state) return;
     var res = GameSim.speedTestAt(state, wx, wy);
-    var TECH_FA = { fiber: 'فیبر/مسی', cellular: 'سلولار', fwa: 'وایرلس ثابت', satellite: 'ماهواره' };
+    var TECH_FA = { fiber: 'فیبر/مسی', cellular: 'سلولار', fwa: 'وایرلس ثابت', wifi: 'وای‌فای داخل ساختمان', satellite: 'ماهواره' };
     var html = '<p class="muted">سرعت بالقوه در این نقطه (با اشتراک)، به تفکیک فناوری:</p>';
     ['fiber', 'cellular', 'fwa', 'wifi', 'satellite'].forEach(function (t) {
       var e = res[t] || { speed: 0, reason: 'no_coverage' };
       var sub = e.nodeName ? esc(e.nodeName) : '';
       if (e.reason) sub += (sub ? ' — ' : '') + esc(SPEED_REASON_FA[e.reason] || e.reason);
-      html += '<div class="tech-row"><div class="tech-head"><span>' + TECH_FA[t] + '</span>' +
+      html += '<div class="tech-row"><div class="tech-head"><span>' + esc(TECH_FA[t] || t) + '</span>' +
         '<span><strong>' + fmt(e.speed || 0) + ' Mbps</strong></span></div>' +
         (sub ? '<div class="muted tech-sub">' + sub + '</div>' : '') + '</div>';
     });
@@ -891,7 +891,7 @@
           var e = td[t] || { demand: 0, served: 0 };
           var share = Math.round((e.demand || 0) / totalD * 100);
           var pct = e.demand > 0 ? Math.min(100, Math.round((e.served || 0) / e.demand * 100)) : 0;
-          html += '<div class="tech-row"><div class="tech-head"><span><span class="tech-dot" style="background:' + TECH_COLOR[t] + '"></span>' + TECH_FA[t] + '</span>' +
+          html += '<div class="tech-row"><div class="tech-head"><span><span class="tech-dot" style="background:' + (TECH_COLOR[t] || '#888') + '"></span>' + esc(TECH_FA[t] || t) + '</span>' +
             '<span class="muted">' + fmt(e.served || 0) + ' از ' + fmt(e.demand || 0) + ' Mbps (' + fmt(share) + '٪ ترافیک)</span></div>' +
             '<div class="cap-bar"><div class="cap-fill ' + (pct < 30 ? 'hot' : pct < 60 ? 'warm' : '') + '" style="width:' + pct + '%"></div></div></div>';
         });
