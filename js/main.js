@@ -4,10 +4,10 @@
   'use strict';
 
   var SAVE_KEY = 'connected-city-save';
-  var DAY_MS = 3000;          // 1 game day at speed 1
+  var DAY_MS = 20000;         // 1 game day at speed 1 (20s; fast x3 ≈ 6.7s) — clock: 24h per DAY_MS
   var state = null;
   var speed = 0;              // 0=pause, 1=normal, 3=fast — بازی هنگام بارگذاری متوقف است
-  var lastTs = 0, acc = 0;
+  var lastTs = 0, lastTopbarAt = 0;
   var lastAutosave = Date.now();
   var lastUiDay = -1;
 
@@ -52,14 +52,19 @@
     if (!lastTs) lastTs = ts;
     var dt = ts - lastTs; lastTs = ts;
     if (speed > 0 && state) {
+      // ساعت و روز یکپارچه‌اند: ساعت با نرخ ۲۴ ساعت در هر DAY_MS جلو می‌رود و
+      // هر بار که از نیمه‌شب رد شود، دقیقاً یک tick روزانه زده می‌شود
       if (window.GameSim && typeof GameSim.clockTick === 'function') {
-        try { GameSim.clockTick(state, (dt / 1000) * 8 * speed); } catch (e) { /* ignore */ }
+        try { GameSim.clockTick(state, (dt / DAY_MS) * 24 * speed); } catch (e) { /* ignore */ }
       }
-      acc += dt * speed;
-      while (acc >= DAY_MS) {
-        acc -= DAY_MS;
+      while ((state.pendingDays || 0) > 0) {
+        state.pendingDays--;
         GameSim.tick(state);
-        if (GameSim.computeFlow) GameSim.computeFlow(state);
+      }
+      // نوار بالا (ساعت/سطح تقاضا) پیوسته تازه شود، نه فقط هنگام عوض‌شدن روز
+      if (window.GameUI && GameUI.renderTopbar && ts - lastTopbarAt >= 100) {
+        lastTopbarAt = ts;
+        try { GameUI.renderTopbar(); } catch (e) { /* ignore */ }
       }
     }
     if (window.CityMap && CityMap.render) CityMap.render(state);
