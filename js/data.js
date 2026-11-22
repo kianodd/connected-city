@@ -89,67 +89,68 @@ const GAME_DATA = (() => {
     { id: 'ip_dc3',     x: 5400, y: 3375, kind: 'datacenter',    name: 'مرکز دادهٔ شرقی' },
   ];
 
-  // ---------- کاتالوگ تجهیزات (برندهای خیالی: پارس‌نت، آریاتل، سیمرغ‌لینک) ----------
-  // unlock: null = از ابتدا آزاد | 'tech id' = نیازمند تحقیق
+  // ---------- کاتالوگ تجهیزات (نام‌های ساده و عمومی، بدون برند) ----------
+  // era: سال ورود به بازی در خط زمانی تاریخی (از ۱۹۹۱)؛ تجهیزات قبل از سال خودشان ساخته نمی‌شوند.
+  // slots: سقف ماژول‌های قابل نصب روی هر گره (ماژول‌ها جای ارتقای سطح قدیمی را گرفته‌اند).
   const equipmentList = [
-    { id: 'fiber_cable',     name: 'کابل فیبر نوری پارس‌نت',   cost: 5000,   monthlyCost: 120,  buildDays: 0.125,  capacity: 10000, radius: 0,    unlock: null,            category: 'cable',
+    { id: 'fiber_cable',     name: 'کابل فیبر نوری',   cost: 5000,   monthlyCost: 120,  buildDays: 0.125,  capacity: 10000, radius: 0,    era: 1995,            category: 'cable', slots: 0,
       connects: [{ medium: 'fiber', targets: ['node'], direction: 'both' }],
-      guide: 'کابل فیبر نوری برای اتصال گره‌ها به هم با ظرفیت بسیار بالا و تأخیر کم. بهترین گزینه برای مسیرهای اصلی و انتقال (Backhaul) است؛ گران‌تر از مسی است ولی ظرفیتش چند برابر است. با ابزار «اتصال» بین دو گره استفاده می‌شود.' },
-    { id: 'copper_cable',    name: 'کابل مسی آریاتل',          cost: 2000,   monthlyCost: 60,   buildDays: 0.125,  capacity: 100,   radius: 0,    unlock: null,            category: 'cable',
+      guide: 'کابل فیبر نوری برای اتصال گره‌ها به هم با ظرفیت بسیار بالا و تأخیر کم. بهترین گزینه برای مسیرهای اصلی و انتقال (Backhaul) است؛ گران‌تر از مسی است ولی ظرفیتش چند برابر است. با ابزار «اتصال» بین دو گره استفاده می‌شود. در مسیرهای خیلی طولانی سیگنال افت می‌کند؛ «تقویت‌کننده سیگنال» در میانه مسیر آن را برمی‌گرداند. از سال ۱۹۹۵ در دسترس است.' },
+    { id: 'copper_cable',    name: 'کابل مسی',          cost: 2000,   monthlyCost: 60,   buildDays: 0.125,  capacity: 100,   radius: 0,    era: 1991,            category: 'cable', slots: 0,
       connects: [{ medium: 'copper', targets: ['node'], direction: 'both' }],
-      guide: 'ارزان‌ترین راه اتصال دو گره، اما ظرفیت کمی دارد و زود اشباع می‌شود. فقط برای شروع کار و اتصال‌های کوتاه و کم‌ترافیک مناسب است؛ بعداً با فیبر جایگزینش کنید.' },
-    { id: 'street_cabinet',  name: 'کابینت خیابانی',           cost: 7000,   monthlyCost: 150,  buildDays: 0.125,  capacity: 2500,  radius: 180,  unlock: null,            category: 'access', tech: 'fiber', ports: 24,
+      guide: 'ارزان‌ترین راه اتصال دو گره، اما ظرفیت کمی دارد و زود اشباع می‌شود. فقط برای شروع کار و اتصال‌های کوتاه و کم‌ترافیک مناسب است؛ در فاصله‌های طولانی سیگنال مسی سریع افت می‌کند و به تقویت‌کننده نیاز دارد. بعداً با فیبر جایگزینش کنید.' },
+    { id: 'street_cabinet',  name: 'کابینت خیابانی',           cost: 7000,   monthlyCost: 150,  buildDays: 0.125,  capacity: 2500,  radius: 180,  era: 1998,            category: 'access', tech: 'fiber', ports: 24, slots: 3,
       connects: [
         { medium: 'fiber', targets: ['node'], direction: 'both' },
         { medium: 'copper', targets: ['node'], direction: 'both' }, { medium: 'ptp', targets: ['node'], direction: 'both' },
         { medium: 'fiber', targets: ['building'], direction: 'downstream' },
         { medium: 'copper', targets: ['building'], direction: 'downstream' },
       ],
-      guide: 'کابینت توزیع خیابانی: نقطهٔ اتصال ساختمان‌های اطراف به شبکهٔ سیمی. انشعاب فیبر و سیم مسی ساختمان‌ها فقط از راه کابینت انجام می‌شود؛ کابینت را نزدیک ساختمان‌ها بگذارید و با فیبر یا مسی به تجمیع/هسته وصلش کنید. هر کابینت در سطح ۱ تعداد ۲۴ پورت دارد (با ارتقا بیشتر می‌شود). انشعاب فیبر تا شعاع ۱۸۰ واحد و سیم مسی (DSL، تا حدود ۱۰۰ مگابیت و ارزان‌تر) تا شعاع ۱۲۰ واحد می‌رسد. هر ساختمان فقط به یکی از فیبر یا سیم مسی وصل می‌شود.' },
-    { id: 'ftth',            name: 'فیبر تا خانه (FTTH)',      cost: 16000,  monthlyCost: 300,  buildDays: 0.375,  capacity: 2500,  radius: 140,  unlock: 'ftth',          category: 'access', tech: 'fiber',
+      guide: 'کابینت توزیع خیابانی: نقطهٔ اتصال ساختمان‌های اطراف به شبکهٔ سیمی (در دنیای واقعی همان کابینت DSLAM/توزیع است). انشعاب ساختمان‌ها از راه کابینت یا مستقیم از گره FTTH انجام می‌شود؛ کابینت را نزدیک ساختمان‌ها بگذارید و با فیبر یا مسی به تجمیع/هسته وصلش کنید. هر کابینت ۲۴ پورت دارد (با «ماژول پورت اضافه» بیشتر می‌شود). انشعاب فیبر تا شعاع ۱۸۰ واحد و سیم مسی (DSL، تا حدود ۱۰۰ مگابیت) تا شعاع ۱۲۰ واحد می‌رسد. هر ساختمان فقط به یکی از فیبر یا سیم مسی وصل می‌شود. انشعاب برای شما رایگان است (هزینهٔ نصب با مشترک است)؛ انشعاب فیبر از دوران FTTH (سال ۲۰۰۴) به بعد ممکن است و قبل از آن فقط سیم مسی داریم. از سال ۱۹۹۸ در دسترس است.' },
+    { id: 'ftth',            name: 'فیبر تا خانه (FTTH)',      cost: 16000,  monthlyCost: 300,  buildDays: 0.375,  capacity: 2500,  radius: 400,  era: 2004,          category: 'access', tech: 'fiber', ports: 256, slots: 3,
       connects: [
         { medium: 'fiber', targets: ['node'], direction: 'both' },
         { medium: 'copper', targets: ['node'], direction: 'both' }, { medium: 'ptp', targets: ['node'], direction: 'both' },
-        { medium: 'fiber', targets: ['building'], direction: 'downstream', legacy: true },
+        { medium: 'fiber', targets: ['building'], direction: 'downstream' },
       ],
-      guide: 'اتصال مستقیم فیبر تا ساختمان مشتری با ظرفیت بالا و کیفیت پایدار (ظرفیت گره: حدود ۲٫۵ گیگابیت، مثل یک پورت GPON). برای مناطق مسکونی و تجاری پرتقاضا عالی است. نیازمند تحقیق «فیبر تا خانه» و اتصال به شبکه هسته است. توجه: انشعاب‌های جدید ساختمان‌ها از راه «کابینت خیابانی» انجام می‌شود؛ انشعاب‌های مستقیم قدیمی به این گره همچنان کار می‌کنند و این گره می‌تواند گره بالادستی کابینت‌ها باشد.' },
-    { id: 'cell_2g',         name: 'دکل سلولی 2G آریاتل',      cost: 12000,  monthlyCost: 500,  buildDays: 0.375,  capacity: 60,    radius: 400,  unlock: null,            category: 'access', tech: 'cellular',
+      guide: 'گره FTTH همان OLT در معماری واقعی GPON است: فیبر را تا خود ساختمان مشتری می‌رساند (OLT ← تقسیم‌کننده ← ترمینال نوری ساختمان). ساختمان‌ها را می‌توانید مستقیم به همین گره انشعاب فیبر بدهید (تا شعاع ۴۰۰ واحد، ۲۵۶ پورت) یا از راه کابینت‌های خیابانی نزدیک‌تر. ظرفیت گره حدود ۲٫۵ گیگابیت است (مثل یک پورت GPON با نرخ ۲٫۴۸۸ گیگابیت). انشعاب فیبر رایگان است (هزینهٔ نصب با مشترک است). از سال ۲۰۰۴ در دسترس است.' },
+    { id: 'cell_2g',         name: 'دکل 2G',      cost: 12000,  monthlyCost: 500,  buildDays: 0.375,  capacity: 60,    radius: 400,  era: 1991,            category: 'access', tech: 'cellular', slots: 4,
       connects: [{ medium: 'fiber', targets: ['node'], direction: 'both' }, { medium: 'copper', targets: ['node'], direction: 'both' }, { medium: 'ptp', targets: ['node'], direction: 'both' }, { medium: 'wireless', targets: ['subscribers'], direction: 'service' }],
-      guide: 'ارزان‌ترین دکل سلولی با برد زیاد ولی ظرفیت بسیار کم (ظرفیت سایت: حدود ۶۰ مگابیت؛ در دنیای واقعی 2G/EDGE فقط چند مگابیت می‌دهد و این عدد برای قابل‌بازی‌ماندن بازی مقیاس شده است). فقط برای پوشش اولیه مناطق کم‌تراکم خوب است و با رشد مشترک‌ها زود اشباع می‌شود. باید به هسته متصل شود تا سرویس بدهد.' },
-    { id: 'cell_3g',         name: 'دکل سلولی 3G آریاتل',      cost: 32000,  monthlyCost: 1000, buildDays: 0.5,  capacity: 250,   radius: 340,  unlock: null,            category: 'access', tech: 'cellular',
+      guide: 'ارزان‌ترین دکل سلولی با برد زیاد ولی ظرفیت بسیار کم (ظرفیت سایت: حدود ۶۰ مگابیت؛ در دنیای واقعی 2G/EDGE فقط چند مگابیت می‌دهد و این عدد برای قابل‌بازی‌ماندن بازی مقیاس شده است). فقط برای پوشش اولیه مناطق کم‌تراکم خوب است و با رشد مشترک‌ها زود اشباع می‌شود. دکل فقط به مشترکان سرویس می‌دهد و ترافیک گره‌های دیگر از آن عبور نمی‌کند؛ برای بک‌هال خودش مستقیم به تجمیع/هسته وصلش کنید. از سال ۱۹۹۱ در دسترس است.' },
+    { id: 'cell_3g',         name: 'دکل 3G',      cost: 32000,  monthlyCost: 1000, buildDays: 0.5,  capacity: 250,   radius: 340,  era: 2001,            category: 'access', tech: 'cellular', slots: 4,
       connects: [{ medium: 'fiber', targets: ['node'], direction: 'both' }, { medium: 'copper', targets: ['node'], direction: 'both' }, { medium: 'ptp', targets: ['node'], direction: 'both' }, { medium: 'wireless', targets: ['subscribers'], direction: 'service' }],
-      guide: 'دکل نسل سوم: برد خوب و ظرفیت متوسط (ظرفیت سایت: حدود ۲۵۰ مگابیت؛ در دنیای واقعی هر سکتور HSPA+ حدود ۱۰ تا ۱۲ مگابیت می‌دهد). تعادل مناسبی برای ابتدای بازی و مناطق مسکونی معمولی. در مناطق پرتراکم به‌تدریج کم می‌آورد. نیازمند اتصال انتقالی به هسته است.' },
-    { id: 'cell_4g',         name: 'دکل سلولی 4G پارس‌نت',     cost: 62000,  monthlyCost: 1800, buildDays: 0.625,  capacity: 900,   radius: 290,  unlock: 'lte',           category: 'access', tech: 'cellular',
+      guide: 'دکل نسل سوم: برد خوب و ظرفیت متوسط (ظرفیت سایت: حدود ۲۵۰ مگابیت؛ در دنیای واقعی هر سکتور HSPA+ حدود ۱۰ تا ۱۲ مگابیت می‌دهد). تعادل مناسبی برای مناطق مسکونی معمولی. در مناطق پرتراکم به‌تدریج کم می‌آورد. نیازمند اتصال انتقالی به هسته است. از سال ۲۰۰۱ در دسترس است.' },
+    { id: 'cell_4g',         name: 'دکل 4G',     cost: 62000,  monthlyCost: 1800, buildDays: 0.625,  capacity: 900,   radius: 290,  era: 2009,           category: 'access', tech: 'cellular', slots: 4,
       connects: [{ medium: 'fiber', targets: ['node'], direction: 'both' }, { medium: 'copper', targets: ['node'], direction: 'both' }, { medium: 'ptp', targets: ['node'], direction: 'both' }, { medium: 'wireless', targets: ['subscribers'], direction: 'service' }],
-      guide: 'دکل LTE با ظرفیت بالا و پوشش خوب (ظرفیت سایت: حدود ۹۰۰ مگابیت؛ در دنیای واقعی یک سایت ۳سکتوره با تجمیع حامل همین حدود را می‌دهد). ستون اصلی شبکه در مناطق پرجمعیت. نیازمند تحقیق «فناوری LTE» است و برای اشباع‌نشدن به اتصال فیبر یا لینک قوی به هسته نیاز دارد.' },
-    { id: 'cell_5g',         name: 'دکل سلولی 5G سیمرغ‌لینک',  cost: 125000, monthlyCost: 3400, buildDays: 0.75, capacity: 2500,  radius: 205,  unlock: '5g',            category: 'access', tech: 'cellular',
+      guide: 'دکل LTE با ظرفیت بالا و پوشش خوب (ظرفیت سایت: حدود ۹۰۰ مگابیت؛ در دنیای واقعی یک سایت ۳سکتوره با تجمیع حامل همین حدود را می‌دهد). ستون اصلی شبکه در مناطق پرجمعیت. روی دکل‌های 4G و 5G می‌توانید «ماژول TD-LTE» نصب کنید تا مشترکان ثابتِ دارای مودم سیم‌کارتی هم از همان دکل سرویس بگیرند. برای اشباع‌نشدن به اتصال فیبر یا لینک قوی به هسته نیاز دارد. از سال ۲۰۰۹ در دسترس است.' },
+    { id: 'cell_5g',         name: 'دکل 5G',  cost: 125000, monthlyCost: 3400, buildDays: 0.75, capacity: 2500,  radius: 205,  era: 2019,            category: 'access', tech: 'cellular', slots: 4,
       connects: [{ medium: 'fiber', targets: ['node'], direction: 'both' }, { medium: 'copper', targets: ['node'], direction: 'both' }, { medium: 'ptp', targets: ['node'], direction: 'both' }, { medium: 'wireless', targets: ['subscribers'], direction: 'service' }],
-      guide: 'بیشترین ظرفیت سلولار برای مناطق بسیار پرتراکم و پرمصرف (ظرفیت سایت: حدود ۲٫۵ گیگابیت؛ در دنیای واقعی سایت 5G میان‌باند با کانال ۱۰۰ مگاهرتزی حدود ۷۰۰ مگابیت تا چند گیگابیت می‌دهد)، ولی بردش کمتر و هزینه‌اش بالاست. نیازمند تحقیق «نسل پنجم» (پس از LTE) و اتصال انتقالی پرظرفیت به هسته است.' },
-    { id: 'fwa_ap',          name: 'آنتن TD-LTE',               cost: 15000,  monthlyCost: 600,  buildDays: 0.25,  capacity: 600,   radius: 255,  unlock: null,            category: 'access', tech: 'fwa',
-      connects: [{ medium: 'fiber', targets: ['node'], direction: 'both' }, { medium: 'copper', targets: ['node'], direction: 'both' }, { medium: 'ptp', targets: ['node'], direction: 'both' }, { medium: 'wireless', targets: ['subscribers'], direction: 'service' }],
-      guide: 'اینترنت ثابت سیم‌کارتی TD-LTE: دسترسی ثابت سیم‌کارتی روی شبکهٔ موبایل 4G برای خانه‌ها و کسب‌وکارها بدون کابل‌کشی تا مشتری (ظرفیت: حدود ۶۰۰ مگابیت). مهم: TD-LTE فقط داخل پوشش شبکهٔ 4G و بالاتر کار می‌کند — آنتن باید در برد یک دکل 4G یا 5G متصل به شبکه باشد، وگرنه هیچ سرویسی نمی‌دهد. برای حاشیه شهر و جاهایی که فیبر نمی‌رسد ولی پوشش 4G هست عالی است. کیفیتش به فاصله بستگی دارد؛ هر ساختمان سر راه فقط چند درصد از قدرت سیگنالش کم می‌کند.' },
-    { id: 'ptp_link',        name: 'لینک نقطه‌به‌نقطه',        cost: 18000,  monthlyCost: 450,  buildDays: 0.25,  capacity: 5000,  radius: 1500, unlock: null,            category: 'backhaul',
+      guide: 'بیشترین ظرفیت سلولار برای مناطق بسیار پرتراکم و پرمصرف (ظرفیت سایت: حدود ۲٫۵ گیگابیت؛ در دنیای واقعی سایت 5G میان‌باند با کانال ۱۰۰ مگاهرتزی حدود ۷۰۰ مگابیت تا چند گیگابیت می‌دهد)، ولی بردش کمتر و هزینه‌اش بالاست. «ماژول TD-LTE» روی آن هم قابل نصب است. نیازمند اتصال انتقالی پرظرفیت به هسته است. از سال ۲۰۱۹ در دسترس است.' },
+    { id: 'ptp_link',        name: 'لینک نقطه‌به‌نقطه',        cost: 18000,  monthlyCost: 450,  buildDays: 0.25,  capacity: 5000,  radius: 1500, era: 1996,            category: 'backhaul', slots: 2,
       connects: [{ medium: 'ptp', targets: ['node'], direction: 'both' }, { medium: 'fiber', targets: ['node'], direction: 'both' }, { medium: 'copper', targets: ['node'], direction: 'both' }],
-      guide: 'اتصال بی‌سیم جهت‌دار بین دو گره؛ جایگزین کابل برای انتقال (Backhaul) با ظرفیت حدود ۵ گیگابیت (در دنیای واقعی لینک‌های مایکروویو ۱ تا ۱۰ گیگابیت می‌دهند). وقتی کابل‌کشی سخت یا گران است استفاده کنید؛ برای مسیر پشتیبان هم خوب است. به دید مستقیم بین دو طرف نیاز دارد.' },
-    { id: 'router',          name: 'روتر لبه پارس‌نت',         cost: 10000,  monthlyCost: 250,  buildDays: 0.125,  capacity: 2500,  radius: 0,    unlock: null,            category: 'core',
+      guide: 'اتصال بی‌سیم جهت‌دار بین دو گره؛ جایگزین کابل برای انتقال (Backhaul) با ظرفیت حدود ۵ گیگابیت (در دنیای واقعی لینک‌های مایکروویو ۱ تا ۱۰ گیگابیت می‌دهند). هرچه فاصله بیشتر شود ظرفیت مؤثر کمتر می‌شود و ساختمان‌های بلند سر راه دید مستقیم را می‌بندند و ظرفیت را به‌شدت کم می‌کنند. وقتی کابل‌کشی سخت یا گران است استفاده کنید؛ برای مسیر پشتیبان هم خوب است. از سال ۱۹۹۶ در دسترس است.' },
+    { id: 'repeater',        name: 'تقویت‌کننده سیگنال',        cost: 4000,   monthlyCost: 100,  buildDays: 0.125,  capacity: 10000, radius: 0,    era: 1991,            category: 'backhaul', slots: 1,
+      connects: [{ medium: 'fiber', targets: ['node'], direction: 'both' }, { medium: 'copper', targets: ['node'], direction: 'both' }, { medium: 'ptp', targets: ['node'], direction: 'both' }, { medium: 'ethernet', targets: ['node'], direction: 'both' }],
+      guide: 'تقویت‌کننده (ریپیتر/آمپلی‌فایر) سیگنال در میانهٔ مسیرهای طولانی: کابل‌های فیبر و مسی در فاصله‌های زیاد سیگنال را از دست می‌دهند و ظرفیت مؤثرشان افت می‌کند (در دنیای واقعی فیبر تک‌مود حدود ۰٫۳۵ دسی‌بل در هر کیلومتر افت دارد و هر چند ده کیلومتر تقویت‌کننده نوری می‌خواهد؛ سیم مسی خیلی زودتر افت می‌کند). تقویت‌کننده را در میانهٔ مسیر بگذارید و دو طرف را به آن وصل کنید تا افت سیگنال جبران شود.' },
+    { id: 'router',          name: 'روتر لبه',         cost: 10000,  monthlyCost: 250,  buildDays: 0.125,  capacity: 2500,  radius: 0,    era: 1991,            category: 'core', slots: 4,
       connects: [{ medium: 'fiber', targets: ['node'], direction: 'both' }, { medium: 'copper', targets: ['node'], direction: 'both' }],
       guide: 'گره واسط برای جمع‌کردن ترافیک چند دستگاه دسترسی و رساندنش به تجمیع یا هسته (ظرفیت: حدود ۲٫۵ گیگابیت). ارزان و سریع ساخته می‌شود و برای شبکه‌های کوچک کافی است.' },
-    { id: 'switch',          name: 'سوئیچ تجمیع محلی',         cost: 6000,   monthlyCost: 150,  buildDays: 0.125,  capacity: 2500,  radius: 0,    unlock: null,            category: 'core',
+    { id: 'switch',          name: 'سوئیچ',         cost: 6000,   monthlyCost: 150,  buildDays: 0.125,  capacity: 2500,  radius: 0,    era: 1991,            category: 'core', slots: 4,
       connects: [{ medium: 'fiber', targets: ['node'], direction: 'both' }, { medium: 'copper', targets: ['node'], direction: 'both' }],
       guide: 'چند اتصال نزدیک را به هم وصل می‌کند تا به یک گره بالادستی برسند (ظرفیت: حدود ۲٫۵ گیگابیت). ارزان‌ترین راه ساخت یک نقطه تجمیع کوچک در یک محله.' },
-    { id: 'aggregation',     name: 'گره تجمیع منطقه‌ای',       cost: 42000,  monthlyCost: 1200, buildDays: 0.375,  capacity: 12000, radius: 0,    unlock: null,            category: 'core',
+    { id: 'aggregation',     name: 'گره تجمیع',       cost: 42000,  monthlyCost: 1200, buildDays: 0.375,  capacity: 12000, radius: 0,    era: 2000,            category: 'core', slots: 4,
       connects: [{ medium: 'fiber', targets: ['node'], direction: 'both' }, { medium: 'copper', targets: ['node'], direction: 'both' }],
-      guide: 'ترافیک چند منطقه و دستگاه دسترسی را جمع می‌کند و به هسته می‌رساند. ظرفیت بسیار بالا دارد و برای گسترش شبکه به مناطق جدید ضروری است. به اتصال فیبر به هسته نیاز دارد.' },
-    { id: 'core_router',     name: 'روتر هسته',                cost: 105000, monthlyCost: 900,  buildDays: 0.625, capacity: 40000, radius: 0,    unlock: null,            category: 'core',
+      guide: 'ترافیک چند منطقه و دستگاه دسترسی را جمع می‌کند و به هسته می‌رساند. ظرفیت بسیار بالا دارد و برای گسترش شبکه به مناطق جدید ضروری است. به اتصال فیبر به هسته نیاز دارد. از سال ۲۰۰۰ در دسترس است.' },
+    { id: 'core_router',     name: 'روتر هسته',                cost: 105000, monthlyCost: 900,  buildDays: 0.625, capacity: 40000, radius: 0,    era: 1991,            category: 'core', slots: 4,
       connects: [{ medium: 'fiber', targets: ['node'], direction: 'both' }, { medium: 'copper', targets: ['node'], direction: 'both' }],
       guide: 'قلب شبکه شما؛ همه ترافیک شهر از آن عبور می‌کند و به دروازه اینترنت وصل است. از ابتدای بازی فعال است. اگر اشباع شود کل شهر کند می‌شود؛ با گره‌های تجمیع بار را پخش کنید.' },
-    { id: 'internet_gateway',name: 'دروازه اینترنت',           cost: 155000, monthlyCost: 1500, buildDays: 0.75, capacity: 40000, radius: 0,    unlock: null,            category: 'core',
-      connects: [{ medium: 'fiber', targets: ['node'], direction: 'both' }, { medium: 'copper', targets: ['node'], direction: 'both' }, { medium: 'ptp', targets: ['node'], direction: 'both' }, { medium: 'ptp', targets: ['node'], direction: 'both' }, { medium: 'ptp', targets: ['node'], direction: 'both' }, { medium: 'ptp', targets: ['node'], direction: 'both' }, { medium: 'ptp', targets: ['node'], direction: 'both' }, { medium: 'ptp', targets: ['node'], direction: 'both' }, { medium: 'internet', targets: ['internet'], direction: 'upstream' }],
+    { id: 'internet_gateway',name: 'دروازه اینترنت',           cost: 155000, monthlyCost: 1500, buildDays: 0.75, capacity: 40000, radius: 0,    era: 1991,            category: 'core', slots: 4,
+      connects: [{ medium: 'fiber', targets: ['node'], direction: 'both' }, { medium: 'copper', targets: ['node'], direction: 'both' }, { medium: 'ptp', targets: ['node'], direction: 'both' }, { medium: 'internet', targets: ['internet'], direction: 'upstream' }],
       guide: 'اتصال شبکه شما به اینترنت جهانی. بدون مسیر تا این گره هیچ مشتری‌ای آنلاین نمی‌شود. از ابتدای بازی فعال و به روتر هسته متصل است.' },
-    { id: 'backup_power',    name: 'سامانه برق پشتیبان',        cost: 12000,  monthlyCost: 240,  buildDays: 0.125,  capacity: 0,    radius: 250,  unlock: null,            category: 'power',
+    { id: 'backup_power',    name: 'برق پشتیبان',        cost: 12000,  monthlyCost: 240,  buildDays: 0.125,  capacity: 0,    radius: 250,  era: 1991,            category: 'power', slots: 0,
       connects: [{ medium: 'power', targets: ['node'], direction: 'support' }],
       guide: 'رکتیفایر و باتری پشتیبان برای سایت‌ها و مراکز شبکه. گره‌های داخل شعاع آن کمتر خراب می‌شوند و فرسودگی کندتری دارند؛ برای سایت‌های مهم و مسیرهای حیاتی نصب کنید.' },
-    { id: 'test_tools_kit',  name: 'ابزار تست و اندازه‌گیری شبکه', cost: 15000,  monthlyCost: 300,  buildDays: 0.125,  capacity: 0,    radius: 0,    unlock: null,            category: 'tools',
+    { id: 'test_tools_kit',  name: 'ابزار تست شبکه', cost: 15000,  monthlyCost: 300,  buildDays: 0.125,  capacity: 0,    radius: 0,    era: 1991,            category: 'tools', slots: 0,
       connects: [{ medium: 'tools', targets: ['team'], direction: 'support' }],
       guide: 'مجموعه ابزار عیب‌یابی و اندازه‌گیری (تست فیبر، توان‌سنج، تحلیل‌گر طیف). هر مجموعه فعال سرعت ساخت و تعمیر تیم را بیشتر می‌کند.' },
   ];
@@ -160,18 +161,40 @@ const GAME_DATA = (() => {
   // نگاشت تجهیزات حذف‌شدهٔ کاتالوگ گسترده (۲۰۵ قلم) به نزدیک‌ترین معادل کلی — برای سازگاری ذخیره‌های قدیمی
   const legacyEquipmentMap = { 'sat_terminal_leo': 'fwa_ap', 'sat_terminal_geo': 'fwa_ap', 'sat_gateway': 'aggregation', 'wifi_ap': 'fwa_ap', 'ant_sector_65_900': 'cell_2g', 'ant_sector_90_1800': 'cell_3g', 'ant_sector_33_2600': 'cell_4g', 'ant_sector_120_700': 'cell_2g', 'ant_sector_65_2100': 'cell_3g', 'ant_sector_65_3500': 'cell_5g', 'ant_sector_90_3500': 'cell_5g', 'ant_sector_120_5800': 'cell_5g', 'ant_sector_65_5800': 'cell_5g', 'ant_panel_3500_5g': 'cell_5g', 'ant_panel_2600': 'cell_4g', 'ant_dish_5800_28': 'cell_5g', 'ant_dish_3500_24': 'cell_5g', 'ant_dish_2600_21': 'cell_4g', 'ant_omni_900_8': 'cell_2g', 'ant_omni_1800_10': 'cell_3g', 'ant_omni_5800_12': 'cell_5g', 'ant_yagi_900_12': 'cell_2g', 'ant_yagi_2100_14': 'cell_3g', 'ant_yagi_3500_16': 'cell_5g', 'ant_log_700_2700': 'cell_2g', 'ant_log_1800_5800': 'cell_3g', 'rru_2g_900_40': 'cell_2g', 'rru_2g_1800_80': 'cell_2g', 'rru_3g_2100_220': 'cell_3g', 'rru_3g_900_150': 'cell_3g', 'rru_4g_700_600': 'cell_4g', 'rru_4g_1800_800': 'cell_4g', 'rru_4g_2100_900': 'cell_4g', 'rru_4g_2600_1100': 'cell_4g', 'rru_4g_dual_1800_2600': 'cell_4g', 'rru_4g_carrier_agg': 'cell_4g', 'rru_smallcell_4g_3500': 'cell_4g', 'rru_smallcell_5g_3500': 'cell_5g', 'rru_5g_2600_2800': 'cell_5g', 'rru_5g_3500_3200': 'cell_5g', 'rru_5g_massive_32t32r': 'cell_5g', 'rru_5g_massive_64t64r': 'cell_5g', 'rru_macro_4g5g_dual': 'cell_5g', 'rru_5g_mmwave_26g': 'cell_5g', 'fwa_cpe_lte_1800': 'fwa_ap', 'fwa_cpe_lte_2600': 'fwa_ap', 'fwa_cpe_indoor_3500': 'fwa_ap', 'fwa_cpe_outdoor_3500': 'fwa_ap', 'fwa_cpe_5g_dual': 'fwa_ap', 'fwa_sector_3500_90': 'fwa_ap', 'fwa_sector_5000_120': 'fwa_ap', 'fwa_sector_5800_65': 'fwa_ap', 'fwa_ap_3500_8x8': 'fwa_ap', 'fwa_ap_5000_4x4': 'fwa_ap', 'fwa_ptmp_5800': 'fwa_ap', 'fwa_sector_700': 'fwa_ap', 'fwa_mmwave_26g_ap': 'fwa_ap', 'fwa_mmwave_cpe_26g': 'fwa_ap', 'wifi4_indoor_300': 'fwa_ap', 'wifi4_outdoor_300': 'fwa_ap', 'wifi5_ceiling_867': 'fwa_ap', 'wifi5_wall_1200': 'fwa_ap', 'wifi5_outdoor_1300': 'fwa_ap', 'wifi_mesh_node_5': 'fwa_ap', 'wifi6_ceiling_2400': 'fwa_ap', 'wifi6_wall_1800': 'fwa_ap', 'wifi6_outdoor_2400': 'fwa_ap', 'wifi6_highdensity': 'fwa_ap', 'wifi_mesh_node_6': 'fwa_ap', 'wifi6e_ceiling_3600': 'fwa_ap', 'wifi6e_outdoor_3600': 'fwa_ap', 'wifi7_wall_3600': 'fwa_ap', 'wifi7_ceiling_5800': 'fwa_ap', 'wifi7_outdoor': 'fwa_ap', 'mw_6ghz_300': 'ptp_link', 'mw_11ghz_500': 'ptp_link', 'mw_11ghz_1000': 'ptp_link', 'mw_13ghz_1000': 'ptp_link', 'mw_18ghz_1000': 'ptp_link', 'mw_18ghz_2000': 'ptp_link', 'mw_23ghz_2000': 'ptp_link', 'mw_23ghz_4000': 'ptp_link', 'mw_38ghz_4000': 'ptp_link', 'mw_38ghz_8000': 'ptp_link', 'mw_60ghz_5000': 'ptp_link', 'mw_60ghz_10000': 'ptp_link', 'mw_80ghz_10000': 'ptp_link', 'mw_80ghz_5000': 'ptp_link', 'mw_6ghz_1000_long': 'ptp_link', 'rt_edge_1g_500': 'router', 'rt_edge_1g_1000': 'router', 'rt_edge_10g_5000': 'router', 'rt_agg_10g_10000': 'aggregation', 'rt_agg_25g_20000': 'aggregation', 'rt_agg_40g_30000': 'aggregation', 'rt_core_100g_40000': 'core_router', 'rt_core_100g_60000': 'core_router', 'rt_core_400g_60000': 'core_router', 'rt_branch_1g_800': 'router', 'rt_vpn_10g_8000': 'router', 'sw_access_24g_500': 'switch', 'sw_access_48g_1000': 'switch', 'sw_access_24g_poe_1000': 'switch', 'sw_access_48g_poe_2000': 'switch', 'sw_agg_10g_10000': 'aggregation', 'sw_agg_25g_20000': 'aggregation', 'sw_core_100g_40000': 'switch', 'sw_core_40g_30000': 'switch', 'sw_industrial_1g_800': 'switch', 'fw_edge_400': 'router', 'fw_edge_2000': 'router', 'fw_agg_8000': 'aggregation', 'fw_core_20000': 'router', 'fw_core_30000': 'router', 'olt_gpon_4_2000': 'aggregation', 'olt_gpon_8_4000': 'aggregation', 'olt_gpon_16_8000': 'aggregation', 'olt_xgs_4_5000': 'aggregation', 'olt_xgs_8_10000': 'aggregation', 'olt_xgs_16_20000': 'aggregation', 'olt_combo_8_6000': 'aggregation', 'ont_gpon_1ge_100': 'ftth', 'ont_gpon_4ge_300': 'ftth', 'ont_gpon_wifi_500': 'ftth', 'ont_xgs_1ge_1000': 'ftth', 'ont_xgs_wifi_1000': 'ftth', 'ont_gpon_2ge_200': 'ftth', 'ont_business_1000': 'ftth', 'spl_plc_1x4_500': 'fiber_cable', 'spl_plc_1x8_1000': 'fiber_cable', 'spl_plc_1x16_2000': 'fiber_cable', 'spl_plc_1x32_3000': 'fiber_cable', 'spl_plc_1x64_5000': 'fiber_cable', 'cab_street_500': 'router', 'cab_street_2000': 'router', 'cab_odf_4000': 'router', 'cab_splice_1000': 'router', 'cab_outdoor_8000': 'router', 'cbl_os2_12_5000': 'fiber_cable', 'cbl_os2_48_10000': 'fiber_cable', 'cbl_os2_96_20000': 'fiber_cable', 'cbl_om4_1000': 'fiber_cable', 'cbl_cat6a_1000': 'copper_cable', 'cbl_drop_500': 'fiber_cable', 'cbl_rg11_800': 'fiber_cable', 'con_sc_apc_500': 'fiber_cable', 'con_lc_duplex_1000': 'fiber_cable', 'con_mpo_trunk_10000': 'fiber_cable', 'con_patch_panel_2000': 'fiber_cable', 'twr_lattice_30m': 'cell_4g', 'twr_lattice_45m': 'cell_4g', 'twr_lattice_60m': 'cell_4g', 'twr_lattice_80m': 'cell_4g', 'twr_monopole_15m': 'cell_4g', 'twr_monopole_20m': 'cell_4g', 'twr_monopole_30m': 'cell_4g', 'twr_rooftop_pole_6m': 'cell_4g', 'twr_rooftop_pole_12m': 'cell_4g', 'twr_guyed_50m': 'cell_4g', 'twr_guyed_70m': 'cell_4g', 'twr_camo_tree_25m': 'cell_4g', 'twr_smallcell_pole_8m': 'cell_4g', 'twr_smallcell_pole_12m': 'cell_4g', 'pwr_rectifier_48v_100a': 'backup_power', 'pwr_rectifier_48v_400a': 'backup_power', 'pwr_battery_vrla_400ah': 'backup_power', 'pwr_battery_lithium_200ah': 'backup_power', 'pwr_ups_1kva': 'backup_power', 'pwr_ups_10kva': 'backup_power', 'pwr_ups_30kva': 'backup_power', 'pwr_solar_kit_1kwp': 'backup_power', 'pwr_solar_kit_5kwp': 'backup_power', 'pwr_solar_kit_10kwp': 'backup_power', 'pwr_generator_diesel_10kva': 'backup_power', 'pwr_generator_gas_30kva': 'backup_power', 'pwr_generator_diesel_100kva': 'backup_power', 'pwr_hybrid_solar_diesel_5kwp': 'backup_power', 'pwr_pdu_smart_32a': 'backup_power', 'pwr_grounding_kit_pro': 'backup_power', 'sat_leo_terminal_flat': 'fwa_ap', 'sat_leo_terminal_pro': 'fwa_ap', 'sat_leo_maritime': 'fwa_ap', 'sat_leo_aviation': 'fwa_ap', 'sat_geo_terminal_ku': 'fwa_ap', 'sat_geo_terminal_ka': 'fwa_ap', 'sat_dish_60cm_ku': 'fwa_ap', 'sat_dish_75cm_ku': 'fwa_ap', 'sat_dish_90cm_ka': 'fwa_ap', 'sat_dish_120cm_ka': 'fwa_ap', 'sat_gateway_small': 'aggregation', 'sat_gateway_large': 'aggregation', 'sat_buc_lnb_kit_ka': 'fwa_ap', 'sat_gateway_modem': 'fwa_ap', 'tool_otdr_pro': 'test_tools_kit', 'tool_otdr_mini': 'test_tools_kit', 'tool_optical_power_meter': 'test_tools_kit', 'tool_light_source': 'test_tools_kit', 'tool_fusion_splicer_core': 'test_tools_kit', 'tool_fusion_splicer_handheld': 'test_tools_kit', 'tool_spectrum_analyzer_handheld': 'test_tools_kit', 'tool_spectrum_analyzer_benchtop': 'test_tools_kit', 'tool_cable_certifier_cat6a': 'test_tools_kit', 'tool_ethernet_tester': 'test_tools_kit', 'tool_vna_8ghz': 'test_tools_kit', 'tool_gps_sync_module': 'test_tools_kit', 'tool_fiber_inspection_scope': 'test_tools_kit', 'tool_pim_tester': 'test_tools_kit', 'tool_drone_survey_kit': 'test_tools_kit', 'tool_tdr_cable_fault': 'test_tools_kit' };
 
-  // ---------- درخت فناوری ----------
-  const techList = [
-    { id: 'fiber',         name: 'شبکه فیبر نوری',        cost: 15000, requires: [],                 unlocks: ['fiber_cable', 'aggregation'] },
-    { id: 'lte',           name: 'فناوری LTE (4G)',       cost: 30000, requires: [],                 unlocks: ['cell_4g'] },
-    { id: 'ftth',          name: 'فیبر تا خانه',          cost: 45000, requires: ['fiber'],          unlocks: ['ftth'] },
-    { id: '5g',            name: 'نسل پنجم (5G)',         cost: 80000, requires: ['lte'],            unlocks: ['cell_5g'] },
-    { id: 'smart_mgmt',    name: 'مدیریت هوشمند شبکه',    cost: 40000, requires: ['fiber'],          unlocks: [] },
+  // ---------- خط زمانی تاریخی فناوری ----------
+  // بازی از سال ۱۹۹۱ شروع می‌شود و هر ۱۰ روزِ بازی یک سال جلو می‌رود.
+  // هر تجهیز از سال «era» خودش در منوی ساخت ظاهر می‌شود (بر اساس تاریخ واقعی مخابرات).
+  const timeline = {
+    startYear: 1991,
+    daysPerYear: 10,
+    eras: [
+      { year: 1991, name: 'دوران 2G و سیم مسی', desc: 'شبکهٔ موبایل GSM (2G) در فنلاند راه افتاد؛ اینترنت خانگی روی سیم مسی و روترهای اولیه است.' },
+      { year: 1995, name: 'فیبر نوری در ستون فقرات', desc: 'فیبر نوری ستون فقرات شبکه‌های انتقال شد؛ کابل فیبر برای بک‌هال در دسترس است.' },
+      { year: 1996, name: 'لینک‌های مایکروویو', desc: 'لینک‌های نقطه‌به‌نقطهٔ مایکروویو برای بک‌هال بی‌سیم رایج شدند.' },
+      { year: 1998, name: 'دوران DSL', desc: 'اینترنت پرسرعت روی سیم تلفن (DSL) و کابینت‌های خیابانی به خانه‌ها رسید.' },
+      { year: 2000, name: 'تجمیع منطقه‌ای', desc: 'گره‌های تجمیع منطقه‌ای ترافیک محله‌ها را جمع و به هسته می‌رسانند.' },
+      { year: 2001, name: 'دوران 3G', desc: 'نسل سوم موبایل (3G) در ژاپن راه افتاد؛ اینترنت موبایل واقعی شروع شد.' },
+      { year: 2004, name: 'فیبر تا خانه (FTTH)', desc: 'استاندارد GPON تصویب شد و فیبر تا خانه (FTTH) با معماری OLT و تقسیم‌کننده به ساختمان‌ها رسید.' },
+      { year: 2009, name: 'دوران 4G (LTE)', desc: 'نسل چهارم (LTE) در اسلو و استکهلم راه افتاد؛ سرعت موبایل چند برابر شد.' },
+      { year: 2012, name: 'TD-LTE ثابت', desc: 'اینترنت ثابت سیم‌کارتی TD-LTE روی شبکهٔ LTE گسترش یافت؛ ماژول TD-LTE روی دکل‌های 4G و 5G قابل نصب است.' },
+      { year: 2019, name: 'دوران 5G', desc: 'نسل پنجم (5G) در کرهٔ جنوبی راه افتاد؛ ظرفیت و سرعت موبایل به اوج رسید.' },
+    ],
+  };
+
+  // ---------- کاتالوگ ماژول‌ها (جایگزین ارتقای سطح) ----------
+  // نصب ماژول آنی است و هزینه دارد؛ هر گره به‌اندازهٔ «slots» تجهیز خودش جا دارد.
+  const moduleList = [
+    { id: 'cap_boost',   name: 'ماژول افزایش ظرفیت', cost: 8000,  monthlyCost: 120, era: 1991,
+      desc: 'ظرفیت گره را ۵۰٪ بیشتر می‌کند (قابل تکرار تا پرشدن اسلات‌ها).' },
+    { id: 'range_boost', name: 'ماژول افزایش برد',   cost: 6000,  monthlyCost: 80,  era: 1991,
+      desc: 'شعاع پوشش گرهٔ دسترسی را ۱۰٪ بیشتر می‌کند (قابل تکرار تا پرشدن اسلات‌ها).' },
+    { id: 'ports_boost', name: 'ماژول پورت اضافه',   cost: 5000,  monthlyCost: 60,  era: 1998,
+      desc: '۲۴ پورت انشعاب به کابینت خیابانی یا گره FTTH اضافه می‌کند.' },
+    { id: 'tdlte',       name: 'ماژول TD-LTE',       cost: 15000, monthlyCost: 300, era: 2012,
+      desc: 'اینترنت ثابت سیم‌کارتی روی همین دکل: مشترکان دارای مودم TD-LTE داخل پوشش دکل سرویس می‌گیرند. مزیتش نسبت به موبایل: پینگ پایدار و بدون نوسان (جیتر). فقط روی دکل 4G و 5G نصب می‌شود (یک عدد).' },
   ];
-  // تکمیل unlocks هر فناوری از روی فیلد unlock تجهیزات کاتالوگ
-  techList.forEach((t) => { t.unlocks = Array.from(new Set([...(t.unlocks || []), ...equipmentList.filter((e) => e.unlock === t.id).map((e) => e.id)])); });
-  const techs = techList.slice();
-  techList.forEach((t) => { techs[t.id] = t; });
+  const modules = moduleList.slice();
+  moduleList.forEach((m) => { modules[m.id] = m; });
 
   // ---------- بسته‌های اشتراک ----------
   const packageList = [
@@ -212,9 +235,9 @@ const GAME_DATA = (() => {
       whenToUse: 'برای مسیرهای اصلی و پرترافیک فیبر؛ برای شروع ارزان و اتصال‌های کم‌ترافیک مسی.',
       equipmentIds: ['fiber_cable', 'copper_cable'] },
     { id: 'fiber', name: 'فیبر نوری و FTTH',
-      desc: 'فیبر نوری سریع‌ترین و پایدارترین رسانه انتقال است. FTTH یعنی رساندن فیبر تا خود ساختمان مشتری؛ کیفیت و ظرفیت عالی (حدود ۲٫۵ گیگابیت برای هر گره) برای مناطق پرتقاضا. انشعاب ساختمان‌ها از راه «کابینت خیابانی» انجام می‌شود: کابینت را نزدیک ساختمان‌ها بگذارید، به هسته وصلش کنید و از پنل هر ساختمان انشعاب فیبر یا سیم مسی بگیرید (هر ساختمان فقط یکی از این دو).',
+      desc: 'فیبر نوری سریع‌ترین و پایدارترین رسانه انتقال است. FTTH یعنی رساندن فیبر تا خود ساختمان مشتری با معماری واقعی GPON: گره FTTH (همان OLT) ← تقسیم‌کنندهٔ نوری ← ترمینال نوری داخل ساختمان. ساختمان‌ها را می‌توانید مستقیم به گره FTTH انشعاب فیبر بدهید (شعاع ۴۰۰ واحد، ۲۵۶ پورت) یا از راه کابینت‌های خیابانی نزدیک‌تر. انشعاب فیبر و مسی برای شما رایگان است (هزینهٔ نصب با مشترک است)؛ انشعاب فیبر از دوران FTTH (سال ۲۰۰۴) ممکن است و قبل از آن فقط سیم مسی (DSL) داریم. کابل‌های طولانی فیبر و مسی سیگنال از دست می‌دهند؛ «تقویت‌کننده سیگنال» در میانهٔ مسیر افت را جبران می‌کند.',
       whenToUse: 'وقتی منطقه‌ای پرمشترک و پرمصرف است و کیفیت پایدار می‌خواهید. هزینه اولیه بالاتر، ولی بهترین تجربه مشتری.',
-      equipmentIds: ['ftth', 'street_cabinet', 'fiber_cable'] },
+      equipmentIds: ['ftth', 'street_cabinet', 'fiber_cable', 'repeater'] },
     { id: 'copper', name: 'مسی / DSL',
       desc: 'فناوری قدیمی‌تر و ارزان‌تر روی سیم مسی؛ ظرفیت محدود و حساس به فاصله.',
       whenToUse: 'فقط برای شروع ارزان یا اتصال‌های خیلی کم‌ترافیک؛ در بلندمدت با فیبر جایگزین شود.',
@@ -224,9 +247,9 @@ const GAME_DATA = (() => {
       whenToUse: 'برای پوشش سریع مناطق وسیع و پرجمعیت. هر دکل باید با فیبر یا لینک قوی به هسته وصل شود وگرنه اشباع می‌شود.',
       equipmentIds: ['cell_2g', 'cell_3g', 'cell_4g', 'cell_5g'] },
     { id: 'fwa', name: 'TD-LTE (اینترنت ثابت سیم‌کارتی)',
-      desc: 'اینترنت ثابت سیم‌کارتی روی شبکهٔ موبایل 4G: مشتری ثابت (خانه و مغازه) با مودم سیم‌کارتی به شبکه وصل می‌شود و کابل‌کشی تا مشتری لازم نیست. ظرفیت هر آنتن حدود ۶۰۰ مگابیت است. TD-LTE فقط داخل پوشش شبکهٔ 4G و بالاتر در دسترس است: آنتن TD-LTE باید در برد یک دکل 4G یا 5G متصل به شبکه باشد تا سرویس بدهد؛ بیرون از پوشش 4G هیچ سرویسی ندارد.',
-      whenToUse: 'برای حاشیه شهر و مناطقی که فیبر نمی‌رسد ولی پوشش 4G دارند. اول دکل 4G بسازید و وصل کنید، بعد آنتن TD-LTE را داخل پوشش آن بگذارید. به دید مستقیم نیاز دارد و ساختمان بلند مزاحم است.',
-      equipmentIds: ['fwa_ap'] },
+      desc: 'اینترنت ثابت سیم‌کارتی روی شبکهٔ موبایل 4G: مشتری ثابت (خانه و مغازه) با مودم سیم‌کارتی (CPE) به شبکه وصل می‌شود و کابل‌کشی تا مشتری لازم نیست. TD-LTE گرهٔ جدا ندارد؛ «ماژول TD-LTE» روی دکل 4G یا 5G نصب می‌شود و مشترکان ثابتِ داخل پوشش همان دکل از آن سرویس می‌گیرند (ظرفیت ماژول: حدود ۶۰۰ مگابیت). مزیت TD-LTE نسبت به موبایل: پینگ پایدار و بدون نوسان (جیتر)، چون مودم ثابت است و جابه‌جا نمی‌شود. ماژول از سال ۲۰۱۲ در دسترس است.',
+      whenToUse: 'برای حاشیه شهر و مناطقی که فیبر نمی‌رسد ولی پوشش 4G دارند. روی دکل 4G/5G منطقه «ماژول TD-LTE» نصب کنید؛ تقاضای TD-LTE فقط جایی سرویس می‌گیرد که دکلِ دارای ماژول پوشش دهد.',
+      equipmentIds: ['cell_4g', 'cell_5g'] },
     { id: 'ptp', name: 'لینک نقطه‌به‌نقطه',
       desc: 'اتصال بی‌سیم جهت‌دار بین دو گره برای انتقال ترافیک (Backhaul) به‌جای کابل، با ظرفیت حدود ۵ گیگابیت.',
       whenToUse: 'وقتی کابل‌کشی بین دو گره سخت یا گران است، یا برای ساخت مسیر پشتیبان دوم.',
@@ -236,9 +259,13 @@ const GAME_DATA = (() => {
       whenToUse: 'خودکار است: ساختمانِ مشترک که به شبکه وصل است (انشعاب سیمی یا پوشش دکل متصل) وای‌فای داخلی فعال دارد. بدون اشتراک، یا وقتی ساختمان به شبکه وصل نیست و در برد هیچ دکل متصلی هم نیست، وای‌فایی هم نیست.',
       equipmentIds: [] },
     { id: 'core', name: 'هسته و تجمیع',
-      desc: 'روتر هسته و دروازه اینترنت قلب شبکه‌اند؛ گره‌های تجمیع ترافیک مناطق را جمع و به هسته می‌رسانند. هر دستگاه دسترسی باید مسیری تا هسته و دروازه داشته باشد.',
+      desc: 'روتر هسته و دروازه اینترنت قلب شبکه‌اند؛ گره‌های تجمیع ترافیک مناطق را جمع و به هسته می‌رسانند. هر دستگاه دسترسی باید مسیری تا هسته و دروازه داشته باشد. دکل‌ها فقط به مشترکان سرویس می‌دهند و ترافیک گره‌های دیگر از آن‌ها عبور نمی‌کند (دکل برگِ شبکه است، نه گره عبوری)؛ بک‌هال هر دکل مستقیم به تجمیع/هسته/روتر وصل می‌شود.',
       whenToUse: 'تجمیع را وقتی بسازید که چند دستگاه دسترسی در یک ناحیه دارید تا بار هسته کم و مسیرها کوتاه شود.',
       equipmentIds: ['core_router', 'internet_gateway', 'aggregation', 'router', 'switch'] },
+    { id: 'timeline', name: 'خط زمانی و ماژول‌ها',
+      desc: 'بازی از سال ۱۹۹۱ شروع می‌شود و هر ۱۰ روزِ بازی یک سال جلو می‌رود. تجهیزات با رسیدن دورانشان در منوی ساخت ظاهر می‌شوند (فیبر ۱۹۹۵، DSL و کابینت ۱۹۹۸، 3G در ۲۰۰۱، FTTH در ۲۰۰۴، 4G در ۲۰۰۹، ماژول TD-LTE در ۲۰۱۲، 5G در ۲۰۱۹) و تقاضای مردم هم با دوران عوض می‌شود: در دوران جدید، ماندن روی فناوری قدیمی رضایت را کم می‌کند. به‌جای ارتقای سطح، روی هر گره «ماژول» نصب می‌کنید (افزایش ظرفیت، افزایش برد، پورت اضافه، TD-LTE)؛ هر گره به‌اندازهٔ اسلات‌هایش ماژول می‌گیرد و نصب آنی است.',
+      whenToUse: 'با ورود هر دوران، تجهیزات جدید را در مناطق پرتقاضا بسازید و روی گره‌های شلوغ ماژول ظرفیت نصب کنید.',
+      equipmentIds: [] },
   ];
 
   // ---------- مأموریت‌ها ----------
@@ -247,7 +274,7 @@ const GAME_DATA = (() => {
     { id: 'm_connect',     name: 'اتصال به هسته',    description: 'یک گره دسترسی را به شبکه وصل کنید.',              goal: { type: 'connect_access', count: 1 },      reward: 5000 },
     { id: 'm_serve',       name: 'اولین مشترکان',    description: 'در یک منطقه به کیفیت سرویس ۵۰٪ برسید.',           goal: { type: 'district_qos', qos: 0.5, count: 1 }, reward: 8000 },
     { id: 'm_subs_500',    name: '۵۰۰ مشترک',        description: 'به ۵۰۰ مشترک فعال برسید.',                        goal: { type: 'subscribers', count: 500 },       reward: 15000 },
-    { id: 'm_tech',        name: 'تحقیق و توسعه',    description: 'یک فناوری جدید باز کنید.',                        goal: { type: 'unlock_tech', count: 1 },         reward: 10000 },
+    { id: 'm_era3g',       name: 'ورود به دوران 3G',  description: 'تا سال ۲۰۰۱ (دوران 3G) پیش بروید.',               goal: { type: 'year', year: 2001 },              reward: 10000 },
     { id: 'm_coverage',    name: 'پوشش شهر',         description: 'در ۴ منطقه کیفیت سرویس بالای ۶۰٪ بگیرید.',         goal: { type: 'district_qos', qos: 0.6, count: 4 }, reward: 40000 },
     { id: 'm_subs_5000',   name: '۵۰۰۰ مشترک',       description: 'به ۵۰۰۰ مشترک فعال برسید.',                       goal: { type: 'subscribers', count: 5000 },      reward: 60000 },
     { id: 'm_profit',      name: 'ماه سودده',        description: 'یک ماه با سود خالص مثبت تمام کنید.',               goal: { type: 'monthly_profit', count: 1 },      reward: 30000 },
@@ -262,6 +289,10 @@ const GAME_DATA = (() => {
     { id: 'ev_new_building',name: 'ساختمان جدید',      type: 'growth',   probability: 0.010, description: 'یک مجتمع جدید جمعیت منطقه را بیشتر کرد.',    effect: { target: 'random_district', action: 'population_up', factor: 1.08 } },
     { id: 'ev_grant',       name: 'یارانه دولتی',      type: 'finance',  probability: 0.004, description: 'برای توسعه پوشش، یارانه دریافت کردید.',      effect: { target: 'cash', action: 'add', amount: 25000 } },
     { id: 'ev_complaint',   name: 'شکایت رسانه‌ای',    type: 'reputation', probability: 0.008, description: 'کیفیت پایین سرویس در رسانه‌ها بازتاب یافت.', effect: { target: 'random_district', action: 'satisfaction_down', amount: 8 } },
+    { id: 'ev_copper_theft',name: 'سرقت کابل مسی',     type: 'failure',  probability: 0.007, description: 'سارقان یک کابل مسی را بریدند و بردند.',        effect: { target: 'random_link', action: 'cut_copper' } },
+    { id: 'ev_equipment_theft', name: 'سرقت تجهیزات سایت', type: 'failure', probability: 0.005, description: 'تجهیزات یک سایت دکل به سرقت رفت و سایت از کار افتاد.', effect: { target: 'random_node', action: 'fail' } },
+    { id: 'ev_viral',       name: 'موج وایرال',        type: 'demand',   probability: 0.008, description: 'یک ویدیوی وایرال مصرف اینترنت چند منطقه را بالا برد.', effect: { target: 'random_district', action: 'demand_up', factor: 1.6 } },
+    { id: 'ev_blackout',    name: 'قطعی برق گسترده',   type: 'failure',  probability: 0.004, description: 'قطعی برق گسترده دو گره شبکه را از کار انداخت.', effect: { target: 'random_node', action: 'fail_two' } },
   ];
 
   // ---------- نقش‌های پرسنل ----------
@@ -301,11 +332,11 @@ const GAME_DATA = (() => {
     { id: 'cash_1m',        name: 'میلیونر شبکه',        desc: 'نقدینگی شرکت را به ۱٬۰۰۰٬۰۰۰ تومان برسانید.',          icon: 'cash',      metric: 'cash',              target: 1000000 },
     { id: 'revenue_500k',   name: 'نیم‌میلیون درآمد',    desc: 'مجموع درآمد شرکت را به ۵۰۰٬۰۰۰ تومان برسانید.',        icon: 'cash',      metric: 'totalRevenue',      target: 500000 },
     { id: 'monthly_rev_100k', name: 'درآمد ماهانه صدهزار', desc: 'درآمد یک ماه را به ۱۰۰٬۰۰۰ تومان برسانید.',         icon: 'cash',      metric: 'monthlyRevenue',    target: 100000 },
-    { id: 'contracts_3',    name: 'سه قرارداد سازمانی',  desc: '۳ قرارداد سازمانی را با موفقیت به پایان برسانید.',     icon: 'shield',    metric: 'contractsDone',     target: 3 },
+    { id: 'districts_open_10', name: 'ده منطقهٔ باز',    desc: '۱۰ منطقهٔ شهر را برای ساخت‌وساز باز کنید.',          icon: 'coverage',  metric: 'unlockedDistricts', target: 10 },
     { id: 'campaign_1',     name: 'نخستین کمپین تبلیغاتی', desc: 'اولین کمپین تبلیغاتی شرکت را اجرا کنید.',            icon: 'star',      metric: 'campaignsRun',      target: 1 },
     { id: 'satisfaction_80', name: 'رضایت هشتاد درصدی',  desc: 'رضایت مشترکان را به ۸۰٪ برسانید.',                     icon: 'star',      metric: 'satisfaction',      target: 80 },
     { id: 'days_365',       name: 'یک سال پایداری',      desc: '۳۶۵ روز فعالیت شبکه را پشت سر بگذارید.',               icon: 'clock',     metric: 'days',              target: 365 },
-    { id: 'techs_5',        name: 'پنج فناوری',          desc: '۵ فناوری در درخت تحقیق باز کنید.',                     icon: 'trophy',    metric: 'techs',             target: 5 },
+    { id: 'era_5g',         name: 'رسیدن به دوران 5G',  desc: 'تا سال ۲۰۱۹ (دوران 5G) پیش بروید.',                  icon: 'trophy',    metric: 'year',              target: 2019 },
     { id: 'staff_10',       name: 'تیم ده‌نفره',         desc: '۱۰ نفر پرسنل در شرکت داشته باشید.',                    icon: 'users',     metric: 'staff',             target: 10 },
     { id: 'individual_50',  name: 'پنجاه مشترک فردی',    desc: '۵۰ مشترک فردی (حقیقی) در شبکه داشته باشید.',           icon: 'users',     metric: 'individualSubs',    target: 50 },
     { id: 'profit_3',       name: 'سه ماه سوددهی',       desc: '۳ ماه را با سود خالص مثبت به پایان برسانید.',          icon: 'cash',      metric: 'profitMonths',      target: 3 },
@@ -324,21 +355,6 @@ const GAME_DATA = (() => {
     'نوروزی', 'اکبری', 'یوسفی', 'شریفی', 'محمودی', 'علیزاده', 'رضازاده', 'حسینی‌نیا', 'کریمیان', 'امیری',
   ];
 
-  // ---------- قالب قراردادهای سازمانی ----------
-  const enterpriseTemplates = [
-    { id: 'ent_hospital',   orgName: 'بیمارستان مرکزی',       type: 'medical',    wantSpeed: 300,  wantSla: 97, wantPrice: 45000, months: 12, districtTypes: ['medical', 'landmark'] },
-    { id: 'ent_university', orgName: 'دانشگاه صنعتی',         type: 'academic',   wantSpeed: 400,  wantSla: 95, wantPrice: 38000, months: 12, districtTypes: ['academic', 'landmark'] },
-    { id: 'ent_steel',      orgName: 'کارخانه فولاد پارس',    type: 'industrial', wantSpeed: 250,  wantSla: 96, wantPrice: 52000, months: 6,  districtTypes: ['industrial', 'heavy_industrial'] },
-    { id: 'ent_mall',       orgName: 'مرکز خرید آفتاب',       type: 'commercial', wantSpeed: 200,  wantSla: 94, wantPrice: 28000, months: 6,  districtTypes: ['commercial'] },
-    { id: 'ent_bank',       orgName: 'بانک تجارت نوین',       type: 'commercial', wantSpeed: 150,  wantSla: 99, wantPrice: 65000, months: 12, districtTypes: ['commercial', 'government'] },
-    { id: 'ent_municipality', orgName: 'شهرداری منطقه ۳',     type: 'government', wantSpeed: 120,  wantSla: 96, wantPrice: 24000, months: 12, districtTypes: ['government', 'commercial'] },
-    { id: 'ent_hotel',      orgName: 'هتل پارسیان',           type: 'tourism',    wantSpeed: 150,  wantSla: 93, wantPrice: 22000, months: 3,  districtTypes: ['tourism', 'commercial'] },
-    { id: 'ent_airport',    orgName: 'فرودگاه بین‌المللی',    type: 'transport',  wantSpeed: 800,  wantSla: 98, wantPrice: 80000, months: 12, districtTypes: ['transport', 'landmark'] },
-    { id: 'ent_clinic',     orgName: 'درمانگاه شبانه‌روزی شفا', type: 'medical',  wantSpeed: 100,  wantSla: 95, wantPrice: 18000, months: 6,  districtTypes: ['medical', 'residential'] },
-    { id: 'ent_office',     orgName: 'مجتمع اداری برج نوین',  type: 'commercial', wantSpeed: 300,  wantSla: 95, wantPrice: 34000, months: 6,  districtTypes: ['commercial', 'government'] },
-    { id: 'ent_cement',     orgName: 'کارخانه سیمان کوهستان', type: 'industrial', wantSpeed: 200,  wantSla: 94, wantPrice: 30000, months: 9,  districtTypes: ['industrial', 'heavy_industrial'] },
-    { id: 'ent_meduni',     orgName: 'دانشگاه علوم پزشکی',    type: 'academic',   wantSpeed: 350,  wantSla: 97, wantPrice: 42000, months: 12, districtTypes: ['academic', 'medical'] },
-  ];
 
   // ---------- انواع کمپین تبلیغاتی ----------
   const campaignTypes = [
@@ -414,8 +430,9 @@ const GAME_DATA = (() => {
     equipment,
     equipmentList,
     legacyEquipmentMap,
-    techs,
-    techList,
+    timeline,
+    modules,
+    moduleList,
     packages,
     packageList,
     techDemandSplit,
@@ -427,7 +444,6 @@ const GAME_DATA = (() => {
     achievements,
     firstNames,
     lastNames,
-    enterpriseTemplates,
     campaignTypes,
     channelSets,
     beamwidthByEq,
