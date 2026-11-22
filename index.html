@@ -25,12 +25,13 @@
   </div>
   <div class="tb-group stats">
     <span class="stat"><label>نقدینگی</label><strong id="ui-cash">—</strong></span>
-    <span class="stat"><label>درآمد روزانه</label><strong id="ui-income">—</strong></span>
+    <span class="stat secondary"><label>درآمد روزانه</label><strong id="ui-income">—</strong></span>
+    <span class="stat"><label>سال</label><strong id="ui-year">—</strong></span>
     <span class="stat"><label>روز</label><strong id="ui-day">—</strong></span>
     <span class="stat"><label>رضایت</label><strong id="ui-satisfaction">—</strong></span>
-    <span class="stat"><label>ساعت</label><strong id="ui-clock">—</strong></span>
-    <span class="stat"><label>آب‌وهوا و فصل</label><strong id="ui-weather">—</strong></span>
-    <span class="stat"><label>سطح تقاضا</label><strong id="ui-demand-level">—</strong></span>
+    <span class="stat secondary"><label>ساعت</label><strong id="ui-clock">—</strong></span>
+    <span class="stat secondary"><label>آب‌وهوا و فصل</label><strong id="ui-weather">—</strong></span>
+    <span class="stat secondary"><label>سطح تقاضا</label><strong id="ui-demand-level">—</strong></span>
   </div>
   <div class="tb-group controls">
     <div class="speed-btns" role="group" aria-label="سرعت بازی">
@@ -50,14 +51,14 @@
   <div class="side-menu-head"><span>منو</span><button class="btn icon sm" id="side-menu-close" title="بستن"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
   <div class="side-menu-section">مدیریت شرکت</div>
   <button id="btn-finance" class="side-item"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M6 9.5h.01M18 14.5h.01"/></svg><span>مالی</span></button>
-  <button id="btn-rd" class="side-item"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3h4"/><path d="M11 3v5.5L5.5 18a2 2 0 0 0 1.8 3h9.4a2 2 0 0 0 1.8-3L13 8.5V3"/><path d="M8 14h8"/></svg><span>تحقیق و توسعه</span></button>
+  <button id="btn-timeline" class="side-item"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg><span>دوران فناوری</span></button>
   <button id="btn-staff" class="side-item"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.2 3.4-5 6.5-5s5.7 1.8 6.5 5"/><circle cx="17" cy="9" r="2.6"/><path d="M16.5 15.2c2.4.3 4.2 1.9 4.9 4.8"/></svg><span>کارکنان</span></button>
   <button id="btn-missions" class="side-item"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg><span>مأموریت‌ها</span></button>
   <button id="btn-packages" class="side-item"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 3.5 7.5v9L12 21l8.5-4.5v-9z"/><path d="M3.5 7.5 12 12l8.5-4.5"/><path d="M12 12v9"/></svg><span>بسته‌های اینترنت</span></button>
   <button id="btn-guide" class="side-item"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/><path d="M9 7h7M9 11h5"/></svg><span>راهنمای فناوری‌ها</span></button>
   <button id="btn-log" class="side-item"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg><span>گزارش رویدادها</span></button>
   <button id="btn-achievements" class="side-item"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="5"/><path d="m9 12.5-1.5 7L12 16.5 16.5 19.5 15 12.5"/><path d="M9.5 8h5M12 5.5v5"/></svg><span>دستاوردها</span></button>
-  <button id="btn-contracts" class="side-item"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4"/><path d="M9 12h7M9 16h5"/></svg><span>قراردادهای سازمانی</span></button>
+  <button id="btn-tutorial" class="side-item"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.4 2.3c-.6.3-.9.7-.9 1.7"/><path d="M12 17h.01"/></svg><span>آموزش بازی</span></button>
   <button id="btn-campaigns" class="side-item"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11v3l4 1 1.5 5h3L10 15l8 3V6L6 9z"/><path d="M18 8a4 4 0 0 1 0 8"/></svg><span>کمپین‌های تبلیغاتی</span></button>
   <button id="btn-stats" class="side-item"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10M9 20V4M14 20v-8M19 20v-5"/><path d="M3 20h18"/></svg><span>آمار و نمودارها</span></button>
   <div class="side-menu-section">صدا</div>
@@ -86,6 +87,7 @@
         <button id="tool-select" class="btn tool active">انتخاب</button>
         <button id="tool-demolish" class="btn tool">تخریب</button>
         <button id="tool-speedtest" class="btn tool">تست سرعت</button>
+        <button id="tool-ping" class="btn tool">پینگ</button>
       </div>
       <input id="build-search" type="search" placeholder="جست‌وجوی تجهیز… (نام، دسته، مشخصات)" aria-label="جست‌وجوی تجهیز">
       <button id="btn-suggest" class="btn" style="width:100%;margin-bottom:8px">پیشنهاد جای دکل</button>
@@ -117,6 +119,18 @@
         <label><input type="checkbox" data-layer="links" checked> اتصالات</label>
         <label><input type="checkbox" data-layer="coverage" checked> پوشش</label>
         <label><input type="checkbox" data-layer="labels" checked> برچسب‌ها</label>
+        <label><input type="checkbox" data-layer="cellular" checked> پوشش سلولار</label>
+        <label><input type="checkbox" data-layer="fwa" checked> پوشش TD-LTE</label>
+        <label><input type="checkbox" data-layer="packets" checked> جریان بسته‌ها</label>
+        <label><input type="checkbox" data-layer="commute" checked> رفت‌وآمد مردم</label>
+        <label><input type="checkbox" data-layer="problems" checked> گره‌های مشکل‌دار</label>
+        <label><input type="checkbox" data-layer="locked" checked> مناطق قفل‌شده</label>
+        <label><input type="checkbox" data-layer="latency"> تأخیر (پینگ)</label>
+        <label><input type="checkbox" data-layer="traffic"> ترافیک لینک‌ها</label>
+        <label><input type="checkbox" data-layer="demand"> تقاضا</label>
+        <label><input type="checkbox" data-layer="qos"> کیفیت سرویس</label>
+        <label><input type="checkbox" data-layer="revenue"> درآمد</label>
+        <label><input type="checkbox" data-layer="failures" checked> خرابی‌ها</label>
         <label><input type="checkbox" data-layer="techdemand"> تقاضای فناوری</label>
         <label><input type="checkbox" data-layer="signal"> نقشه حرارتی سیگنال</label>
         <label><input type="checkbox" data-layer="speed"> سرعت اتصال</label>
@@ -196,14 +210,13 @@
 <!-- Panels / Modals -->
 <div id="modal-backdrop" class="hidden"></div>
 <div id="modal-finance" class="modal hidden"><div class="modal-head"><h3>مالی</h3><button class="btn icon sm modal-close" data-close="modal-finance"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div><div class="modal-body" id="finance-body"></div></div>
-<div id="modal-rd" class="modal hidden"><div class="modal-head"><h3>تحقیق و توسعه</h3><button class="btn icon sm modal-close" data-close="modal-rd"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div><div class="modal-body" id="rd-body"></div></div>
+<div id="modal-timeline" class="modal hidden"><div class="modal-head"><h3>دوران فناوری</h3><button class="btn icon sm modal-close" data-close="modal-timeline"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div><div class="modal-body" id="timeline-body"></div></div>
 <div id="modal-staff" class="modal hidden"><div class="modal-head"><h3>کارکنان</h3><button class="btn icon sm modal-close" data-close="modal-staff"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div><div class="modal-body" id="staff-body"></div></div>
 <div id="modal-missions" class="modal hidden"><div class="modal-head"><h3>مأموریت‌ها</h3><button class="btn icon sm modal-close" data-close="modal-missions"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div><div class="modal-body" id="missions-body"></div></div>
 <div id="modal-packages" class="modal hidden"><div class="modal-head"><h3>بسته‌های اینترنت</h3><button class="btn icon sm modal-close" data-close="modal-packages"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div><div class="modal-body" id="packages-body"></div></div>
 <div id="modal-guide" class="modal hidden"><div class="modal-head"><h3>راهنمای فناوری‌ها</h3><button class="btn icon sm modal-close" data-close="modal-guide"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div><div class="modal-body" id="guide-overview-body"></div></div>
 <div id="modal-log" class="modal hidden"><div class="modal-head"><h3>گزارش رویدادها</h3><button class="btn icon sm modal-close" data-close="modal-log"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div><div class="modal-body"><div id="event-log" class="log log-full"></div></div></div>
 <div id="modal-achievements" class="modal hidden"><div class="modal-head"><h3>دستاوردها</h3><button class="btn icon sm modal-close" data-close="modal-achievements"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div><div class="modal-body" id="achievements-body"></div></div>
-<div id="modal-contracts" class="modal hidden"><div class="modal-head"><h3>قراردادهای سازمانی</h3><button class="btn icon sm modal-close" data-close="modal-contracts"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div><div class="modal-body" id="contracts-body"></div></div>
 <div id="modal-campaigns" class="modal hidden"><div class="modal-head"><h3>کمپین‌های تبلیغاتی</h3><button class="btn icon sm modal-close" data-close="modal-campaigns"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div><div class="modal-body" id="campaigns-body"></div></div>
 <div id="modal-stats" class="modal hidden"><div class="modal-head"><h3>آمار و نمودارها</h3><button class="btn icon sm modal-close" data-close="modal-stats"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div><div class="modal-body"><label>بازه: <select id="stats-range"><option value="30">۳۰ روز</option><option value="90">۹۰ روز</option><option value="all" selected>کل</option></select></label><div id="stats-body"></div></div></div>
 
@@ -219,6 +232,12 @@
   <h4>تست سرعت اتصال</h4>
   <div id="speedtest-body"></div>
   <div class="row"><button id="speedtest-close" class="btn primary">بستن</button></div>
+</div>
+
+<div id="ping-popover" class="popover hidden" role="dialog">
+  <h4>نتیجهٔ پینگ</h4>
+  <div id="ping-body"></div>
+  <div class="row"><button id="ping-close" class="btn primary">بستن</button></div>
 </div>
 
 <!-- Alerts drawer -->
