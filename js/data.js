@@ -108,8 +108,8 @@ const GAME_DATA = (() => {
     { id: 'router',          name: 'روتر لبه پارس‌نت',         cost: 10000,  monthlyCost: 250,  buildDays: 1,  capacity: 1200,  radius: 0,    unlock: null,            category: 'core' },
     { id: 'switch',          name: 'سوئیچ تجمیع محلی',         cost: 6000,   monthlyCost: 150,  buildDays: 1,  capacity: 1200,  radius: 0,    unlock: null,            category: 'core' },
     { id: 'aggregation',     name: 'گره تجمیع منطقه‌ای',       cost: 42000,  monthlyCost: 1200, buildDays: 6,  capacity: 12000, radius: 0,    unlock: null,            category: 'core' },
-    { id: 'core_router',     name: 'روتر هسته',                cost: 105000, monthlyCost: 3200, buildDays: 10, capacity: 40000, radius: 0,    unlock: null,            category: 'core' },
-    { id: 'internet_gateway',name: 'دروازه اینترنت',           cost: 155000, monthlyCost: 4800, buildDays: 12, capacity: 40000, radius: 0,    unlock: null,            category: 'core' },
+    { id: 'core_router',     name: 'روتر هسته',                cost: 105000, monthlyCost: 900,  buildDays: 10, capacity: 40000, radius: 0,    unlock: null,            category: 'core' },
+    { id: 'internet_gateway',name: 'دروازه اینترنت',           cost: 155000, monthlyCost: 1500, buildDays: 12, capacity: 40000, radius: 0,    unlock: null,            category: 'core' },
   ];
   // دسترسی هم به‌صورت آرایه و هم به‌صورت نگاشت با کلید id
   const equipment = equipmentList.slice();
@@ -173,6 +173,18 @@ const GAME_DATA = (() => {
 
   return {
     world: { width: 3200, height: 2400 },
+    // مسیر رودخانه (همان نقاطی که map.js رسم می‌کند؛ برای جای‌گذاری ساختمان‌های جدید)
+    river: [
+      { x: 2160, y: -40 }, { x: 2080, y: 360 }, { x: 2200, y: 800 },
+      { x: 2100, y: 1240 }, { x: 2220, y: 1700 }, { x: 2120, y: 2080 }, { x: 2200, y: 2440 }
+    ],
+    // رشد تدریجی شهر: سقف ساختمان هر منطقه = شمار اولیه × ضریب نوع منطقه؛ نرخ = احتمال ساخت یک ساختمان در هر روز
+    growth: {
+      capMultiplier: { dense: 2.0, commercial: 2.0, residential: 1.8, industrial: 1.6, landmark: 1.4, sparse: 1.5 },
+      rate: { dense: 0.12, commercial: 0.12, residential: 0.09, industrial: 0.08, landmark: 0.06, sparse: 0.05 }
+    },
+    buildingColors: bColors,
+    buildingTypes: bTypes,
     districts,
     buildings,
     installPoints,
