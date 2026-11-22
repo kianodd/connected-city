@@ -114,6 +114,7 @@
   var mouseWorld = { x: 0, y: 0 };
   var rafId = null, lastTs = 0, animT = 0;
   var dragging = false, dragMoved = false, lastPX = 0, lastPY = 0;
+  var downX = 0, downY = 0, pinched = false; // tap-vs-drag discrimination + pinch safety
   var pointers = {};            // pointerId -> {x,y}
   var pinchDist = 0, pinchMid = null;
   var layers = {
@@ -130,7 +131,9 @@
   }
   function fitCamera() {
     if (!viewW || !viewH) return;
-    var z = Math.min(viewW / WORLD_W, viewH / WORLD_H) * 0.98;
+    var z;
+    if (viewH > viewW) z = Math.max(viewW / WORLD_W, viewH / WORLD_H); // portrait: fill the viewport, crop the sides
+    else z = Math.min(viewW / WORLD_W, viewH / WORLD_H) * 0.98;        // landscape/desktop: whole world visible
     camT.z = clamp(z, 0.15, 3); camT.x = WORLD_W / 2; camT.y = WORLD_H / 2;
     cam.x = camT.x; cam.y = camT.y; cam.z = camT.z;
   }
@@ -818,20 +821,21 @@
   }
 
   function drawHud() {
-    // legend (screen space, bottom-left) — small, Persian
+    // legend (screen space, bottom-left) — small, Persian; compact on narrow screens
     ctx.save();
-    ctx.font = '12px Vazirmatn, Tahoma, sans-serif';
+    var small = viewW < 600;
+    ctx.font = (small ? '10px' : '12px') + ' Vazirmatn, Tahoma, sans-serif';
     var items = [
       ['#22d3ee', 'فیبر نوری'], ['#fb923c', 'مسی (DSL)'], ['#a78bfa', 'نقطه‌به‌نقطه'],
       ['#e879f9', 'ماهواره'], ['#9ca3af', 'اترنت'], ['#ef4444', 'ازدحام/خرابی']
     ];
-    var bw = 150, bh = items.length * 18 + 12;
+    var bw = small ? 118 : 150, rowH = small ? 15 : 18, bh = items.length * rowH + 12;
     ctx.fillStyle = 'rgba(10,14,22,0.72)';
     ctx.fillRect(10, viewH - bh - 10, bw, bh);
     ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.strokeRect(10, viewH - bh - 10, bw, bh);
     ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
     for (var i = 0; i < items.length; i++) {
-      var y = viewH - bh - 10 + 12 + i * 18;
+      var y = viewH - bh - 10 + 12 + i * rowH;
       ctx.fillStyle = items[i][0];
       ctx.fillRect(10 + bw - 26, y - 2, 16, 4);
       ctx.fillStyle = 'rgba(235,240,250,0.92)';
@@ -856,20 +860,23 @@
   }
   function hitTest(wx, wy) {
     var i;
+    var touch = viewW > 0 && viewW < 900; // finger-friendly tolerances on small screens
+    var tolNode = touch ? Math.max(16, 24 / cam.z) : 16;
+    var tolLink = touch ? Math.max(7, 12 / cam.z) : 7;
     var nodes = (state && state.nodes) || [];
     for (i = nodes.length - 1; i >= 0; i--) {
-      if (dist(wx, wy, nodes[i].x, nodes[i].y) <= 16) return { kind: 'node', id: nodes[i].id };
+      if (dist(wx, wy, nodes[i].x, nodes[i].y) <= tolNode) return { kind: 'node', id: nodes[i].id };
     }
     var pts = getInstallPoints();
     for (i = pts.length - 1; i >= 0; i--) {
-      if (dist(wx, wy, pts[i].x, pts[i].y) <= 14) return { kind: 'install', id: pts[i].id };
+      if (dist(wx, wy, pts[i].x, pts[i].y) <= tolNode) return { kind: 'install', id: pts[i].id };
     }
     var links = (state && state.links) || [];
     for (i = links.length - 1; i >= 0; i--) {
       var a = endPoint(state, links[i].from != null ? links[i].from : links[i].a);
       var b = endPoint(state, links[i].to != null ? links[i].to : links[i].b);
       if (!a || !b) continue;
-      if (pointSegDist(wx, wy, a.x, a.y, b.x, b.y) <= 7) return { kind: 'link', id: links[i].id };
+      if (pointSegDist(wx, wy, a.x, a.y, b.x, b.y) <= tolLink) return { kind: 'link', id: links[i].id };
     }
     var bs = getBuildings();
     for (i = bs.length - 1; i >= 0; i--) {
@@ -906,8 +913,11 @@
       pinchDist = dist(p1.x, p1.y, p2.x, p2.y);
       pinchMid = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
       dragging = false;
+      pinched = true;
     } else {
       dragging = true; dragMoved = false; lastPX = p.x; lastPY = p.y;
+      downX = p.x; downY = p.y;
+      if (ids.length === 1) pinched = false;
     }
   }
   function onPointerMove(e) {
@@ -937,7 +947,7 @@
     }
     if (dragging) {
       var dx = p.x - lastPX, dy = p.y - lastPY;
-      if (Math.abs(p.x - lastPX) + Math.abs(p.y - lastPY) > 0 && (Math.abs(dx) > 2 || Math.abs(dy) > 2)) dragMoved = true;
+      if (dist(p.x, p.y, downX, downY) > 6) dragMoved = true; // cumulative movement from touch-down
       camT.x -= dx / camT.z; camT.y -= dy / camT.z;
       cam.x = camT.x; cam.y = camT.y;
       lastPX = p.x; lastPY = p.y;
@@ -956,7 +966,10 @@
     if (Object.keys(pointers).length < 2) { pinchDist = 0; pinchMid = null; }
     dragging = false;
     canvas.style.cursor = placementMode ? 'crosshair' : 'grab';
-    if (wasDrag) return; // it was a pan, not a click
+    if (wasDrag || pinched) { // it was a pan/pinch, not a tap
+      if (Object.keys(pointers).length === 0) { pinched = false; dragMoved = false; }
+      return;
+    }
     var w = screenToWorld(p.x, p.y);
     if (placementMode) {
       if (cb.onPlace) cb.onPlace(Math.round(w.x), Math.round(w.y));
@@ -996,6 +1009,7 @@
     canvas.width = Math.round(viewW * dpr);
     canvas.height = Math.round(viewH * dpr);
   }
+  function onOrientation() { setTimeout(resize, 60); setTimeout(resize, 300); }
   function loop(ts) {
     if (!lastTs) lastTs = ts;
     animT += Math.min(0.1, (ts - lastTs) / 1000);
@@ -1026,6 +1040,7 @@
       canvas.addEventListener('wheel', onWheel, { passive: false });
       canvas.addEventListener('dblclick', onDblClick);
       global.addEventListener('resize', resize);
+      global.addEventListener('orientationchange', onOrientation);
       if (rafId) cancelAnimationFrame(rafId);
       lastTs = 0;
       rafId = global.requestAnimationFrame(loop);
@@ -1063,6 +1078,7 @@
 
     panTo: function (wx, wy) { camT.x = wx; camT.y = wy; },
     zoomTo: function (z) { camT.z = clamp(z, 0.15, 3.5); },
+    zoomBy: function (f) { camT.z = clamp(camT.z * f, 0.15, 3.5); },
     fit: fitCamera,
     resize: resize,
     draw: draw,
@@ -1079,6 +1095,7 @@
         canvas.removeEventListener('dblclick', onDblClick);
       }
       global.removeEventListener('resize', resize);
+      global.removeEventListener('orientationchange', onOrientation);
     }
   };
 
