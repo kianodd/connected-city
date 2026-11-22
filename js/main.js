@@ -153,7 +153,6 @@
       state = newGame();
       GameUI.setState(state); if (CityMap.setState) CityMap.setState(state);
       setSpeed(0);
-      GameUI.showTutorial(0);
       GameUI.toast('بازی جدید شروع شد.', 'success');
     });
 
