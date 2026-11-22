@@ -58,7 +58,7 @@
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   }
 
-  const ACCESS_TYPES = ['cell_2g', 'cell_3g', 'cell_4g', 'cell_5g', 'fwa_ap', 'wifi_ap', 'ftth', 'sat_terminal_leo', 'sat_terminal_geo'];
+  const ACCESS_TYPES = ['cell_2g', 'cell_3g', 'cell_4g', 'cell_5g', 'fwa_ap', 'wifi_ap', 'ftth', 'street_cabinet', 'sat_terminal_leo', 'sat_terminal_geo'];
 
   // گره دسترسی: انواع کلاسیک + هر تجهیز کاتالوگ با دستهٔ access/antenna و فیلد tech
   function isAccessNode(n) {
@@ -377,14 +377,15 @@
     const bAt = buildingAtPoint(state, x, y);
     for (const t of TECH_KEYS) {
       // فیبر دستی است: ساختمان بدون انشعاب فعال سرعت فیبر ندارد؛ با انشعاب، سرعت از گره منبع انشعاب می‌آید
-      let fiberSrc = null;
+      let fiberSrc = null, dropMedium = 'fiber';
       if (t === 'fiber' && bAt) {
-        const st = buildingFiberStatus(state, bAt.id);
+        const st = buildingWiredStatus(state, bAt.id);
         if (st.status !== 'active') {
           out[t] = { speed: 0, nodeId: st.nodeId, nodeName: st.nodeName, reason: 'no_fiber_drop', latency: null };
           continue;
         }
         fiberSrc = nodeById(state, st.nodeId);
+        dropMedium = st.medium || 'fiber';
       }
       const covering = fiberSrc ? [fiberSrc] : state.nodes.filter((n) =>
         techOfNode(n.type) === t && isUsableNode(n) && dist(x, y, n.x, n.y) <= (n.radius || 0) && inWedge(n, x, y));
@@ -413,7 +414,8 @@
         const d = dist(x, y, n.x, n.y);
         const distFactor = 1 - 0.5 * clamp(d / Math.max(1, n.radius || 1), 0, 1);
         const attFactor = wirelessAttFactor(state, t, n.x, n.y, x, y);
-        const speed = Math.round(bottleneck * distFactor * attFactor * congFactor);
+        let speed = Math.round(bottleneck * distFactor * attFactor * congFactor);
+        if (t === 'fiber' && dropMedium === 'copper') speed = Math.min(speed, COPPER_DROP_SPEED); // DSL سقف سرعت دارد
         const latency = latencySum + techLatencyBase(t, n);
         if (!best || speed > best.speed) best = { speed, nodeId: n.id, nodeName: n.name, attFactor, congFactor, distFactor, latency };
       }
@@ -1164,9 +1166,21 @@
     return state.lastFlow;
   }
 
-  // ---------- انشعاب فیبر دستی ساختمان‌ها ----------
-  // ساختمان فقط با انشعاب دستی به منبع فیبر (FTTH/تجمیع/هستهٔ متصل) از فیبر سرویس می‌گیرد؛
+  // ---------- انشعاب سیمی دستی ساختمان‌ها (فیبر/سیم مسی از راه کابینت خیابانی) ----------
+  // ساختمان فقط با انشعاب دستی از راه یک کابینت خیابانی نزدیک به شبکهٔ سیمی وصل می‌شود؛
+  // انشعاب‌های مستقیم قدیمی (بدون کابینت، در ذخیره‌های قبلی) همچنان کار می‌کنند.
+  // هر ساختمان در هر لحظه فقط به یکی از فیبر یا سیم مسی وصل است (نه هر دو).
   // فناوری‌های بی‌سیم همچنان پوشش‌محور و خودکارند.
+  const COPPER_DROP_MAX_DIST = 120; // حداکثر فاصلهٔ انشعاب مسی تا کابینت (واحد نقشه)
+  const COPPER_DROP_SPEED = 100;    // سقف سرعت DSL روی سیم مسی (Mbps)
+  const COPPER_DROP_WEIGHT = 0.5;   // سهم انشعاب مسی در نسبت سرویس سیمی منطقه (کندتر از فیبر)
+  function cabinetPorts(node) {
+    const eq = getEq(node && node.type);
+    return ((eq && eq.ports) || 24) * Math.max(1, (node && node.level) || 1);
+  }
+  function cabinetUsedPorts(state, nodeId) {
+    return (state.fiberDrops || []).filter((x) => x.nodeId === nodeId && (x.status === 'active' || x.status === 'building')).length;
+  }
   function fiberDropFor(state, buildingId) {
     return (state.fiberDrops || []).find((x) => x.buildingId === buildingId) || null;
   }
@@ -1176,57 +1190,92 @@
   function districtFiberRatio(state, d) {
     const bs = (state.buildings || []).filter((b) => b.districtId === d.id);
     if (!bs.length) return 1;
-    const active = activeFiberDropSet(state);
-    return bs.filter((b) => active.has(b.id)).length / bs.length;
+    const byBuilding = new Map((state.fiberDrops || []).filter((x) => x.status === 'active').map((x) => [x.buildingId, x.medium || 'fiber']));
+    let w = 0;
+    for (const b of bs) {
+      const m = byBuilding.get(b.id);
+      if (m === 'fiber') w += 1;
+      else if (m === 'copper') w += COPPER_DROP_WEIGHT;
+    }
+    return w / bs.length;
+  }
+  function buildingWiredStatus(state, buildingId) {
+    const fd = fiberDropFor(state, buildingId);
+    if (!fd) return { status: 'none', medium: null, nodeId: null, nodeName: null };
+    const n = nodeById(state, fd.nodeId);
+    return { status: fd.status, medium: fd.medium || 'fiber', nodeId: fd.nodeId, nodeName: n ? n.name : null };
   }
   function buildingFiberStatus(state, buildingId) {
-    const fd = fiberDropFor(state, buildingId);
-    if (!fd) return { status: 'none', nodeId: null, nodeName: null };
-    const n = nodeById(state, fd.nodeId);
-    return { status: fd.status, nodeId: fd.nodeId, nodeName: n ? n.name : null };
+    return buildingWiredStatus(state, buildingId);
   }
   function fiberSourceNodes(state) {
     return (state.nodes || []).filter((n) =>
       (n.type === 'ftth' || n.type === 'aggregation' || n.type === 'core_router') && n.connected && isUsableNode(n));
   }
-  function connectBuildingFiber(state, buildingId, nodeId) {
+  function cabinetSourceNodes(state) {
+    return (state.nodes || []).filter((n) => n.type === 'street_cabinet' && n.connected && isUsableNode(n));
+  }
+  function connectBuildingWired(state, buildingId, nodeId, medium) {
+    medium = medium === 'copper' ? 'copper' : 'fiber';
+    const mediumFa = medium === 'copper' ? 'سیم مسی' : 'فیبر';
     const b = (state.buildings || []).find((x) => x.id === buildingId);
     if (!b) return { ok: false, error: 'ساختمان پیدا نشد.' };
-    if (fiberDropFor(state, buildingId)) return { ok: false, error: 'این ساختمان قبلاً به فیبر وصل شده است.' };
+    if (fiberDropFor(state, buildingId)) return { ok: false, error: 'این ساختمان قبلاً به شبکهٔ سیمی وصل شده است؛ برای تغییر نوع اتصال اول اتصال فعلی را قطع کنید.' };
     const cx = b.x + (b.w || 26) / 2, cy = b.y + (b.h || 20) / 2;
     let src = nodeId ? nodeById(state, nodeId) : null;
-    if (nodeId && !(src && src.connected && isUsableNode(src) && ['ftth', 'aggregation', 'core_router'].includes(src.type))) {
-      return { ok: false, error: 'این گره منبع فیبر معتبر نیست؛ یک گره FTTH/تجمیع/هستهٔ متصل به شبکه انتخاب کنید.' };
+    if (nodeId) {
+      if (!src || src.type !== 'street_cabinet') {
+        return { ok: false, error: 'انشعاب سیمی فقط از راه کابینت خیابانی انجام می‌شود؛ یک کابینت نزدیک ساختمان انتخاب کنید.' };
+      }
+      if (!isUsableNode(src) || !src.connected) {
+        return { ok: false, error: 'این کابینت به شبکه وصل نیست؛ اول کابینت را به تجمیع/هسته وصل کنید.' };
+      }
     }
     if (!src) {
       let bd = Infinity;
-      for (const n of fiberSourceNodes(state)) {
+      for (const n of cabinetSourceNodes(state)) {
         const dd = dist(cx, cy, n.x, n.y);
-        if (dd < bd) { bd = dd; src = n; }
+        const lim = medium === 'copper' ? COPPER_DROP_MAX_DIST : (n.radius || 180);
+        if (dd <= lim && dd < bd) { bd = dd; src = n; }
       }
     }
-    if (!src) return { ok: false, error: 'منبع فیبر متصل (FTTH/تجمیع/هسته) در دسترس نیست؛ اول یک گره فیبر بسازید و به شبکه وصل کنید.' };
+    if (!src) return { ok: false, error: 'کابینت خیابانی متصل در برد این ساختمان نیست؛ اول یک کابینت نزدیک ساختمان بسازید و به شبکه وصل کنید.' };
     const dd = dist(cx, cy, src.x, src.y);
-    const cost = 600 + Math.round(dd * 1.2);
-    const workDays = 1 + Math.floor(dd / 400);
-    if (state.cash < cost) return { ok: false, error: 'بودجه کافی برای اتصال فیبر نیست. هزینه: ' + cost };
+    const lim = medium === 'copper' ? COPPER_DROP_MAX_DIST : (src.radius || 180);
+    if (dd > lim) {
+      return { ok: false, error: medium === 'copper'
+        ? 'فاصله تا کابینت برای سیم مسی زیاد است (حداکثر ' + COPPER_DROP_MAX_DIST + ' واحد).'
+        : 'فاصله تا کابینت برای انشعاب فیبر زیاد است.' };
+    }
+    if (cabinetUsedPorts(state, src.id) >= cabinetPorts(src)) {
+      return { ok: false, error: 'پورت‌های این کابینت پر شده است؛ کابینت را ارتقا دهید یا کابینت دیگری بسازید.' };
+    }
+    const cost = medium === 'copper' ? 300 + Math.round(dd * 0.6) : 600 + Math.round(dd * 1.2);
+    const workDays = medium === 'copper' ? 1 + Math.floor(dd / 600) : 1 + Math.floor(dd / 400);
+    if (state.cash < cost) return { ok: false, error: 'بودجه کافی برای اتصال ' + mediumFa + ' نیست. هزینه: ' + cost };
     state.cash -= cost;
     state.totalCosts = (state.totalCosts || 0) + cost;
     if (!Array.isArray(state.fiberDrops)) state.fiberDrops = [];
     if (state.counters.fiberDrop == null) state.counters.fiberDrop = 0;
-    const drop = { id: 'fd' + (++state.counters.fiberDrop), buildingId, nodeId: src.id, status: 'building', work: workDays };
+    const drop = { id: 'fd' + (++state.counters.fiberDrop), buildingId, nodeId: src.id, medium, status: 'building', work: workDays };
     state.fiberDrops.push(drop);
-    log(state, 'اتصال فیبر ساختمان به «' + (src.name || 'منبع فیبر') + '» شروع شد (' + workDays + ' روز).', 'build');
+    log(state, 'اتصال ' + mediumFa + ' ساختمان به «' + (src.name || 'کابینت') + '» شروع شد (' + workDays + ' روز).', 'build');
     refreshConnectivity(state);
-    return { ok: true, cost, days: workDays, nodeId: src.id, nodeName: src.name };
+    return { ok: true, cost, days: workDays, nodeId: src.id, nodeName: src.name, medium };
   }
-  function disconnectBuildingFiber(state, buildingId) {
+  function connectBuildingFiber(state, buildingId, nodeId) {
+    return connectBuildingWired(state, buildingId, nodeId, 'fiber');
+  }
+  function disconnectBuildingWired(state, buildingId) {
     const before = (state.fiberDrops || []).length;
     state.fiberDrops = (state.fiberDrops || []).filter((x) => x.buildingId !== buildingId);
-    if (state.fiberDrops.length === before) return { ok: false, error: 'این ساختمان انشعاب فیبر ندارد.' };
-    log(state, 'انشعاب فیبر ساختمان قطع شد.', 'build');
+    if (state.fiberDrops.length === before) return { ok: false, error: 'این ساختمان انشعاب سیمی ندارد.' };
+    log(state, 'انشعاب سیمی ساختمان قطع شد.', 'build');
     refreshConnectivity(state);
     return { ok: true };
+  }
+  function disconnectBuildingFiber(state, buildingId) {
+    return disconnectBuildingWired(state, buildingId);
   }
   function buildingAtPoint(state, x, y) {
     return (state.buildings || []).find((b) => x >= b.x && x <= b.x + (b.w || 26) && y >= b.y && y <= b.y + (b.h || 20)) || null;
@@ -2503,7 +2552,7 @@
           const selfCovered = !b.districtId && ftths.some((n) => dist(cx, cy, n.x, n.y) <= (n.radius || 0) && inWedge(n, cx, cy));
           if (inCoveredDistrict || selfCovered) {
             const src = nearestFtth(cx, cy);
-            if (src) state.fiberDrops.push({ id: 'fd' + (++state.counters.fiberDrop), buildingId: b.id, nodeId: src.id, status: 'active', work: 0 });
+            if (src) state.fiberDrops.push({ id: 'fd' + (++state.counters.fiberDrop), buildingId: b.id, nodeId: src.id, medium: 'fiber', status: 'active', work: 0 });
           }
         }
       }
@@ -2580,6 +2629,7 @@
     demolishNode, moveNode, isValidPlacement, hireStaff, fireStaff, staffEffects, updatePackage, applyFix,
     upgradeNode, upgradeInfo,
     refreshConnectivity, connectBuildingFiber, disconnectBuildingFiber, buildingFiberStatus, fiberDropFor,
+    connectBuildingWired, disconnectBuildingWired, buildingWiredStatus, cabinetPorts, cabinetUsedPorts, COPPER_DROP_SPEED,
     disconnectLink, linkDisconnectImpact, linksOfNode,
     subscriberStats, buildingServiceStatus, individualTargetFor, CONCURRENCY, INDIVIDUAL_CAP,
     buildingAttenuation, ptpLosFactor,
