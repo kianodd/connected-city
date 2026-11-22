@@ -8,6 +8,8 @@
   var mode = 'select';       // select | place | connect | demolish
   var selectedTool = null;   // equipment id chosen for placement
   var connectFirst = null;   // source node id armed from its detail panel
+  var panelPointerDown = false; // pointer currently down inside detail panel (protect taps from re-render)
+  var lastTapAt = 0; // زمان آخرین ضربه روی نقشه (برای خنثی‌کردن کلیکِ دنباله‌دار همان ضربه روی پاپ‌آپ تازه‌بازشده)
   var connectFromBuilding = null; // building id when arming a fiber drop from the building panel
   var selectedId = null;     // currently inspected node/building id
   var pendingBuild = null;   // {equipId, x, y} awaiting confirm
@@ -19,7 +21,7 @@
 
   var TUTORIAL = [
     { title: 'گام ۱: بررسی نقشه', text: 'به «شبکه‌ساز: شهر متصل» خوش آمدید! روی نقشه مناطق و ساختمان‌ها را ببینید. روی یک ساختمان کلیک کنید تا نیاز آن (کاربران و پهنای باند) نمایش داده شود. با دکمه‌های + و − یا کلیدهای + و − بزرگ‌نمایی کنید.' },
-    { title: 'گام ۲: نصب دستگاه دسترسی', text: 'از پنل «ابزار ساخت» یک دستگاه دسترسی مثل دکل سلولی یا اکسس‌پوینت وای‌فای انتخاب کنید و روی نقشه نزدیک ساختمان‌ها قرار دهید. دستگاه بدون اتصال به شبکه هیچ سرویسی نمی‌دهد!' },
+    { title: 'گام ۲: نصب دستگاه دسترسی', text: 'از پنل «ابزار ساخت» یک دستگاه دسترسی مثل دکل سلولی 2G یا آنتن دسترسی ثابت انتخاب کنید و روی نقشه نزدیک ساختمان‌ها قرار دهید. دستگاه بدون اتصال به شبکه هیچ سرویسی نمی‌دهد! وای‌فای داخل ساختمان را خود مشترک‌ها راه می‌اندازند؛ کار شما رساندن اشتراک به ساختمان‌هاست.' },
     { title: 'گام ۳: اتصال انتقال', text: 'ابزار «اتصال» را انتخاب کنید، روی دستگاه دسترسی و سپس روی یک گره تجمیع کلیک کنید و رسانه (فیبر/مسی/نقطه‌به‌نقطه) را انتخاب کنید تا لینک انتقال ساخته شود.' },
     { title: 'گام ۴: اتصال هسته و دروازه', text: 'زنجیره باید کامل باشد: مشتری ← دسترسی ← تجمیع ← هسته ← دروازه اینترنت. گره تجمیع را به هسته و هسته را به دروازه وصل کنید تا اینترنت به شهر برسد.' },
     { title: 'گام ۵: فعال‌سازی سرویس', text: 'حالا مسیر کامل است و مشتریان آنلاین می‌شوند. از پنل «بسته‌ها» قیمت و سرعت بسته‌ها را تنظیم کنید؛ قیمت بالاتر درآمد بیشتر اما تقاضای کمتر می‌دهد.' },
@@ -33,7 +35,11 @@
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); }
   function faDigits(s) { return String(s == null ? '' : s).replace(/\d/g, function (d) { return '۰۱۲۳۴۵۶۷۸۹'[+d]; }); }
   function fmt1(n) { return (n == null || isNaN(n)) ? '—' : (Math.round(n * 10) / 10).toLocaleString('fa-IR'); }
-  function fmtDays(n) { return (n == null || isNaN(n)) ? '—' : (Math.round(n * 4) / 4).toLocaleString('fa-IR'); } // زمان ساخت با دقت ربع‌روز
+  function fmtDays(n) { // مدت ساخت/نصب: کمتر از یک روز با ساعت، وگرنه روز (با واحد)
+    if (n == null || isNaN(n)) return '—';
+    if (n < 1) return Math.max(1, Math.round(n * 24)).toLocaleString('fa-IR') + ' ساعت';
+    return (Math.round(n * 4) / 4).toLocaleString('fa-IR') + ' روز';
+  }
   function playSound(name) { try { if (window.GameAudio && GameAudio.play) GameAudio.play(name); } catch (e) { /* ignore */ } }
   function districtNameById(id) {
     var d = ((state && state.districts) || []).find(function (x) { return String(x.id) === String(id); });
@@ -221,7 +227,8 @@
         var sel = selectedTool === it.id ? ' selected' : '';
         html += '<button class="build-item' + (locked ? ' locked' : '') + sel + '" data-equip="' + esc(it.id) + '"' + (locked ? ' title="قفل است — ابتدا فناوری لازم را در تحقیق و توسعه باز کنید"' : '') + '>' +
           '<span class="bi-icon">' + (CAT_ICONS[it.category] || ICONS.antenna) + '</span>' +
-          '<span class="bi-main"><span class="bi-name">' + esc(it.name || it.id) + '</span><br><span class="bi-sub">' + esc(it.description || '') + '</span></span>' +
+          '<span class="bi-main"><span class="bi-name">' + esc(it.name || it.id) + '</span><br><span class="bi-sub">' + esc(it.description || '') + '</span>' +
+          (connectsText(it) ? '<br><span class="bi-conn">اتصال‌ها: ' + esc(connectsText(it)) + '</span>' : '') + '</span>' +
           (locked ? '<span class="lock">' + ICONS.lock + '</span>' : '<span class="bi-cost">' + fmt(it.cost || 0) + '</span>') +
           '<span class="bi-info" data-guide="' + esc(it.id) + '" title="راهنمای این تجهیز" role="button" aria-label="راهنما">' + ICONS.info + '</span>' +
           '</button>';
@@ -240,6 +247,29 @@
   }
 
   /* ---------- راهنمای تجهیزات و فناوری‌ها ---------- */
+  var CONN_MEDIUM_FA = { fiber: 'فیبر', copper: 'سیم مسی', ptp: 'نقطه‌به‌نقطه', wireless: 'بی‌سیم', satellite: 'ماهواره‌ای', internet: 'اینترنت', power: 'برق', tools: 'ابزار' };
+  // متن «اتصال‌ها» از مشخصهٔ connects تجهیز ساخته می‌شود (همان منبعی که اعتبارسنجی سیم‌کشی می‌خواند)
+  function connectsText(eq) {
+    var spec = (eq && eq.connects) || [];
+    if (!spec.length) return '';
+    var parts = [];
+    var nodeMedia = spec.filter(function (c) {
+      return (c.targets || []).indexOf('node') >= 0 && (c.direction === 'both' || c.direction === 'upstream') && c.medium !== 'power' && c.medium !== 'tools';
+    }).map(function (c) { return CONN_MEDIUM_FA[c.medium] || c.medium; });
+    if (nodeMedia.length) parts.push('لینک با گره‌های شبکه: ' + nodeMedia.join('، '));
+    if (spec.some(function (c) { return c.medium === 'satellite' && c.direction === 'upstream'; })) parts.push('لینک ماهواره‌ای به دروازه زمینی');
+    if (spec.some(function (c) { return c.medium === 'satellite' && c.direction === 'downstream'; })) parts.push('لینک ماهواره‌ای از پایانه‌ها');
+    var bld = spec.filter(function (c) { return (c.targets || []).indexOf('building') >= 0 && !c.legacy; });
+    var bldLegacy = spec.some(function (c) { return (c.targets || []).indexOf('building') >= 0 && c.legacy; });
+    if (bld.length) parts.push('انشعاب به ساختمان‌ها: ' + bld.map(function (c) { return CONN_MEDIUM_FA[c.medium] || c.medium; }).join(' یا ') + (eq.ports ? ' (تا ' + fmt(eq.ports) + ' پورت در سطح ۱)' : ''));
+    if (bldLegacy) parts.push('انشعاب مستقیم قدیمی ساختمان‌ها (انشعاب جدید از کابینت خیابانی)');
+    if (spec.some(function (c) { return c.medium === 'wireless' && c.direction === 'service'; })) parts.push('خدمت بی‌سیم به مشترک‌ها');
+    if (spec.some(function (c) { return c.medium === 'internet'; })) parts.push('اتصال به اینترنت جهانی');
+    if (spec.some(function (c) { return c.medium === 'power'; })) parts.push('پشتیبانی برق گره‌های اطراف (بدون لینک شبکه)');
+    if (spec.some(function (c) { return c.medium === 'tools'; })) parts.push('ابزار تیم فنی (بدون لینک شبکه)');
+    if (!bld.length && !bldLegacy && eq.category === 'core') parts.push('به ساختمان مستقیم وصل نمی‌شود (از کابینت خیابانی استفاده کنید)');
+    return parts.join(' — ');
+  }
   function techNameForEquip(item) {
     var techs = (window.GAME_DATA && (GAME_DATA.techList || GAME_DATA.techs)) || [];
     techs = Array.isArray(techs) ? techs : Object.values(techs);
@@ -258,8 +288,9 @@
       '<dt>هزینه ماهانه</dt><dd>' + fmt(item.monthlyCost || 0) + ' تومان</dd>' +
       '<dt>ظرفیت</dt><dd>' + fmt(item.capacity || 0) + ' Mbps</dd>' +
       (item.radius ? '<dt>برد/پوشش</dt><dd>' + fmt(item.radius) + '</dd>' : '') +
-      '<dt>زمان ساخت</dt><dd>' + fmtDays(item.buildDays || 0) + ' روز</dd>' +
+      '<dt>ساخت</dt><dd>آنی</dd>' +
       '</dl>';
+    if (connectsText(item)) html += '<h5>اتصال‌ها</h5><p class="guide-text">' + esc(connectsText(item)) + '</p>';
     if (locked) html += '<div class="warn-box">' + ICONS.lock + ' این تجهیز قفل است. برای باز شدن، تحقیق «' + esc(techNameForEquip(item)) + '» را در بخش تحقیق و توسعه انجام دهید.</div>';
     $('guide-body').innerHTML = html;
     $('guide-popover').classList.remove('hidden');
@@ -267,12 +298,13 @@
   /* ---------- تست سرعت در نقطه‌ای از نقشه ---------- */
   var SPEED_REASON_FA = {
     no_coverage: 'خارج از پوشش', unconnected: 'گره متصل نیست', congestion: 'ازدحام مسیر',
-    distance: 'فاصله زیاد', los: 'ساختمان‌های مسیر سیگنال را ضعیف کرده‌اند', no_path: 'مسیر تا دروازه نیست', no_fiber_drop: 'به فیبر متصل نیست'
+    distance: 'فاصله زیاد', los: 'ساختمان‌های مسیر سیگنال را ضعیف کرده‌اند', no_path: 'مسیر تا دروازه نیست', no_fiber_drop: 'به فیبر متصل نیست',
+    no_subscription: 'اشتراک ندارد (وای‌فای داخل ساختمان فقط با اشتراک فعال می‌شود)'
   };
   function runSpeedTest(wx, wy) {
     if (!window.GameSim || !GameSim.speedTestAt || !state) return;
     var res = GameSim.speedTestAt(state, wx, wy);
-    var TECH_FA = { fiber: 'فیبر/مسی', cellular: 'سلولار', fwa: 'وایرلس ثابت', wifi: 'وای‌فای', satellite: 'ماهواره' };
+    var TECH_FA = { fiber: 'فیبر/مسی', cellular: 'سلولار', fwa: 'وایرلس ثابت', satellite: 'ماهواره' };
     var html = '<p class="muted">سرعت بالقوه در این نقطه (با اشتراک)، به تفکیک فناوری:</p>';
     ['fiber', 'cellular', 'fwa', 'wifi', 'satellite'].forEach(function (t) {
       var e = res[t] || { speed: 0, reason: 'no_coverage' };
@@ -316,7 +348,7 @@
       place: 'روی نقشه کلیک کنید تا دستگاه نصب شود (Esc برای لغو)',
       connect: 'مقصد اتصال رو انتخاب کن',
       demolish: 'روی گره کلیک کنید تا حذف شود',
-      move: 'روی محل جدید گره کلیک کنید (Esc برای لغو) — گره در مدت جابه‌جایی سرویس نمی‌دهد',
+      move: 'روی محل جدید گره کلیک کنید (Esc برای لغو) — جابه‌جایی آنی است',
       speedtest: 'روی هر نقطه از نقشه کلیک کنید تا سرعت اتصال آنجا سنجیده شود',
       select: ''
     };
@@ -363,8 +395,10 @@
     var list = equipList();
     var c4 = list.find(function (i) { return i.id === 'cell_4g'; });
     if (c4 && isUnlocked(c4)) return 'cell_4g';
-    var wf = list.find(function (i) { return i.id === 'wifi_ap'; });
-    if (wf && isUnlocked(wf)) return 'wifi_ap';
+    var fw = list.find(function (i) { return i.id === 'fwa_ap'; });
+    if (fw && isUnlocked(fw)) return 'fwa_ap';
+    var c2 = list.find(function (i) { return i.id === 'cell_2g'; });
+    if (c2 && isUnlocked(c2)) return 'cell_2g';
     var anyAccess = list.find(function (i) { return (i.category === 'access') && isUnlocked(i); });
     return anyAccess ? anyAccess.id : null;
   }
@@ -411,9 +445,10 @@
   }
 
   function onPlace(x, y) {
+    lastTapAt = Date.now();
     if (mode === 'move' && moveNodeId != null) {
       var r = (window.GameSim && GameSim.moveNode) ? GameSim.moveNode(state, moveNodeId, x, y) : { ok: false, error: 'جابه‌جایی در این نسخه موجود نیست.' };
-      toast(r && r.ok === false ? (r.error || 'جابه‌جایی انجام نشد.') : 'جابه‌جایی شروع شد؛ گره تا پایان نصب مجدد سرویس نمی‌دهد.', r && r.ok === false ? 'error' : 'success');
+      toast(r && r.ok === false ? (r.error || 'جابه‌جایی انجام نشد.') : 'گره آنی جابه‌جا شد.', r && r.ok === false ? 'error' : 'success');
       if (r && r.ok !== false) { setMode('select'); refresh(); }
       return;
     }
@@ -450,6 +485,7 @@
   }
 
   function onMapSelect(id, kind, wx, wy) {
+    lastTapAt = Date.now();
     if (kind === 'suggestion') {
       var list = pendingSuggestions || [];
       var s = list[id];
@@ -482,7 +518,7 @@
             ? GameSim.connectBuildingWired(state, connectFromBuilding, id, connectWiredMedium)
             : GameSim.connectBuildingFiber(state, connectFromBuilding, id);
           if (rf && rf.ok === false) { toast(rf.error || 'اتصال سیمی انجام نشد.', 'error'); return; } // stay armed
-          toast('اتصال ' + (connectWiredMedium === 'copper' ? 'سیم مسی' : 'فیبر') + ' شروع شد؛ حدود ' + fmt(rf.days) + ' روز طول می‌کشد.', 'success');
+          toast('اتصال ' + (connectWiredMedium === 'copper' ? 'سیم مسی' : 'فیبر') + ' آنی برقرار شد.', 'success');
           setMode('select');
           refresh();
         }
@@ -537,7 +573,7 @@
   /* ---------- Detail panel ---------- */
   var STATUS_FA = {
     active: 'فعال', building: 'در حال ساخت', failed: 'خراب', unconnected: 'متصل‌نشده',
-    congested: 'شلوغ', cut: 'قطع', repairing: 'در حال تعمیر', upgrading: 'در حال ارتقا', online: 'آنلاین', offline: 'آفلاین'
+    congested: 'شلوغ', cut: 'قطع', repairing: 'در حال تعمیر', upgrading: 'در حال ارتقا', changing: 'در حال تغییر نوع', online: 'آنلاین', offline: 'آفلاین'
   };
   function findNode(id) {
     if (!state) return null;
@@ -560,7 +596,6 @@
       if (window.GameSim && typeof GameSim.techOfNode === 'function') return GameSim.techOfNode(n.type);
     } catch (e) { /* ignore */ }
     var t = String(n.type || '').toLowerCase();
-    if (t.indexOf('wifi') >= 0 || t.indexOf('ap') >= 0) return 'wifi';
     if (t.indexOf('cell') >= 0 || t.indexOf('rru') >= 0 || t.indexOf('ant') >= 0) return 'cellular';
     if (t.indexOf('fwa') >= 0 || t.indexOf('cpe') >= 0) return 'fwa';
     if (t.indexOf('sat') >= 0) return 'satellite';
@@ -697,10 +732,12 @@
       if (svc && svc.found) {
         var svcHtml;
         if (svc.individualsSubscribed > 0) svcHtml = '<span class="status-ok">دارای مشترک (' + fmt(svc.individualsSubscribed) + ' نفر)</span>';
+        else if (svc.wifi) svcHtml = '<span class="status-ok">اشتراک سیمی فعال (انشعاب متصل است)</span>';
         else if (svc.covered && svc.connected) svcHtml = '<span class="status-warn">تحت پوشش — اشتراک ندارد (سرویس فقط با اشتراک فعال می‌شود)</span>';
         else if (svc.covered) svcHtml = '<span class="status-warn">تحت پوشش گرهٔ متصل‌نشده — سرویسی ارائه نمی‌شود</span>';
         else svcHtml = '<span class="status-bad">خارج از پوشش</span>';
         html += '<h5>وضعیت سرویس</h5><p>' + svcHtml + '</p>';
+        html += '<p class="muted">وای‌فای داخلی ساختمان: ' + (svc.wifi ? '<span class="status-ok">فعال (اکسس‌پوینت خود مشترک)</span>' : 'غیرفعال — فقط با اشتراک فعال می‌شود') + '</p>';
       }
       var bIndiv = (state.individuals || []).filter(function (p) { return String(p.buildingId) === String(n.id); });
       html += '<h5>ساکنان ساختمان</h5>' + individualsHtml(bIndiv, 'ساکنی برای این ساختمان ثبت نشده است.', { key: 'b:' + n.id });
@@ -747,17 +784,62 @@
       var la = (state.nodes || []).find(function (x) { return String(x.id) === String(n.from); });
       var lb = (state.nodes || []).find(function (x) { return String(x.id) === String(n.to); });
       var medName = ((window.GAME_DATA && GAME_DATA.linkMedia && GAME_DATA.linkMedia[n.medium]) || {}).name || n.medium || 'ارتباطی';
+      var linkLevel = n.level || 1;
       html += '<dl class="kv">' +
         '<dt>نوع اتصال</dt><dd>' + esc(medName) + (n.isBackup ? ' (پشتیبان)' : '') + '</dd>' +
         '<dt>از</dt><dd>' + esc((la && la.name) || '—') + '</dd>' +
         '<dt>به</dt><dd>' + esc((lb && lb.name) || '—') + '</dd>' +
+        '<dt>سطح لینک</dt><dd>' + fmt(linkLevel) + ' از ' + fmt((window.GameSim && GameSim.LINK_MAX_LEVEL) || 5) + '</dd>' +
         '<dt>ظرفیت</dt><dd>' + fmt(n.capacity || 0) + ' Mbps</dd>' +
         '<dt>مصرف فعلی</dt><dd>' + fmt(Math.round(n.usage || 0)) + ' Mbps</dd>' +
         '<dt>وضعیت</dt><dd>' + esc(STATUS_FA[n.status] || n.status || '—') + '</dd>' +
-        '</dl>' +
-        '<div class="fix-btns" style="margin-top:10px">' + disconnectBtnHtml(n.id) + '</div>';
+        '</dl>';
+      // تغییر نوع لینک
+      var chOpts = [];
+      try { chOpts = (window.GameSim && GameSim.linkChangeOptions) ? GameSim.linkChangeOptions(state, n.id) : []; } catch (e) { chOpts = []; }
+      if (chOpts.length) {
+        html += '<h5>تغییر نوع لینک</h5><div class="link-opts">';
+        chOpts.forEach(function (o) {
+          html += '<button class="btn sm" data-link-medium="' + esc(o.medium) + '" data-link="' + esc(n.id) + '"' + (o.ok ? '' : ' disabled title="' + esc(o.reason) + '"') + '>' +
+            esc(o.name) + ' — ' + fmt(o.capacity) + ' Mbps' + (o.current ? ' (فعلی)' : ' — ' + fmt(o.cost) + ' تومان (آنی)') +
+            (o.ok || o.current ? '' : '<br><span class="muted">' + esc(o.reason) + '</span>') + '</button>';
+        });
+        html += '</div>';
+      }
+      // ارتقای ظرفیت + پشتیبان + قطع
+      var maxLevel = (window.GameSim && GameSim.LINK_MAX_LEVEL) || 5;
+      html += '<div class="fix-btns" style="margin-top:10px">';
+      if (linkLevel < maxLevel && window.GameSim && GameSim.linkCapacityFor) {
+        var nextCap = GameSim.linkCapacityFor(n.medium, linkLevel + 1);
+        html += '<button class="btn sm primary" data-link-upgrade="' + esc(n.id) + '">ارتقای ظرفیت به ' + fmt(nextCap) + ' Mbps (آنی)</button>';
+      } else if (linkLevel >= maxLevel) {
+        html += '<span class="muted">لینک در حداکثر سطح است.</span>';
+      }
+      html += '<button class="btn sm" data-link-backup="' + esc(n.id) + '">' + (n.isBackup ? 'تبدیل به لینک اصلی' : 'تبدیل به لینک پشتیبان') + '</button>';
+      html += disconnectBtnHtml(n.id) + '</div>';
       box.innerHTML = html;
       wireDisconnectButtons(box);
+      box.querySelectorAll('[data-link-medium]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var r = GameSim.changeLinkMedium(state, btn.getAttribute('data-link'), btn.getAttribute('data-link-medium'));
+          toast(r && r.ok === false ? (r.error || 'تغییر انجام نشد.') : 'نوع لینک آنی تغییر کرد.', r && r.ok === false ? 'error' : 'success');
+          refresh();
+        });
+      });
+      box.querySelectorAll('[data-link-upgrade]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var r = GameSim.upgradeLink(state, btn.getAttribute('data-link-upgrade'));
+          toast(r && r.ok === false ? (r.error || 'ارتقا انجام نشد.') : 'ظرفیت لینک آنی ارتقا یافت.', r && r.ok === false ? 'error' : 'success');
+          refresh();
+        });
+      });
+      box.querySelectorAll('[data-link-backup]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var r = GameSim.toggleLinkBackup(state, btn.getAttribute('data-link-backup'));
+          toast(r && r.ok === false ? (r.error || 'انجام نشد.') : (r.isBackup ? 'لینک پشتیبان شد.' : 'لینک اصلی شد.'), r && r.ok === false ? 'error' : 'success');
+          refresh();
+        });
+      });
       return;
     }
     if (found.kind === 'district') {
@@ -790,12 +872,12 @@
       var td = n.techDemand;
       if (!td && window.GameSim && GameSim.computeTechDemand) td = GameSim.computeTechDemand(n, [], 1);
       if (td) {
-        var TECH_FA = { fiber: 'فیبر/مسی', cellular: 'سلولار', fwa: 'وایرلس ثابت', wifi: 'وای‌فای', satellite: 'ماهواره' };
+        var TECH_FA = { fiber: 'فیبر/مسی', cellular: 'سلولار', fwa: 'وایرلس ثابت', satellite: 'ماهواره' };
         // همان رنگ‌های لایهٔ «تقاضای فناوری» روی نقشه (map.js TECH_TINT)
-        var TECH_COLOR = { fiber: '#22d3ee', cellular: '#3fb950', fwa: '#fb923c', wifi: '#a78bfa', satellite: '#e879f9' };
+        var TECH_COLOR = { fiber: '#22d3ee', cellular: '#3fb950', fwa: '#fb923c', satellite: '#e879f9' };
         var totalD = Math.max(1, n.demand || 0);
         html += '<h5>ترافیک به تفکیک فناوری</h5>';
-        ['fiber', 'cellular', 'fwa', 'wifi', 'satellite'].forEach(function (t) {
+        ['fiber', 'cellular', 'fwa', 'satellite'].forEach(function (t) {
           var e = td[t] || { demand: 0, served: 0 };
           var share = Math.round((e.demand || 0) / totalD * 100);
           var pct = e.demand > 0 ? Math.min(100, Math.round((e.served || 0) / e.demand * 100)) : 0;
@@ -831,6 +913,10 @@
       var usedPorts = GameSim.cabinetUsedPorts ? GameSim.cabinetUsedPorts(state, n.id) : 0;
       html += '<p>پورت‌های انشعاب: ' + fmt(usedPorts) + ' از ' + fmt(GameSim.cabinetPorts(n)) + ' پورت</p>';
     }
+    var nodeEq = equipList().find(function (i) { return i.id === n.type; });
+    if (nodeEq && connectsText(nodeEq)) {
+      html += '<h5>اتصال‌ها</h5><p class="muted">' + esc(connectsText(nodeEq)) + '</p>';
+    }
     html += '<dl class="kv">';
     if (n.cost != null) html += '<dt>هزینه ساخت</dt><dd>' + fmt(n.cost) + '</dd>';
     if (n.maintenance != null) html += '<dt>نگهداری روزانه</dt><dd>' + fmt(n.maintenance) + '</dd>';
@@ -847,17 +933,17 @@
     if (found.kind === 'node') {
       // channel control for access nodes that have a channel
       if (n.channel != null) {
-        var techKey = nodeTechOf(n) || 'wifi';
+        var techKey = nodeTechOf(n) || 'cellular';
         var sets = (window.GAME_DATA && GAME_DATA.channelSets) || {};
-        var setDef = sets[techKey] || sets.wifi || sets.cellular || {};
+        var setDef = sets[techKey] || sets.cellular || {};
         var labels = setDef.labels || setDef.channels || [];
         var interf = (n.interference != null && !isNaN(n.interference)) ? Math.round(n.interference * 100) : null;
         var interfCls = interf == null ? '' : interf > 60 ? 'status-bad' : interf > 30 ? 'status-warn' : 'status-ok';
         html += '<h5>کانال رادیویی</h5><div class="channel-row"><label>کانال: <select data-channel-select="' + esc(n.id) + '">' +
           (labels.length ? labels.map(function (lb, ci) {
-            var val = (typeof lb === 'object') ? (lb.value != null ? lb.value : ci) : lb;
+            var val = ci + 1; // کانال‌ها در سیم ۱-مبنا هستند؛ مقدار گزینه باید عدد کانال باشد نه برچسب
             var txt = (typeof lb === 'object') ? (lb.label || lb.name || String(val)) : String(lb);
-            return '<option value="' + esc(val) + '"' + (String(val) === String(n.channel) ? ' selected' : '') + '>' + esc(txt) + '</option>';
+            return '<option value="' + esc(val) + '"' + (val === Number(n.channel) ? ' selected' : '') + '>' + esc(txt) + '</option>';
           }).join('') : '<option value="' + esc(n.channel) + '" selected>' + esc(n.channel) + '</option>') +
           '</select></label>' +
           (interf != null ? ' <span class="' + interfCls + '">تداخل: ' + fmt(interf) + '٪</span>' : '') +
@@ -1357,7 +1443,7 @@
       var dis = !hasTech || (state.cash || 0) < cost;
       var reason = !hasTech ? 'نیازمند تحقیق «ماهواره اختصاصی»' : ((state.cash || 0) < cost ? 'نقدینگی کافی نیست' : '');
       return '<div class="contract-card"><h5>' + label + '</h5>' +
-        '<p class="muted">هزینه ' + fmt(cost) + ' تومان — زمان ساخت ' + fmtDays(def.buildDays || 0) + ' روز — ظرفیت ' + fmt(def.capacity || 0) + ' Mbps — عمر ' + fmt(def.lifetimeDays || 0) + ' روز</p>' +
+        '<p class="muted">هزینه ' + fmt(cost) + ' تومان — پرتاب: آنی — ظرفیت ' + fmt(def.capacity || 0) + ' Mbps — عمر ' + fmt(def.lifetimeDays || 0) + ' روز</p>' +
         '<button class="btn sm primary" data-launch="' + kind + '"' + (dis ? ' disabled title="' + esc(reason) + '"' : '') + '>پرتاب</button>' +
         (reason ? ' <span class="muted">' + esc(reason) + '</span>' : '') + '</div>';
     }
@@ -1487,7 +1573,7 @@
         ctx2.font = '11px Vazirmatn, Tahoma, sans-serif';
         ctx2.fillStyle = '#8b949e'; ctx2.textAlign = 'right';
         ctx2.fillText('مشترکان به تفکیک فناوری', w - 8, 14);
-        var techs = [['fiber', '#22d3ee'], ['cellular', '#3fb950'], ['fwa', '#fb923c'], ['wifi', '#a78bfa'], ['satellite', '#e879f9']];
+        var techs = [['fiber', '#22d3ee'], ['cellular', '#3fb950'], ['fwa', '#fb923c'], ['satellite', '#e879f9']];
         var maxV = 1;
         hist.forEach(function (r) { techs.forEach(function (t) { maxV = Math.max(maxV, (r.byTech && r.byTech[t[0]]) || 0); }); });
         var padL = 46, padR = 8, padT = 20, padB = 16;
@@ -1567,7 +1653,8 @@
       }
       lastLogLen = log.length;
     } catch (e2) { /* ignore */ }
-    renderTopbar(); renderBuildMenu(); renderDetail();
+    renderTopbar(); renderBuildMenu();
+    if (!panelPointerDown) renderDetail(); // وسط ضربهٔ کاربر روی پنل، دکمه‌ها عوض نشوند تا کلیک گم نشود
     // re-render open new modals if visible
     try {
       var m;
@@ -1582,6 +1669,20 @@
   /* ---------- Init wiring ---------- */
   function init(getState) {
     state = typeof getState === 'function' ? getState() : getState;
+    var detailPanel = $('panel-detail');
+    if (detailPanel) {
+      detailPanel.addEventListener('pointerdown', function () { panelPointerDown = true; });
+      window.addEventListener('pointerup', function () { panelPointerDown = false; });
+      window.addEventListener('pointercancel', function () { panelPointerDown = false; });
+    }
+    // کلیکِ دنباله‌دار همان ضربه‌ای که پاپ‌آپ/پنل را باز کرده نباید روی دکمه‌هایش بیفتد
+    // (وگرنه منوی رسانه همان لحظه خودش یک گزینه را انتخاب و ناپدید می‌شود)
+    document.addEventListener('click', function (e) {
+      if (Date.now() - lastTapAt < 350 && e.target && e.target.closest &&
+          e.target.closest('#medium-picker, #build-confirm, #delete-confirm, #panel-detail, #speedtest-popover, #guide-popover')) {
+        e.stopPropagation(); e.preventDefault();
+      }
+    }, true);
     $('tool-select').addEventListener('click', function () { selectedTool = null; setMode('select'); renderBuildMenu(); if (isMobile()) $('panel-right').classList.remove('open'); });
     var btnConnectCancel = $('btn-connect-cancel');
     if (btnConnectCancel) btnConnectCancel.addEventListener('click', function () { setMode('select'); toast('حالت اتصال لغو شد.', 'warn'); });
