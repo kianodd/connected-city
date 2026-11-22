@@ -310,3 +310,53 @@ input[type=number]{background:var(--bg);color:var(--text);border:1px solid var(-
 .staff-warn{margin-top:8px;padding:8px 10px;border:1px solid #b45309;background:rgba(180,83,9,.14);border-radius:8px;font-size:12px;line-height:1.9}
 .staff-summary{border-top:1px solid var(--border);padding-top:10px;font-size:14px;font-weight:700}
 .btn.danger{border-color:var(--danger);color:var(--danger)}
+
+/* ---- New feature panels (achievements/contracts/campaigns/constellation/stats) ---- */
+.ach-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px}
+.ach-card{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;text-align:center}
+.ach-card.unlocked{border-color:var(--warn);background:rgba(210,153,34,.08)}
+.ach-card.locked{opacity:.55;filter:grayscale(.5)}
+.ach-card h5{margin:6px 0 4px;font-size:13px}
+.ach-card p{margin:0 0 6px;color:var(--muted);font-size:12px;line-height:1.7}
+.ach-icon{display:inline-flex;justify-content:center;color:var(--warn)}
+.ach-icon .ic{width:30px;height:30px}
+.ach-prog{font-size:11px;margin-top:2px}
+.contract-card{border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;margin-bottom:12px;background:rgba(255,255,255,.02)}
+.contract-card h5{margin:0 0 6px;font-size:14px}
+.neg-form{display:flex;flex-wrap:wrap;gap:8px;align-items:end;margin-top:8px}
+.neg-form label{font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:4px}
+.neg-form input{width:90px}
+.camp-form{display:flex;flex-direction:column;gap:10px;margin-bottom:14px}
+.camp-form label{font-size:13px}
+.camp-form select{background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px;font-family:inherit}
+.camp-districts{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:4px 10px;max-height:180px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:8px 10px}
+.camp-districts label{display:flex;align-items:center;gap:6px;font-size:12px;padding:3px 0;cursor:pointer}
+.camp-districts input{width:16px;height:16px;accent-color:var(--accent)}
+.stats-chart{margin-bottom:14px}
+.chart-canvas{width:100%;height:150px;display:block;background:var(--surface2);border:1px solid var(--border);border-radius:8px}
+#stats-range{background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:5px;font-family:inherit;margin-bottom:10px}
+.channel-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px}
+.channel-row select{background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:5px;font-family:inherit}
+.sector-row{margin-bottom:6px}
+.sector-row label{display:flex;align-items:center;gap:8px;font-size:13px}
+.sector-row input[type=range]{flex:1;accent-color:var(--accent)}
+.indiv-list{margin-bottom:8px}
+.indiv-row{margin-bottom:8px}
+.indiv-head{display:flex;justify-content:space-between;gap:8px;font-size:12px;margin-bottom:2px}
+.pkg-kind{display:inline-block;font-size:11px;padding:1px 7px;border-radius:999px;border:1px solid var(--border);vertical-align:middle}
+.pkg-kind.kind-gaming{border-color:var(--accent2);color:var(--accent2)}
+.pkg-kind.kind-streaming{border-color:#a371f7;color:#a371f7}
+.side-audio{padding:2px 16px 8px}
+.side-audio-row{display:flex;align-items:center;gap:8px;font-size:13px;padding:6px 0}
+.side-audio-row input[type=range]{flex:1;accent-color:var(--accent)}
+.side-audio-row.check{cursor:pointer}
+.side-audio-row.check input{width:18px;height:18px;accent-color:var(--accent)}
+#signal-legend{position:absolute;top:10px;inset-inline-start:10px;z-index:6;background:rgba(13,17,23,.88);border:1px solid var(--border);border-radius:10px;padding:8px 12px;font-size:12px;color:var(--text);pointer-events:none;max-width:230px}
+#signal-legend .signal-bar{height:12px;border-radius:6px;background:linear-gradient(to left,#f85149,#d29922,#3fb950);margin:5px 0 3px}
+#signal-legend .signal-labels{display:flex;justify-content:space-between;font-size:11px;color:var(--muted)}
+@media (max-width:900px){
+  .stats .stat{min-width:0}
+  #ui-clock,#ui-weather,#ui-demand-level{font-size:12px}
+  .neg-form input{width:100%}
+  .neg-form label{flex:1 1 42%}
+}
