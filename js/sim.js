@@ -52,6 +52,11 @@
 
   function nodeById(state, id) { return state.nodes.find((n) => n.id === id) || null; }
   function linkById(state, id) { return state.links.find((l) => l.id === id) || null; }
+  // نام فارسی رسانهٔ لینک برای پیام‌های کاربر
+  function mediumFa(medium) {
+    const info = DATA && DATA.linkMedia && DATA.linkMedia[medium];
+    return (info && info.name) || 'ارتباطی';
+  }
 
   function isUsableNode(n) { return n && (n.status === 'active' || n.status === 'unconnected'); }
   function isUsableLink(l) { return l && (l.status === 'active' || l.status === 'congested'); }
@@ -59,7 +64,7 @@
   // ---------- ساخت بازی جدید ----------
   function newGame(seed) {
     const s = (seed === undefined || seed === null) ? 42 : (seed >>> 0);
-    const hq = (DATA.installPoints || []).find((p) => p.id === 'ip_hq') || { x: 800, y: 600 };
+    const hq = (DATA.installPoints || []).find((p) => p.id === 'ip_hq') || { x: 1600, y: 1200 };
 
     const state = {
       version: 1,
@@ -158,7 +163,7 @@
   function buildNode(state, eqId, x, y, opts) {
     opts = opts || {};
     const eq = getEq(eqId);
-    if (!eq) { log(state, 'تجهیز ناشناخته: ' + eqId, 'error'); return null; }
+    if (!eq) { log(state, 'تجهیز ناشناخته است.', 'error'); return null; }
     if (!isUnlocked(state, eqId)) {
       log(state, 'فناوری لازم برای «' + eq.name + '» هنوز باز نشده است.', 'error');
       return null;
@@ -222,7 +227,7 @@
       usage: 0,
     };
     state.links.push(link);
-    log(state, 'لینک ' + medium + ' بین ' + fromId + ' و ' + toId + ' برقرار شد.', 'build');
+    log(state, 'لینک ' + mediumFa(medium) + ' بین «' + (a.name || 'گره') + '» و «' + (b.name || 'گره') + '» برقرار شد.', 'build');
     return link;
   }
 
@@ -285,7 +290,7 @@
           const t = clamp(((b.x - n.x) * (district.x - n.x) + (b.y - n.y) * (district.y - n.y)) /
             (Math.pow(district.x - n.x, 2) + Math.pow(district.y - n.y, 2) || 1), 0, 1);
           const px = n.x + t * (district.x - n.x), py = n.y + t * (district.y - n.y);
-          if (dist(b.x, b.y, px, py) < 30) { blocked = true; break; }
+          if (dist(b.x, b.y, px, py) < 45) { blocked = true; break; }
         }
       }
       const score = (n.capacity || 0) * (blocked ? 0.35 : 1) / (1 + d / 400);
@@ -472,7 +477,7 @@
       if (backup || altPath) {
         if (backup) backup.status = 'active';
         rerouted = true;
-        log(state, 'لینک ' + cut.id + ' قطع است؛ ترافیک از مسیر پشتیبان عبور می‌کند (اولویت با سازمانی و اضطراری).', 'warn');
+        log(state, 'یک لینک ' + mediumFa(cut.medium) + ' قطع است؛ ترافیک از مسیر پشتیبان عبور می‌کند (اولویت با سازمانی و اضطراری).', 'warn');
       }
     }
     state.failoverActive = rerouted;
@@ -481,10 +486,17 @@
   }
 
   // ---------- تولید مشکلات (علت + گزینه رفع برای UI) ----------
+  const PROBLEM_TITLES = {
+    no_coverage: 'نبود پوشش',
+    unconnected: 'گره متصل‌نشده',
+    congestion: 'کمبود ظرفیت',
+    failed_node: 'خرابی گره',
+    link_cut: 'قطع لینک',
+  };
   function buildProblems(state) {
     const problems = [];
     const add = (cause, ref, fixOptions) => {
-      problems.push({ id: 'p' + (++state.counters.problem), cause, ...ref, fixOptions });
+      problems.push({ id: 'p' + (++state.counters.problem), cause, title: PROBLEM_TITLES[cause] || 'مشکل', ...ref, fixOptions });
     };
     for (const d of state.districts) {
       if (d.qos >= 0.5) continue;
@@ -512,7 +524,7 @@
     }
     for (const n of state.nodes) {
       if (n.status === 'failed') {
-        add('failed_node', { nodeId: n.id, message: 'گره ' + n.id + ' (' + n.type + ') خراب شده است.' }, [
+        add('failed_node', { nodeId: n.id, message: 'گره «' + (n.name || 'نامشخص') + '» خراب شده است.' }, [
           { action: 'repair', label: 'تعمیر گره', nodeId: n.id },
           { action: 'replace', label: 'جایگزینی گره', nodeId: n.id },
         ]);
@@ -520,7 +532,7 @@
     }
     for (const l of state.links) {
       if (l.status === 'cut') {
-        add('link_cut', { linkId: l.id, message: 'لینک ' + l.id + ' قطع شده است.' }, [
+        add('link_cut', { linkId: l.id, message: 'یک لینک ' + mediumFa(l.medium) + ' قطع شده است.' }, [
           { action: 'repair_link', label: 'تعمیر لینک', linkId: l.id },
           { action: 'failover', label: 'فعال‌سازی مسیر پشتیبان', linkId: l.id },
           { action: 'build_backup', label: 'ساخت لینک پشتیبان', linkId: l.id },
@@ -540,10 +552,10 @@
       if (fx.action === 'cut') {
         const isHQn = (id) => { const n = nodeById(state, id); return n && (n.type === 'core_router' || n.type === 'internet_gateway'); };
         const cands = state.links.filter((l) => l.status === 'active' && l.medium === 'fiber' && !(isHQn(l.from) && isHQn(l.to)));
-        if (cands.length) { const l = cands[Math.floor(rand(state) * cands.length)]; l.status = 'cut'; detail = 'لینک ' + l.id + ' قطع شد.'; }
+        if (cands.length) { const l = cands[Math.floor(rand(state) * cands.length)]; l.status = 'cut'; detail = 'یک لینک ' + mediumFa(l.medium) + ' قطع شد.'; }
       } else if (fx.action === 'fail') {
         const cands = state.nodes.filter((n) => n.status === 'active' && n.type !== 'internet_gateway' && n.type !== 'core_router');
-        if (cands.length) { const n = cands[Math.floor(rand(state) * cands.length)]; n.status = 'failed'; n.health = 0; detail = 'گره ' + n.id + ' از کار افتاد.'; }
+        if (cands.length) { const n = cands[Math.floor(rand(state) * cands.length)]; n.status = 'failed'; n.health = 0; detail = 'گره «' + (n.name || 'نامشخص') + '» از کار افتاد.'; }
       } else if (fx.action === 'degrade') {
         state.links.filter((l) => l.medium === 'ptp').forEach((l) => { l.capacity = Math.max(50, Math.floor(l.capacity * 0.6)); });
         detail = 'ظرفیت لینک‌های بی‌سیم کم شد.';
@@ -619,7 +631,7 @@
         n.buildTimer -= dtDays;
         if (n.buildTimer <= 0) {
           n.buildTimer = 0; n.status = 'active';
-          log(state, 'ساخت گره ' + n.id + ' (' + n.type + ') تمام شد؛ برای سرویس باید به شبکه وصل شود.', 'build');
+          log(state, 'ساخت «' + (n.name || 'گره') + '» تمام شد؛ برای سرویس باید به شبکه وصل شود.', 'build');
         }
       }
     }
@@ -630,7 +642,7 @@
       if (isHQ(n)) continue;
       if (n.status === 'active' && rand(state) < 0.002 * dtDays) {
         n.status = 'failed'; n.health = 0;
-        log(state, 'گره ' + n.id + ' (' + n.type + ') خراب شد.', 'error');
+        log(state, 'گره «' + (n.name || 'نامشخص') + '» خراب شد.', 'error');
       } else if (n.status === 'active') {
         n.health = clamp(n.health - 0.1 * dtDays, 10, 100);
       }
@@ -639,7 +651,7 @@
       if (isHQ(nodeById(state, l.from)) && isHQ(nodeById(state, l.to))) continue;
       if (l.status === 'active' && rand(state) < 0.001 * dtDays) {
         l.status = 'cut';
-        log(state, 'لینک ' + l.id + ' قطع شد.', 'error');
+        log(state, 'یک لینک ' + mediumFa(l.medium) + ' قطع شد.', 'error');
       }
     }
 
@@ -708,7 +720,7 @@
     state.nodes = state.nodes.filter((x) => x.id !== id);
     state.links = state.links.filter((l) => l.from !== id && l.to !== id);
     state.cash += refund;
-    log(state, 'گره ' + id + ' تخریب شد. بازگشت: ' + refund, 'build');
+    log(state, 'گره «' + (n.name || 'نامشخص') + '» تخریب شد. بازگشت: ' + refund, 'build');
     return { ok: true, refund };
   }
 
@@ -759,7 +771,7 @@
         const cost = eq ? Math.round(eq.cost * 0.1) : 500;
         if (state.cash < cost) return fail('بودجه کافی برای تعمیر نیست.');
         state.cash -= cost; n.status = 'active'; n.health = 85;
-        log(state, 'گره ' + n.id + ' تعمیر شد.', 'repair');
+        log(state, 'گره «' + (n.name || 'نامشخص') + '» تعمیر شد.', 'repair');
         return { ok: true, cost };
       }
       case 'replace': {
@@ -769,7 +781,7 @@
         const cost = eq ? Math.round(eq.cost * 0.25) : 1000;
         if (state.cash < cost) return fail('بودجه کافی برای جایگزینی نیست.');
         state.cash -= cost; n.status = 'active'; n.health = 100;
-        log(state, 'گره ' + n.id + ' جایگزین شد.', 'repair');
+        log(state, 'گره «' + (n.name || 'نامشخص') + '» جایگزین شد.', 'repair');
         return { ok: true, cost };
       }
       case 'repair_link': {
@@ -778,7 +790,7 @@
         const cost = 800;
         if (state.cash < cost) return fail('بودجه کافی برای تعمیر لینک نیست.');
         state.cash -= cost; l.status = 'active';
-        log(state, 'لینک ' + l.id + ' تعمیر شد.', 'repair');
+        log(state, 'لینک ' + mediumFa(l.medium) + ' تعمیر شد.', 'repair');
         return { ok: true, cost };
       }
       case 'connect': {
@@ -818,7 +830,7 @@
         const cost = 15000;
         if (state.cash < cost) return fail('بودجه کافی برای ارتقا نیست.');
         state.cash -= cost; srv.capacity = Math.round(srv.capacity * 1.6);
-        log(state, 'ظرفیت گره ' + srv.id + ' ارتقا یافت.', 'build');
+        log(state, 'ظرفیت گره «' + (srv.name || 'نامشخص') + '» ارتقا یافت.', 'build');
         return { ok: true, cost };
       }
       case 'upgrade_link': {
