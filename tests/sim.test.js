@@ -1366,5 +1366,52 @@ let s1, cell1, link1;
   check('53c در منطقهٔ بی‌سرویس کسی مشترک نمی‌شود', inU.length === 0, 'unservedSubscribed=' + inU.length);
 }
 
+// ---------- 54: مدل سیگنال — ارتفاع فقط PtP را مخدوش می‌کند؛ ساختمان فقط چند درصد افت ----------
+{
+  const s = GameSim.newGame(42);
+  s.cash = 99999999;
+  GameSim.unlockTech(s, 'lte');
+  s.buildings = []; // هندسهٔ کنترل‌شده
+  const core54 = coreOf(s);
+  const A = { x: core54.x - 420, y: core54.y }, B = { x: core54.x - 220, y: core54.y }; // نزدیک هسته تا PtP در برد باشد
+  check('54a بدون ساختمان: افت صفر و PtP سالم',
+    GameSim.buildingAttenuation(s, A.x, A.y, B.x, B.y) === 1 && GameSim.ptpLosFactor(s, A, B) === 1);
+  s.buildings.push({ id: 'bt1', x: core54.x - 333, y: core54.y - 10, w: 26, h: 20, height: 15, type: 'commercial', districtId: null });
+  check('54b یک ساختمان بلند سر راه: افت سلولار فقط ۴٪', Math.abs(GameSim.buildingAttenuation(s, A.x, A.y, B.x, B.y) - 0.96) < 1e-9,
+    'att=' + GameSim.buildingAttenuation(s, A.x, A.y, B.x, B.y));
+  check('54c همان ساختمان بلند، دید PtP را مخدوش می‌کند (×۰٫۳۵)', GameSim.ptpLosFactor(s, A, B) === 0.35);
+  s.buildings.push({ id: 'bt2', x: core54.x - 283, y: core54.y - 10, w: 26, h: 20, height: 3, type: 'residential', districtId: null });
+  check('54d ساختمان کوتاه هم فقط ۴٪ دیگر کم می‌کند (مجموع ۸٪)', Math.abs(GameSim.buildingAttenuation(s, A.x, A.y, B.x, B.y) - 0.92) < 1e-9);
+  s.buildings = s.buildings.filter((b) => b.id !== 'bt1');
+  check('54e بدون ساختمان بلند، PtP سالم است', GameSim.ptpLosFactor(s, A, B) === 1);
+  for (let i = 0; i < 10; i++) s.buildings.push({ id: 'btm' + i, x: core54.x - 410 + i * 18, y: core54.y - 10, w: 26, h: 20, height: 2, type: 'residential', districtId: null });
+  check('54f افت ساختمان‌ها تا سقف ‎−۳۰٪ انباشته می‌شود', Math.abs(GameSim.buildingAttenuation(s, A.x, A.y, B.x, B.y) - 0.70) < 1e-9,
+    'att=' + GameSim.buildingAttenuation(s, A.x, A.y, B.x, B.y));
+  // سیگنال سلولار پشت یک ساختمان بلند: قابل استفاده می‌ماند (نه سایهٔ سخت ۰٫۳۵)
+  s.buildings = [{ id: 'bt1', x: core54.x - 333, y: core54.y - 10, w: 26, h: 20, height: 15, type: 'commercial', districtId: null }];
+  const cell = GameSim.buildNode(s, 'cell_4g', A.x, A.y);
+  finishBuild(s, cell);
+  GameSim.connect(s, cell.id, coreOf(s).id, 'fiber');
+  GameSim.tick(s, 1); keepAlive(s);
+  const sig = GameSim.signalAt(s, B.x, B.y);
+  const base = 1 - 200 / cell.radius;
+  check('54g سیگنال سلولار پشت ساختمان بلند ≈ پایه×۰٫۹۶ و قابل استفاده است',
+    sig.signal > 0.4 * base && Math.abs(sig.signal - base * 0.96) < 0.03,
+    'signal=' + sig.signal.toFixed(3) + ' base=' + base.toFixed(3));
+  // لینک PtP عبوری از ساختمان بلند در تست سرعت گلوگاه می‌شود
+  s.buildings.push({ id: 'bt3', x: core54.x - 123, y: core54.y - 10, w: 26, h: 20, height: 15, type: 'commercial', districtId: null });
+  const relay = GameSim.buildNode(s, 'cell_4g', B.x, B.y);
+  finishBuild(s, relay);
+  GameSim.connect(s, relay.id, coreOf(s).id, 'ptp');
+  GameSim.tick(s, 1); keepAlive(s);
+  // نقطه‌ای که فقط رله پوشش می‌دهد (دکل فیبری در A به آن نمی‌رسد)
+  const stBlocked = GameSim.speedTestAt(s, core54.x + 30, core54.y).cellular;
+  s.buildings = [];
+  const stClear = GameSim.speedTestAt(s, core54.x + 30, core54.y).cellular;
+  check('54h ساختمان بلند سرعت مسیر PtP را به‌طور محسوس کم می‌کند',
+    stBlocked.speed > 0 && stBlocked.speed < stClear.speed * 0.6,
+    'blocked=' + stBlocked.speed + ' clear=' + stClear.speed);
+}
+
 console.log('\nنتیجه: ' + pass + ' پاس، ' + fail + ' رد');
 process.exit(fail ? 1 : 0);
