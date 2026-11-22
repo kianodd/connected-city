@@ -31,7 +31,9 @@
   }
 
   function newGame() {
-    var seed = Math.floor(Math.random() * 1e9);
+    var qs = null;
+    try { qs = new URLSearchParams(location.search).get('seed'); } catch (e) { qs = null; }
+    var seed = (qs != null && qs !== '') ? (parseInt(qs, 10) >>> 0) : Math.floor(Math.random() * 1e9);
     var s = GameSim.newGame(seed);
     s.isNewGame = true;
     return s;
