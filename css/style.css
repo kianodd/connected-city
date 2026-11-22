@@ -94,6 +94,18 @@ button{font-family:inherit}
   position:absolute;top:10px;inset-inline-start:50%;transform:translateX(50%);
   background:rgba(22,27,34,.92);border:1px solid var(--accent);padding:8px 14px;border-radius:8px;font-size:13px;z-index:5;pointer-events:none;
 }
+.connect-cancel{
+  position:absolute;top:52px;inset-inline-start:50%;transform:translateX(50%);z-index:30;
+  min-height:44px;padding:8px 20px;border-radius:22px;font-size:14px;
+  background:var(--surface);border:1px solid var(--accent);box-shadow:0 4px 16px rgba(0,0,0,.5);
+}
+.link-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px dotted var(--border);font-size:13px}
+.link-row .btn{flex:none;min-height:36px}
+.connect-from-btn{display:flex;width:100%;min-height:44px;align-items:center;justify-content:center;gap:6px;margin:8px 0;font-size:15px}
+@media (max-width:900px){
+  .connect-from-btn{min-height:48px}
+  .connect-cancel{top:112px}
+}
 #zoom-controls{position:absolute;bottom:12px;inset-inline-end:12px;display:flex;flex-direction:column;gap:4px;z-index:5}
 
 /* PWA update banner + version line + update dot on the hamburger */
