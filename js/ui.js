@@ -13,9 +13,9 @@
 
   var TUTORIAL = [
     { title: 'گام ۱: بررسی نقشه', text: 'به «شبکه‌ساز: شهر متصل» خوش آمدید! روی نقشه مناطق و ساختمان‌ها را ببینید. روی یک ساختمان کلیک کنید تا نیاز آن (کاربران و پهنای باند) نمایش داده شود. با دکمه‌های + و − یا کلیدهای + و − بزرگ‌نمایی کنید.' },
-    { title: 'گام ۲: نصب دستگاه دسترسی', text: 'از پنل «ابزار ساخت» یک دستگاه دسترسی (Access) مثل DSLAM یا OLT انتخاب کنید و روی نقشه نزدیک ساختمان‌ها قرار دهید. دستگاه بدون اتصال به شبکه هیچ سرویسی نمی‌دهد!' },
-    { title: 'گام ۳: اتصال انتقال (Transport)', text: 'ابزار «اتصال» را انتخاب کنید، روی دستگاه دسترسی و سپس روی یک گره تجمیع (Aggregation) کلیک کنید و رسانه (فیبر/مسی/بی‌سیم) را انتخاب کنید تا لینک انتقال ساخته شود.' },
-    { title: 'گام ۴: اتصال هسته و دروازه', text: 'زنجیره باید کامل باشد: مشتری ← دسترسی ← تجمیع ← هسته (Core) ← دروازه (Gateway). گره تجمیع را به هسته و هسته را به دروازه وصل کنید تا اینترنت به شهر برسد.' },
+    { title: 'گام ۲: نصب دستگاه دسترسی', text: 'از پنل «ابزار ساخت» یک دستگاه دسترسی مثل دکل سلولی یا اکسس‌پوینت وای‌فای انتخاب کنید و روی نقشه نزدیک ساختمان‌ها قرار دهید. دستگاه بدون اتصال به شبکه هیچ سرویسی نمی‌دهد!' },
+    { title: 'گام ۳: اتصال انتقال', text: 'ابزار «اتصال» را انتخاب کنید، روی دستگاه دسترسی و سپس روی یک گره تجمیع کلیک کنید و رسانه (فیبر/مسی/نقطه‌به‌نقطه) را انتخاب کنید تا لینک انتقال ساخته شود.' },
+    { title: 'گام ۴: اتصال هسته و دروازه', text: 'زنجیره باید کامل باشد: مشتری ← دسترسی ← تجمیع ← هسته ← دروازه اینترنت. گره تجمیع را به هسته و هسته را به دروازه وصل کنید تا اینترنت به شهر برسد.' },
     { title: 'گام ۵: فعال‌سازی سرویس', text: 'حالا مسیر کامل است و مشتریان آنلاین می‌شوند. از پنل «بسته‌ها» قیمت و سرعت بسته‌ها را تنظیم کنید؛ قیمت بالاتر درآمد بیشتر اما تقاضای کمتر می‌دهد.' },
     { title: 'گام ۶: بررسی ظرفیت و رفع مشکل', text: 'اگر لینک یا دستگاه اشباع شود، هشدار 🔔 ظاهر می‌شود. روی گره مشکل‌دار کلیک کنید: علت مشکل و گزینه‌های رفع آن (ارتقا، لینک موازی، تغییر رسانه) نمایش داده می‌شود.' },
     { title: 'گام ۷: گسترش به منطقه جدید', text: 'با درآمد حاصل، در مناطق دیگر شهر دستگاه نصب کنید و به شبکه وصل کنید. با «تحقیق و توسعه» فناوری‌های جدید مثل فیبر نوری و 5G را باز کنید.' },
@@ -96,6 +96,7 @@
     return !item.unlockTech && !item.tech;
   }
 
+  var CAT_FA = { cable: 'کابل‌ها', access: 'دسترسی', backhaul: 'انتقال', satellite: 'ماهواره‌ای', core: 'هسته و تجمیع' };
   function renderBuildMenu() {
     var menu = $('build-menu'); if (!menu) return;
     var groups = {};
@@ -105,7 +106,7 @@
     });
     var html = '';
     Object.keys(groups).forEach(function (cat) {
-      html += '<div class="build-cat">' + esc(cat) + '</div>';
+      html += '<div class="build-cat">' + esc(CAT_FA[cat] || cat) + '</div>';
       groups[cat].forEach(function (it) {
         var locked = !isUnlocked(it);
         var sel = selectedTool === it.id ? ' selected' : '';
@@ -226,6 +227,10 @@
   }
 
   /* ---------- Detail panel ---------- */
+  var STATUS_FA = {
+    active: 'فعال', building: 'در حال ساخت', failed: 'خراب', unconnected: 'متصل‌نشده',
+    congested: 'شلوغ', cut: 'قطع', online: 'آنلاین', offline: 'آفلاین'
+  };
   function findNode(id) {
     if (!state) return null;
     var n = (state.nodes || []).find(function (x) { return String(x.id) === String(id); });
@@ -266,7 +271,7 @@
         ? '<p class="status-ok">● متصل به شبکه</p>'
         : '<div class="warn-box">⚠️ متصل نیست — این دستگاه به هسته/دروازه مسیر ندارد و هیچ سرویسی ارائه نمی‌دهد. با ابزار «اتصال» آن را وصل کنید.</div>';
     }
-    if (n.status) html += '<p>وضعیت: ' + esc(n.status) + '</p>';
+    if (n.status) html += '<p>وضعیت: ' + esc(STATUS_FA[n.status] || n.status) + '</p>';
     if (n.capacity != null) {
       var used = n.used || n.usage || 0;
       var pct = n.capacity ? Math.min(100, used / n.capacity * 100) : 0;
@@ -288,7 +293,7 @@
     }
     var problems = (state.problems || []).filter(function (p) { return String(p.nodeId) === String(n.id) || String(p.targetId) === String(n.id); });
     problems.forEach(function (p, i) {
-      html += '<div class="problem-box"><strong>مشکل:</strong> ' + esc(p.cause || p.message || 'نامشخص');
+      html += '<div class="problem-box"><strong>' + esc(p.title || 'مشکل') + ':</strong> ' + esc(p.message || 'نامشخص');
       if (p.fixOptions && p.fixOptions.length) {
         html += '<div class="fix-btns">' + p.fixOptions.map(function (f, j) {
           return '<button class="btn sm" data-fix="' + i + ':' + j + '">' + esc(f.label || f.name || f) + (f.cost != null ? ' (' + fmt(f.cost) + ')' : '') + '</button>';
@@ -409,7 +414,8 @@
   function renderAlerts() {
     var probs = (state && state.problems) || [];
     $('alerts-body').innerHTML = probs.length ? probs.map(function (p) {
-      return '<div class="alert-item"><strong>⚠️ ' + esc(p.title || 'مشکل') + '</strong><br>' + esc(p.cause || p.message || '') +
+      return '<div class="alert-item"><strong>⚠️ ' + esc(p.title || 'مشکل') + '</strong><br>' + esc(p.message || '') +
+        (p.fixOptions && p.fixOptions.length ? '<br><span class="muted">راه‌حل: ' + esc(p.fixOptions.map(function (f) { return f.label || ''; }).filter(Boolean).join('، ')) + '</span>' : '') +
         (p.nodeId != null ? '<br><button class="btn sm" data-goto="' + esc(p.nodeId) + '">مشاهده گره</button>' : '') + '</div>';
     }).join('') : '<p class="muted">هشداری وجود ندارد. شبکه سالم است. ✅</p>';
     $('alerts-body').querySelectorAll('[data-goto]').forEach(function (b) {
