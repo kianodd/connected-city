@@ -9,7 +9,7 @@
      state.nodes[]  {id,x,y,type,status,direction,angle,channel,interference,...}
      state.links[]  {id,from,to,medium,status,usage,capacity,...}
      state.districts[] runtime (id, demand, revenue, qos, ...)
-     state.hour (0..24), state.weather {kind} — optional, for day/night + weather overlays
+     state.hour (0..24), state.weather {kind} — optional, for the weather overlay
      GameSim.signalAt(state,x,y) — optional, for the signal heatmap layer
      GAME_DATA.districts/buildings/installPoints/equipment (global, optional)
    ============================================================ */
@@ -92,21 +92,6 @@
   }
   function isSectorNode(n) {
     return n && typeof n.direction === 'number' && typeof n.angle === 'number' && n.angle < 360 && coverageRadius(n) > 0;
-  }
-  /* ضریب شب از ساعت بازی: ۰ در میانهٔ روز (۱۰ تا ۱۶)، ۱ در عمق شب (۰ تا ۴)،
-     رمپ نرم در سپیده‌دم (۵ تا ۸) و غروب (۱۷ تا ۲۰). */
-  function nightFactorOf(hour) {
-    if (typeof hour !== 'number' || !isFinite(hour)) return 0;
-    var h = ((hour % 24) + 24) % 24;
-    function smooth(t) { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); }
-    if (h >= 10 && h < 16) return 0;
-    if (h >= 0 && h < 4) return 1;
-    if (h >= 4 && h < 5) return 1;
-    if (h >= 5 && h < 8) return 1 - smooth((h - 5) / 3);
-    if (h >= 8 && h < 10) return 0;
-    if (h >= 16 && h < 17) return 0;
-    if (h >= 17 && h < 20) return smooth((h - 17) / 3);
-    return 1; // 20..24
   }
   /* امضای گره‌ها برای ابطال کش هیت‌مپ: تعداد + موقعیت + کانال + جهت/زاویه */
   function nodesSignature() {
@@ -283,16 +268,15 @@
     districts: true, buildings: true, links: true, coverage: true, labels: true,
     cellular: true, fiber: true, copper: true, fwa: true, satellite: true,
     demand: false, traffic: false, failures: true, revenue: false, qos: false, techdemand: false,
-    signal: false, daynight: true, weather: true
+    signal: false, weather: true
   };
 
-  /* ---------- ویژگی‌های جدید: سکشن، هیت‌مپ سیگنال، پیشنهادها، شب/روز، آب‌وهوا ---------- */
+  /* ---------- ویژگی‌های جدید: سکشن، هیت‌مپ سیگنال، پیشنهادها، آب‌وهوا ---------- */
   var suggestions = null; // آرایهٔ نقاط پیشنهادی [{x,y,expectedSubs,expectedCoverage,cost}] یا null
   var sectorDrag = null;  // {nodeId, node} هنگام درگ دستهٔ چرخش سکشن
   var _sectorLastCbTs = 0; // throttle برای onSectorRotate هنگام حرکت
   var _heatCache = null;  // {rectKey, nodesSig, ts, cells:[{x,y,s}]}
   var _heatCam = null;    // آخرین دوربین هنگام محاسبهٔ هیت‌مپ
-  var _windowCache = {};  // buildingId -> [{dx,dy,w,h}] آفست پنجره‌های روشن (قطعی)
   var _wxParticles = null; // ذرات باران/برف (فضای صفحه)
 
   /* ---------- perf: frame cache, viewport culling, static layer ---------- */
@@ -511,7 +495,6 @@
 
     ctx.restore();
 
-    if (layers.daynight) drawNightOverlay();
     if (layers.weather) drawWeather();
     drawHud();
   }
@@ -1416,55 +1399,6 @@
       ctx.strokeRect(s.x - tw / 2 - 6, s.y - rr - 24, tw + 12, 19);
       ctx.fillStyle = '#fde68a';
       ctx.fillText(label, s.x, s.y - rr - 6);
-    }
-    ctx.restore();
-  }
-
-  /* پنجره‌های روشن شب: آفست قطعی از هش شناسهٔ ساختمان، یک‌بار پیش‌محاسبه و کش می‌شود */
-  function buildingWindows(b) {
-    var id = String(b.id != null ? b.id : (b.x + ',' + b.y));
-    if (_windowCache[id]) return _windowCache[id];
-    var seed = 0;
-    for (var i = 0; i < id.length; i++) seed = (seed * 31 + id.charCodeAt(i)) >>> 0;
-    function rnd() { seed = (seed * 1103515245 + 12345) >>> 0; return seed / 4294967296; }
-    var w = b.w || 26, h = b.h || 20;
-    var count = 2 + Math.floor(rnd() * 4); // ۲ تا ۵ پنجره
-    var out = [];
-    for (var k = 0; k < count; k++) {
-      out.push({
-        dx: 2 + rnd() * Math.max(2, w - 7),
-        dy: 2 + rnd() * Math.max(2, h - 6),
-        w: 2.5 + rnd() * 2,
-        h: 2 + rnd() * 1.6,
-        on: rnd() > 0.25
-      });
-    }
-    _windowCache[id] = out;
-    return out;
-  }
-
-  /* پوشش شب (فضای صفحه، بعد از بلیت لایهٔ ثابت): رنگ تیره + پنجره‌های روشن روی آن */
-  function drawNightOverlay() {
-    var nf = nightFactorOf(state && state.hour);
-    if (nf <= 0.01) return;
-    ctx.save();
-    ctx.fillStyle = 'rgba(4,8,24,' + (0.45 * nf).toFixed(3) + ')';
-    ctx.fillRect(0, 0, viewW, viewH);
-    // پنجره‌های گرم ساختمان‌های قابل‌مشاهده (فقط در شب واقعی و زوم کافی)
-    if (nf > 0.25 && cam.z > 0.35) {
-      var bs = getBuildings();
-      var vr = visibleRect(60);
-      ctx.fillStyle = 'rgba(255,205,120,' + (0.55 + 0.4 * nf).toFixed(2) + ')';
-      for (var i = 0; i < bs.length; i++) {
-        var b = bs[i], bw = b.w || 26, bh = b.h || 20;
-        if (b.x + bw < vr.x0 || b.x > vr.x1 || b.y + bh < vr.y0 || b.y > vr.y1) continue;
-        var wins = buildingWindows(b);
-        for (var j = 0; j < wins.length; j++) {
-          if (!wins[j].on) continue;
-          var sp = worldToScreen(b.x + wins[j].dx, b.y + wins[j].dy);
-          ctx.fillRect(sp.x, sp.y, Math.max(1.5, wins[j].w * cam.z), Math.max(1.5, wins[j].h * cam.z));
-        }
-      }
     }
     ctx.restore();
   }
