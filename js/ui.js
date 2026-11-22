@@ -807,11 +807,20 @@
       if (!fx) return 1;
       return r.id === 'technician' ? fx.reqTechs : r.id === 'engineer' ? fx.reqEngs : r.id === 'support' ? fx.reqSups : r.id === 'sales' ? fx.reqSales : 1;
     };
+    // هشدار نبود/کمبود نیرو فقط وقتی شبکه به اندازه‌ای بزرگ شده که آن نقش واقعاً لازم شود
+    var needOf = function (r) {
+      if (!fx) return true;
+      if (r.id === 'technician') return fx.nodeCount >= 4;
+      if (r.id === 'engineer') return fx.linkCount >= 4;
+      if (r.id === 'support') return fx.totalSubs >= 100;
+      if (r.id === 'sales') return fx.servedDistricts >= 2;
+      return true;
+    };
     var html = roles.map(function (r) {
       var c = countOf(r.id), req = reqOf(r);
       var warn = '';
-      if (c === 0) warn = '<div class="staff-warn">' + ICONS.warn + ' ' + esc(r.absence || '') + '</div>';
-      else if (c < req) warn = '<div class="staff-warn">' + ICONS.warn + ' نیرو کم است: شبکهٔ شما به ' + fmt(req) + ' نفر «' + esc(r.name) + '» نیاز دارد و الان ' + fmt(c) + ' نفر دارید؛ اثر این نقش ضعیف‌تر از حالت کامل است.</div>';
+      if (needOf(r) && c === 0) warn = '<div class="staff-warn">' + ICONS.warn + ' ' + esc(r.absence || '') + '</div>';
+      else if (needOf(r) && c < req) warn = '<div class="staff-warn">' + ICONS.warn + ' نیرو کم است: شبکهٔ شما به ' + fmt(req) + ' نفر «' + esc(r.name) + '» نیاز دارد و الان ' + fmt(c) + ' نفر دارید؛ اثر این نقش ضعیف‌تر از حالت کامل است.</div>';
       return '<div class="staff-card">' +
         '<div class="staff-head"><h4>' + esc(r.name) + '</h4>' +
         '<div class="staff-count"><button class="btn sm" data-fire="' + esc(r.id) + '" ' + (c === 0 ? 'disabled' : '') + '>−</button><span class="num">' + fmt(c) + '</span><button class="btn sm" data-hire="' + esc(r.id) + '">+</button></div></div>' +
