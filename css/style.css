@@ -143,6 +143,9 @@ button{font-family:inherit}
 .build-item .bi-main{flex:1}
 .build-item .bi-name{font-size:13px;font-weight:600}
 .build-item .bi-sub{font-size:11px;color:var(--muted)}
+.build-item .bi-conn{font-size:10px;color:var(--muted);line-height:1.5}
+.link-opts{display:flex;flex-direction:column;gap:6px}
+.link-opts .btn{text-align:right;white-space:normal}
 .build-item .bi-cost{font-size:12px;color:var(--accent2);white-space:nowrap}
 .build-item .lock{font-size:13px}
 
@@ -190,6 +193,8 @@ button{font-family:inherit}
   background:var(--surface);border:1px solid var(--accent);border-radius:var(--radius);padding:16px;width:min(360px,92vw);box-shadow:0 12px 40px rgba(0,0,0,.6);
 }
 .popover h4{margin:0 0 8px}
+#medium-picker{z-index:85}
+#medium-options .btn{min-height:44px}
 .row{display:flex;gap:8px;margin-top:12px}
 #modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:50}
 .modal{
