@@ -462,12 +462,14 @@
       else if (best.distFactor < 0.65) reason = 'distance';
       out[t] = { speed: best.speed, nodeId: best.nodeId, nodeName: best.nodeName, reason, latency: best.latency };
     }
-    // وای‌فای داخل ساختمانِ مشترک است: سرعتش = سرعت اشتراک همان ساختمان؛ بدون اشتراک، وای‌فای نیست
+    // وای‌فای داخل ساختمانِ مشترک است: سرعتش = سرعت اشتراک همان ساختمان؛
+    // بدون اشتراک وای‌فای نیست و بدون مسیر واقعی تا دروازه (انشعابِ منبعِ متصل یا پوشش بی‌سیمِ گره متصل) هم سرویسی ندارد
     const subscribed = !!(bAt && buildingHasSubscription(state, bAt));
+    const hasPath = !!(bAt && buildingNetworkPath(state, bAt).hasPath);
     const bestSpeed = Math.max(0, ...TECH_KEYS.map((t) => (out[t] && out[t].speed) || 0));
-    out.wifi = subscribed
+    out.wifi = (subscribed && hasPath)
       ? { speed: bestSpeed, nodeId: null, nodeName: 'اکسس‌پوینت خود مشترک', reason: null, latency: null }
-      : { speed: 0, nodeId: null, nodeName: null, reason: 'no_subscription', latency: null };
+      : { speed: 0, nodeId: null, nodeName: null, reason: subscribed ? 'no_network' : 'no_subscription', latency: null };
     return out;
   }
 
@@ -476,6 +478,30 @@
     if (!b) return false;
     if (buildingWiredStatus(state, b.id).status === 'active') return true;
     return (state.individuals || []).some((p) => String(p.buildingId) === String(b.id) && p.status === 'subscribed');
+  }
+
+  // ساختمان مسیر واقعی انتها‌به‌انتها تا دروازه اینترنت دارد؟
+  // (الف) انشعاب سیمی فعال که گره منبعش (کابینت) خودش به دروازه وصل است، یا
+  // (ب) پوشش بی‌سیم (سلولار/FWA/ماهواره) از گره دسترسیِ متصل به دروازه.
+  // اکسس‌پوینت خصوصی داخل ساختمان فقط با همین مسیر به شبکه وصل می‌شود؛
+  // اشتراک به‌تنهایی (بدون مسیر) هیچ سرویسی نمی‌دهد.
+  function buildingNetworkPath(state, b) {
+    if (!b) return { hasPath: false, via: null, nodeId: null };
+    const st = buildingWiredStatus(state, b.id);
+    if (st.status === 'active' && st.nodeId) {
+      const src = nodeById(state, st.nodeId);
+      if (src && isUsableNode(src) && src.connected) return { hasPath: true, via: 'wired', nodeId: src.id };
+    }
+    const cx = b.x + (b.w || 26) / 2, cy = b.y + (b.h || 20) / 2;
+    for (const n of (state.nodes || [])) {
+      if (!isAccessNode(n) || !isUsableNode(n) || !n.connected) continue;
+      const tech = techOfNode(n.type);
+      if (tech !== 'cellular' && tech !== 'fwa' && tech !== 'satellite') continue;
+      if (dist(cx, cy, n.x, n.y) <= (n.radius || 0) && inWedge(n, cx, cy)) {
+        return { hasPath: true, via: 'wireless', nodeId: n.id };
+      }
+    }
+    return { hasPath: false, via: null, nodeId: null };
   }
 
   // ---------- سیگنال در یک نقطه (ویژگی ۲۳) ----------
@@ -1524,9 +1550,13 @@
   }
   function buildingWiredStatus(state, buildingId) {
     const fd = fiberDropFor(state, buildingId);
-    if (!fd) return { status: 'none', medium: null, nodeId: null, nodeName: null };
+    if (!fd) return { status: 'none', medium: null, nodeId: null, nodeName: null, sourceConnected: false };
     const n = nodeById(state, fd.nodeId);
-    return { status: fd.status, medium: fd.medium || 'fiber', nodeId: fd.nodeId, nodeName: n ? n.name : null };
+    return {
+      status: fd.status, medium: fd.medium || 'fiber', nodeId: fd.nodeId, nodeName: n ? n.name : null,
+      // انشعاب فقط وقتی سرویس می‌دهد که گره منبعش (کابینت) خودش به دروازه وصل باشد
+      sourceConnected: !!(n && isUsableNode(n) && n.connected),
+    };
   }
   function buildingFiberStatus(state, buildingId) {
     return buildingWiredStatus(state, buildingId);
@@ -2959,7 +2989,7 @@
   // وضعیت سرویس یک ساختمان: پوشش، اتصال زیرساخت، مشترکان فردی ساکن
   function buildingServiceStatus(state, buildingId) {
     const b = (state.buildings || []).find((x) => String(x.id) === String(buildingId));
-    if (!b) return { found: false, covered: false, connected: false, individuals: 0, individualsSubscribed: 0 };
+    if (!b) return { found: false, covered: false, connected: false, individuals: 0, individualsSubscribed: 0, subscribed: false, networkPath: false, wifiVia: null, wifi: false };
     const cx = b.x + (b.w || 26) / 2, cy = b.y + (b.h || 20) / 2;
     let covered = false, connected = false;
     for (const n of (state.nodes || [])) {
@@ -2971,12 +3001,18 @@
     }
     const list = (state.individuals || []).filter((p) => String(p.buildingId) === String(b.id));
     const subscribedCount = list.filter((p) => p.status === 'subscribed').length;
+    const subscribed = subscribedCount > 0 || buildingWiredStatus(state, b.id).status === 'active';
+    const path = buildingNetworkPath(state, b);
     return {
       found: true, covered, connected,
       individuals: list.length,
       individualsSubscribed: subscribedCount,
-      // وای‌فای داخلی ساختمان = اکسس‌پوینت خود مشترک؛ فقط با اشتراک فعال
-      wifi: subscribedCount > 0 || buildingWiredStatus(state, b.id).status === 'active',
+      subscribed,
+      // مسیر واقعی تا دروازه: انشعابِ منبعِ متصل یا پوشش بی‌سیمِ گره متصل
+      networkPath: path.hasPath,
+      wifiVia: path.via,
+      // وای‌فای داخلی ساختمان = اکسس‌پوینت خود مشترک؛ فقط با اشتراک + مسیر واقعی تا شبکه فعال است
+      wifi: subscribed && path.hasPath,
     };
   }
 
@@ -2991,7 +3027,7 @@
     connectBuildingWired, disconnectBuildingWired, buildingWiredStatus, cabinetPorts, cabinetUsedPorts, COPPER_DROP_SPEED,
     disconnectLink, linkDisconnectImpact, linksOfNode,
     changeLinkMedium, upgradeLink, toggleLinkBackup, linkChangeOptions, linkCapacityFor, LINK_MAX_LEVEL,
-    subscriberStats, buildingServiceStatus, buildingHasSubscription, individualTargetFor, CONCURRENCY, INDIVIDUAL_CAP,
+    subscriberStats, buildingServiceStatus, buildingHasSubscription, buildingNetworkPath, individualTargetFor, CONCURRENCY, INDIVIDUAL_CAP,
     prepareSignalField, prepareSpeedField, signalFieldAt, speedFieldAt, sampleFieldRows, interferenceFor,
     buildingAttenuation, ptpLosFactor,
     // کمکی‌ها
