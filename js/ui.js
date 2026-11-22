@@ -299,7 +299,8 @@
   var SPEED_REASON_FA = {
     no_coverage: 'خارج از پوشش', unconnected: 'گره متصل نیست', congestion: 'ازدحام مسیر',
     distance: 'فاصله زیاد', los: 'ساختمان‌های مسیر سیگنال را ضعیف کرده‌اند', no_path: 'مسیر تا دروازه نیست', no_fiber_drop: 'به فیبر متصل نیست',
-    no_subscription: 'اشتراک ندارد (وای‌فای داخل ساختمان فقط با اشتراک فعال می‌شود)'
+    no_subscription: 'اشتراک ندارد (وای‌فای داخل ساختمان فقط با اشتراک فعال می‌شود)',
+    no_network: 'بدون اتصال به شبکه (ساختمان به شبکه وصل نیست و در برد دکل متصلی هم نیست)'
   };
   function runSpeedTest(wx, wy) {
     if (!window.GameSim || !GameSim.speedTestAt || !state) return;
@@ -731,13 +732,18 @@
       try { svc = (window.GameSim && GameSim.buildingServiceStatus) ? GameSim.buildingServiceStatus(state, n.id) : null; } catch (e) { svc = null; }
       if (svc && svc.found) {
         var svcHtml;
-        if (svc.individualsSubscribed > 0) svcHtml = '<span class="status-ok">دارای مشترک (' + fmt(svc.individualsSubscribed) + ' نفر)</span>';
+        if (svc.individualsSubscribed > 0 && svc.networkPath) svcHtml = '<span class="status-ok">دارای مشترک (' + fmt(svc.individualsSubscribed) + ' نفر)</span>';
+        else if (svc.individualsSubscribed > 0) svcHtml = '<span class="status-warn">دارای مشترک (' + fmt(svc.individualsSubscribed) + ' نفر) — ولی بدون اتصال به شبکه؛ سرویسی نمی‌گیرد</span>';
         else if (svc.wifi) svcHtml = '<span class="status-ok">اشتراک سیمی فعال (انشعاب متصل است)</span>';
         else if (svc.covered && svc.connected) svcHtml = '<span class="status-warn">تحت پوشش — اشتراک ندارد (سرویس فقط با اشتراک فعال می‌شود)</span>';
         else if (svc.covered) svcHtml = '<span class="status-warn">تحت پوشش گرهٔ متصل‌نشده — سرویسی ارائه نمی‌شود</span>';
         else svcHtml = '<span class="status-bad">خارج از پوشش</span>';
         html += '<h5>وضعیت سرویس</h5><p>' + svcHtml + '</p>';
-        html += '<p class="muted">وای‌فای داخلی ساختمان: ' + (svc.wifi ? '<span class="status-ok">فعال (اکسس‌پوینت خود مشترک)</span>' : 'غیرفعال — فقط با اشتراک فعال می‌شود') + '</p>';
+        var wifiHtml;
+        if (svc.wifi) wifiHtml = '<span class="status-ok">فعال (اکسس‌پوینت خود مشترک)</span>';
+        else if (svc.subscribed && !svc.networkPath) wifiHtml = '<span class="status-bad">بدون اتصال به شبکه</span> <span class="muted">(اکسس‌پوینت ساختمان هست، ولی ساختمان به شبکه وصل نیست و در برد هیچ دکل متصلی هم نیست)</span>';
+        else wifiHtml = 'غیرفعال — فقط با اشتراک و اتصال ساختمان به شبکه فعال می‌شود';
+        html += '<p class="muted">وای‌فای داخلی ساختمان: ' + wifiHtml + '</p>';
       }
       var bIndiv = (state.individuals || []).filter(function (p) { return String(p.buildingId) === String(n.id); });
       html += '<h5>ساکنان ساختمان</h5>' + individualsHtml(bIndiv, 'ساکنی برای این ساختمان ثبت نشده است.', { key: 'b:' + n.id });
@@ -749,7 +755,11 @@
         var otherFa = fStatus.medium === 'copper' ? 'فیبر' : 'سیم مسی';
         html += '<h5>اتصال سیمی</h5><div class="fiber-row">';
         if (fStatus.status === 'active') {
-          html += '<span class="status-ok">متصل به ' + medFa + '</span> <span class="muted">(منبع: ' + esc(fStatus.nodeName || '—') + ')</span>' +
+          var srcOk = fStatus.sourceConnected !== false;
+          html += (srcOk
+            ? '<span class="status-ok">متصل به ' + medFa + '</span>'
+            : '<span class="status-warn">متصل به ' + medFa + ' — ولی منبع به شبکه وصل نیست؛ سرویس قطع است</span>') +
+            ' <span class="muted">(منبع: ' + esc(fStatus.nodeName || '—') + ')</span>' +
             '<button class="btn sm danger" data-wired-disconnect="' + esc(n.id) + '">قطع اتصال</button>' +
             '<button class="btn sm" disabled title="اول اتصال فعلی را قطع کنید">اتصال به ' + otherFa + '</button>' +
             '<span class="muted">هر ساختمان فقط به یکی از فیبر یا سیم مسی وصل می‌شود؛ برای تغییر، اول اتصال فعلی را قطع کنید.</span>';
