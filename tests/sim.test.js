@@ -190,7 +190,12 @@ let s1, cell1, link1;
   for (let i = 0; i < 2600; i++) GameSim.tick(s, 1);
   const atCap = s.buildings.length;
   const overCap = s.districts.some(d => s.buildings.filter(b => b.districtId === d.id).length > d.buildingCap);
-  check('10b هیچ منطقه‌ای از سقف ساختمان رد نمی‌شود', !overCap && atCap <= capTotal, 'total=' + atCap + ' capTotal=' + capTotal);
+  // ساختمان‌های پراکندهٔ خارج از مناطق سقف جدا دارند (DATA.growth.outsideCap)
+  const districtBuildings = s.buildings.filter(b => b.districtId).length;
+  const outsideBuildings = atCap - districtBuildings;
+  const outsideCap = (DATA.growth && DATA.growth.outsideCap) || 320;
+  check('10b هیچ منطقه‌ای از سقف ساختمان رد نمی‌شود', !overCap && districtBuildings <= capTotal && outsideBuildings <= outsideCap,
+    'district=' + districtBuildings + '/' + capTotal + ' outside=' + outsideBuildings + '/' + outsideCap);
   for (let i = 0; i < 600; i++) GameSim.tick(s, 1);
   check('10c رشد در سقف متوقف می‌شود (دیگر زیاد نمی‌شود)', s.buildings.length === atCap, atCap + ' -> ' + s.buildings.length);
   const river = s.map.river, roads = s.map.roads;
@@ -264,7 +269,8 @@ let s1, cell1, link1;
     const badB = s.buildings.some(b => Math.abs(b.x + b.w / 2 - riverX(b.y + b.h / 2)) < 60 ||
       roads.v.some(lx => b.x - 14 < lx && lx < b.x + b.w + 14) || roads.h.some(ly => b.y - 14 < ly && ly < b.y + b.h + 14));
     const ok = s.districts.length >= 25 && s.districts.length <= 30 && !!hqNode && !!center && Math.hypot(center.x - hqNode.x, center.y - hqNode.y) < 60 &&
-      !!north && Math.hypot(north.x - hqNode.x, north.y - hqNode.y) < 950 &&
+      // فاصلهٔ حاشیه شمالی از HQ: مناطق دیگر هم‌پوشانی ندارند، پس حداقل فاصله بیشتر شده (هنوز در برد PtP و آموزش)
+      !!north && Math.hypot(north.x - hqNode.x, north.y - hqNode.y) < 1450 &&
       totalDemand > 55000 && totalDemand < 85000 && !badB && s.buildings.length > 200;
     if (!ok) { allOk = false; details.push('seed ' + seed + ': districts=' + s.districts.length + ' demand=' + totalDemand + ' buildings=' + s.buildings.length + ' badB=' + badB); }
   }
@@ -534,7 +540,7 @@ let s1, cell1, link1;
   const w3 = GameSim.buildNode(s3, 'wifi_ap', d3.x, d3.y);
   finishBuild(s3, w3);
   GameSim.connect(s3, w3.id, coreOf(s3).id, 'ethernet');
-  for (let i = 0; i < 5; i++) GameSim.tick(s3, 1);
+  for (let i = 0; i < 5; i++) { GameSim.tick(s3, 1); keepAlive(s3); }
   const served3 = d3.servedDemand;
   GameSim.demolishNode(s3, gwOf(s3).id);
   for (let i = 0; i < 3; i++) GameSim.tick(s3, 1);
@@ -569,6 +575,185 @@ let s1, cell1, link1;
   // فیبر در همان فاصلهٔ دور همچنان ممکن است
   const fiberLink = GameSim.connect(s, far.id, core.id, 'fiber');
   check('22c فیبر در فاصلهٔ دور محدودیت برد ندارد', !!fiberLink);
+}
+
+// ---------- 23) مناطق هرگز هم‌پوشانی ندارند ----------
+{
+  const pairOk = (ds, gap) => {
+    for (let i = 0; i < ds.length; i++) for (let j = i + 1; j < ds.length; j++) {
+      const a = ds[i], b = ds[j];
+      if (Math.hypot(a.x - b.x, a.y - b.y) < a.radius + b.radius + gap - 1) return false;
+    }
+    return true;
+  };
+  const seeds = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 42, 777, 99, 100, 2024, 5555];
+  let allOk = true; const bad = [];
+  for (const seed of seeds) {
+    const s = GameSim.newGame(seed);
+    if (!(s.districts.length >= 25 && s.districts.length <= 30 && pairOk(s.districts, 40))) { allOk = false; bad.push(seed); }
+  }
+  check('23a مولد نقشه: هیچ دو منطقه‌ای هم‌پوشان نیستند (۱۸ بذر)', allOk, 'bad seeds: ' + bad.join(','));
+  check('23b نقشهٔ ثابت جایگزین هم بدون هم‌پوشانی است', pairOk(DATA.districts || [], 0));
+  // پس از ۳۰۰ روز بازی با سرویس فعال، اندازهٔ پویا هم نباید هم‌پوشانی بسازد
+  const s = GameSim.newGame(42); s.cash = 99999999;
+  s.districts.slice(0, 4).forEach(d => {
+    const w = GameSim.buildNode(s, 'wifi_ap', d.x, d.y);
+    if (w) { finishBuild(s, w); GameSim.connect(s, w.id, coreOf(s).id, 'fiber'); }
+  });
+  for (let i = 0; i < 300; i++) { GameSim.tick(s, 1); keepAlive(s); }
+  check('23c پس از ۳۰۰ روز با سرویس، هم‌پوشانی مناطق صفر است', pairOk(s.districts, 40), 'districts=' + s.districts.length);
+}
+
+// ---------- 24) ساختمان‌های خارج از مناطق ----------
+{
+  const s = GameSim.newGame(42);
+  const outside = s.buildings.filter(b => !b.districtId);
+  const river = s.map.river, roads = s.map.roads;
+  const riverX = (y) => { for (let i = 0; i < river.length - 1; i++) { const a = river[i], b = river[i + 1]; if (y >= a.y && y <= b.y) return a.x + (b.x - a.x) * (y - a.y) / Math.max(1, b.y - a.y); } return river[river.length - 1].x; };
+  const badOut = outside.some(b => Math.abs(b.x + b.w / 2 - riverX(b.y + b.h / 2)) < 60 ||
+    roads.v.some(lx => b.x - 14 < lx && lx < b.x + b.w + 14) || roads.h.some(ly => b.y - 14 < ly && ly < b.y + b.h + 14) ||
+    s.districts.some(d => Math.hypot(b.x + b.w / 2 - d.x, b.y + b.h / 2 - d.y) < d.radius + 29));
+  check('24a ساختمان‌های پراکندهٔ اولیه: >۵۰ و همه بیرون مناطق/رودخانه/خیابان', outside.length > 50 && !badOut, 'outside=' + outside.length + ' bad=' + badOut);
+  const s2 = GameSim.newGame(5);
+  const before = s2.buildings.filter(b => !b.districtId).length;
+  for (let i = 0; i < 800; i++) GameSim.tick(s2, 1);
+  const after = s2.buildings.filter(b => !b.districtId).length;
+  const outsideCap = (DATA.growth && DATA.growth.outsideCap) || 320;
+  check('24b رشد شهر ساختمان پراکنده هم می‌سازد و از سقف رد نمی‌شود', after > before && after <= outsideCap, before + ' -> ' + after + ' (cap ' + outsideCap + ')');
+}
+
+// ---------- 25) اندازهٔ پویای مناطق بر اساس مشترکان ----------
+{
+  const s = GameSim.newGame(42); s.cash = 99999999;
+  // منطقه‌ای با بیشترین فضای رشد نسبت به همسایه‌ها
+  let d = null, bestRoom = -1;
+  for (const cand of s.districts) {
+    let room = Infinity;
+    for (const o of s.districts) { if (o !== cand) room = Math.min(room, Math.hypot(cand.x - o.x, cand.y - o.y) - cand.radius - o.radius); }
+    if (room > bestRoom) { bestRoom = room; d = cand; }
+  }
+  const maxSubs = Math.max(1, d.population * 0.35);
+  const r0 = d.radius, base = d.baseRadius || d.radius;
+  let overlap = false;
+  const pairCheck = () => { for (let i = 0; i < s.districts.length; i++) for (let j = i + 1; j < s.districts.length; j++) { const a = s.districts[i], b = s.districts[j]; if (Math.hypot(a.x - b.x, a.y - b.y) < a.radius + b.radius + 40 - 1) overlap = true; } };
+  for (let i = 0; i < 30; i++) { d.subscribers = Math.round(maxSubs * 0.9); GameSim.tick(s, 1); keepAlive(s); if (i % 10 === 0) pairCheck(); }
+  check('25a منطقهٔ پرمشترک بزرگ می‌شود', d.radius > r0 + 10, r0 + ' -> ' + d.radius);
+  check('25c رشد منطقه هم‌پوشانی نمی‌سازد', !overlap);
+  const r1 = d.radius;
+  for (let i = 0; i < 60; i++) { d.subscribers = 0; GameSim.tick(s, 1); keepAlive(s); }
+  check('25b منطقهٔ بی‌مشترک کوچک می‌شود (به‌سوی ۰٫۷× پایه)', d.radius < r1 - 10 && d.radius >= base * 0.65, r1 + ' -> ' + d.radius + ' base=' + base);
+}
+
+// ---------- 26) ادغام دو منطقهٔ مجاور پرمشترک ----------
+{
+  const s = GameSim.newGame(42); s.cash = 99999999;
+  // نزدیک‌ترین جفت را پیدا کن و دومی را تا فاصلهٔ r1+r2+50 نزدیک کن (بدون هم‌پوشانی با بقیه)
+  let pair = null;
+  const sorted = [];
+  for (let i = 0; i < s.districts.length; i++) for (let j = i + 1; j < s.districts.length; j++) sorted.push([s.districts[i], s.districts[j], Math.hypot(s.districts[i].x - s.districts[j].x, s.districts[i].y - s.districts[j].y)]);
+  sorted.sort((x, y) => x[2] - y[2]);
+  for (const [a, b] of sorted) {
+    const ang = Math.atan2(b.y - a.y, b.x - a.x);
+    const nd = a.radius + b.radius + 50;
+    const nx = Math.round(a.x + Math.cos(ang) * nd), ny = Math.round(a.y + Math.sin(ang) * nd);
+    const okMove = s.districts.every(o => o === a || o === b || Math.hypot(nx - o.x, ny - o.y) >= b.radius + o.radius + 40 - 1);
+    if (okMove) { b.x = nx; b.y = ny; pair = [a, b]; break; }
+  }
+  const [a, b] = pair;
+  const countBefore = s.districts.length;
+  // مجموع موردانتظار را پیش از ادغام ثبت کن (بعد از ادغام جمعیت بازمانده ترکیبی است)
+  const subsSumBefore = Math.round(a.population * 0.35 * 0.8) + Math.round(b.population * 0.35 * 0.8);
+  const popSumBefore = a.population + b.population;
+  for (let i = 0; i < 120 && s.districts.length === countBefore; i++) {
+    a.subscribers = Math.round(a.population * 0.35 * 0.8);
+    b.subscribers = Math.round(b.population * 0.35 * 0.8);
+    GameSim.tick(s, 1); keepAlive(s);
+  }
+  const survivor = s.districts.find(x => x.id === a.id) || s.districts.find(x => x.id === b.id);
+  const droppedId = survivor && survivor.id === a.id ? b.id : a.id;
+  const orphanB = s.buildings.some(x => x.districtId === droppedId);
+  const orphanC = (s.customers || []).some(c => c.districtId === droppedId);
+  let overlap = false;
+  for (let i = 0; i < s.districts.length; i++) for (let j = i + 1; j < s.districts.length; j++) { const x = s.districts[i], y = s.districts[j]; if (Math.hypot(x.x - y.x, x.y - y.y) < x.radius + y.radius + 40 - 1) overlap = true; }
+  check('26a دو منطقهٔ پرمشترک مجاور ادغام می‌شوند', s.districts.length === countBefore - 1 && !!survivor, countBefore + ' -> ' + s.districts.length);
+  // آستانهٔ ۰٫۹: ریزش مشترکان در همان تیک ادغام (بدون سرویس ~۳٪) مجاز است؛ جمعیت دقیقاً جمع می‌شود
+  check('26b مشترکان/جمعیت/ساختمان/مشتری منطقهٔ حذف‌شده به بازمانده منتقل شده‌اند',
+    survivor && survivor.subscribers >= subsSumBefore * 0.9 && survivor.population === popSumBefore && !orphanB && !orphanC,
+    'subs=' + (survivor && survivor.subscribers) + ' expected>=' + Math.round(subsSumBefore * 0.9) + ' pop=' + (survivor && survivor.population) + '/' + popSumBefore);
+  check('26c پس از ادغام هم‌پوشانی نیست', !overlap);
+}
+
+// ---------- 27) مشترکان ساختمان‌های پراکنده (همه‌جا به‌جز رودخانه) ----------
+{
+  const ctrl = GameSim.newGame(31);
+  for (let i = 0; i < 40; i++) GameSim.tick(ctrl, 1);
+  check('27a بدون پوشش، ساختمان پراکنده مشترک نمی‌گیرد', ctrl.scattered && ctrl.scattered.subscribers === 0, 'subs=' + (ctrl.scattered && ctrl.scattered.subscribers));
+  const s = GameSim.newGame(31); s.cash = 99999999;
+  const ob = s.buildings.find(b => !b.districtId);
+  const w = GameSim.buildNode(s, 'wifi_ap', Math.round(ob.x + ob.w / 2), Math.round(ob.y + ob.h / 2));
+  finishBuild(s, w);
+  GameSim.connect(s, w.id, coreOf(s).id, 'fiber');
+  for (let i = 0; i < 40; i++) { GameSim.tick(s, 1); keepAlive(s); }
+  const outsideNow = s.buildings.filter(b => !b.districtId).length;
+  check('27b ساختمان پراکندهٔ تحت پوشش مشترک و درآمد می‌گیرد', s.scattered.subscribers > 0 && s.scattered.revenue > 0,
+    'subs=' + s.scattered.subscribers + ' rev=' + s.scattered.revenue + ' covered=' + s.scattered.coveredCount);
+  check('27c ظرفیت بالقوهٔ پراکنده = ساختمان×۶ و در مجموع مشترکان حساب می‌شود',
+    s.scattered.potentialSubs === outsideNow * 6 &&
+    s.lastFlow.totalSubscribers === s.districts.reduce((sum, d) => sum + d.subscribers, 0) + s.scattered.subscribers,
+    'potential=' + s.scattered.potentialSubs + ' outside=' + outsideNow);
+}
+
+// ---------- 28) یکپارچگی کاتالوگ تجهیزات ----------
+{
+  const list = DATA.equipmentList || [];
+  const techIds = new Set((DATA.techList || []).map(t => t.id));
+  const CATS = new Set(['cable', 'access', 'antenna', 'backhaul', 'satellite', 'core', 'power', 'tools']);
+  const ids = new Set(); let bad = [];
+  for (const e of list) {
+    if (ids.has(e.id)) bad.push('dup ' + e.id);
+    ids.add(e.id);
+    if (!(e.cost > 0)) bad.push(e.id + ' cost');
+    if (!(e.monthlyCost >= 0)) bad.push(e.id + ' monthly');
+    if (!e.guide || !String(e.guide).trim()) bad.push(e.id + ' guide');
+    if (!CATS.has(e.category)) bad.push(e.id + ' cat=' + e.category);
+    if (e.unlock != null && !techIds.has(e.unlock)) bad.push(e.id + ' unlock=' + e.unlock);
+    if ((e.category === 'access' || e.category === 'antenna') && !GameSim.TECH_KEYS.includes(e.tech)) bad.push(e.id + ' tech=' + e.tech);
+    if (!(e.radius >= 0) || !(e.capacity >= 0)) bad.push(e.id + ' radius/capacity');
+  }
+  check('28a کاتالوگ: ≥۲۱۸ تجهیز، شناسه یکتا، قیمت/راهنما/دسته/بازشدن معتبر', list.length >= 218 && bad.length === 0,
+    'total=' + list.length + (bad.length ? ' bad: ' + bad.slice(0, 8).join(', ') : ''));
+  const unlockMismatch = (DATA.techList || []).some(t => (t.unlocks || []).some(id => !ids.has(id))) ||
+    list.some(e => e.unlock && !(DATA.techList.find(t => t.id === e.unlock) || { unlocks: [] }).unlocks.includes(e.id));
+  check('28b فهرست unlocks فناوری‌ها با کاتالوگ سازگار است', !unlockMismatch);
+}
+
+// ---------- 29) برچسب فارسی نوع ساختمان ----------
+{
+  const fs = require('fs');
+  const ui = fs.readFileSync(__dirname + '/../js/ui.js', 'utf8');
+  const fa = DATA.buildingTypeFa || {};
+  const keys = ['residential', 'commercial', 'office', 'industrial'];
+  const allFa = keys.every(k => fa[k] && /[\u0600-\u06FF]/.test(fa[k]) && !/[a-zA-Z]/.test(fa[k]));
+  check('29a هر چهار نوع ساختمان برچسب فارسی دارند', allFa, JSON.stringify(fa));
+  check('29b پنل جزئیات ساختمان فارسی است (نوع ساختمان + خارج از مناطق)', ui.includes('نوع ساختمان') && ui.includes('خارج از مناطق (پراکنده)') && ui.includes('BTYPE_FA'));
+}
+
+// ---------- 30) فایل‌های PWA ----------
+{
+  const fs = require('fs');
+  const root = __dirname + '/..';
+  let manifest = null;
+  try { manifest = JSON.parse(fs.readFileSync(root + '/manifest.webmanifest', 'utf8')); } catch (e) { /* پایین گزارش می‌شود */ }
+  const iconsOk = manifest && (manifest.icons || []).length >= 3 && manifest.icons.every(ic => fs.existsSync(root + '/' + ic.src.replace(/^\.\//, '')));
+  const idx = fs.readFileSync(root + '/index.html', 'utf8');
+  check('30a مانیفست PWA کامل است (نام فارسی، RTL، standalone، آیکون‌ها روی دیسک)',
+    !!manifest && manifest.name === 'شبکه‌ساز: شهر متصل' && manifest.short_name === 'شبکه‌ساز' && manifest.lang === 'fa' && manifest.dir === 'rtl' &&
+    manifest.display === 'standalone' && iconsOk);
+  check('30b سرویس‌ورکر و ثبت آن و لینک مانیفست در صفحه هست',
+    fs.existsSync(root + '/sw.js') && idx.includes('manifest.webmanifest') &&
+    fs.readFileSync(root + '/js/main.js', 'utf8').includes('serviceWorker'));
+  const ver = fs.readFileSync(root + '/js/version.js', 'utf8');
+  check('30c نسخهٔ برنامه یک منبع واحد دارد (APP_VERSION)', /APP_VERSION\s*=\s*['"]\d+\.\d+\.\d+['"]/.test(ver));
 }
 
 console.log('\nنتیجه: ' + pass + ' پاس، ' + fail + ' رد');
