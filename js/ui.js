@@ -65,6 +65,7 @@
     globe: svgIcon('<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.7 2.6 4 5.7 4 9s-1.3 6.4-4 9c-2.7-2.6-4-5.7-4-9s1.3-6.4 4-9z"/>'),
     rocket: svgIcon('<path d="M12 15c5-3 7-8 7-11-3 0-8 2-11 7l-3 1 4 4 1-3z"/><path d="M9 12 4.5 7.5M12 15l4.5 4.5"/><circle cx="14" cy="10" r="1.6"/><path d="M5 19c-1 1-1.5 2-2 3 1-.5 2-1 3-2z"/>'),
     signal: svgIcon('<path d="M4 20v-4M8.5 20v-8M13 20V8M17.5 20V4"/>'),
+    upgrade: svgIcon('<path d="m5 14 7-7 7 7"/><path d="m5 20 7-7 7 7"/>'),
     target: svgIcon('<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/>')
   };
   var ACH_ICONS = {
@@ -264,7 +265,7 @@
   /* ---------- تست سرعت در نقطه‌ای از نقشه ---------- */
   var SPEED_REASON_FA = {
     no_coverage: 'خارج از پوشش', unconnected: 'گره متصل نیست', congestion: 'ازدحام مسیر',
-    distance: 'فاصله زیاد', los: 'ساختمان بلند مانع دید', no_path: 'مسیر تا دروازه نیست'
+    distance: 'فاصله زیاد', los: 'ساختمان بلند مانع دید', no_path: 'مسیر تا دروازه نیست', no_fiber_drop: 'به فیبر متصل نیست'
   };
   function runSpeedTest(wx, wy) {
     if (!window.GameSim || !GameSim.speedTestAt || !state) return;
@@ -484,7 +485,7 @@
   /* ---------- Detail panel ---------- */
   var STATUS_FA = {
     active: 'فعال', building: 'در حال ساخت', failed: 'خراب', unconnected: 'متصل‌نشده',
-    congested: 'شلوغ', cut: 'قطع', repairing: 'در حال تعمیر', online: 'آنلاین', offline: 'آفلاین'
+    congested: 'شلوغ', cut: 'قطع', repairing: 'در حال تعمیر', upgrading: 'در حال ارتقا', online: 'آنلاین', offline: 'آفلاین'
   };
   function findNode(id) {
     if (!state) return null;
@@ -563,7 +564,42 @@
       }
       var bIndiv = (state.individuals || []).filter(function (p) { return String(p.buildingId) === String(n.id); });
       html += '<h5>ساکنان ساختمان</h5>' + individualsHtml(bIndiv, 'ساکنی برای این ساختمان ثبت نشده است.');
+      // انشعاب فیبر دستی
+      var fStatus = null;
+      try { fStatus = (window.GameSim && GameSim.buildingFiberStatus) ? GameSim.buildingFiberStatus(state, n.id) : null; } catch (e) { fStatus = null; }
+      if (fStatus) {
+        html += '<h5>اتصال فیبر</h5><div class="fiber-row">';
+        if (fStatus.status === 'active') {
+          html += '<span class="status-ok">متصل به فیبر</span> <span class="muted">(منبع: ' + esc(fStatus.nodeName || '—') + ')</span>' +
+            '<button class="btn sm danger" data-fiber-disconnect="' + esc(n.id) + '">قطع اتصال</button>';
+        } else if (fStatus.status === 'building') {
+          html += '<span class="status-warn">در حال اتصال به فیبر…</span>';
+        } else {
+          html += '<span class="status-bad">به فیبر متصل نیست</span>' +
+            '<button class="btn sm primary" data-fiber-connect="' + esc(n.id) + '">' + ICONS.cable + ' اتصال به فیبر</button>' +
+            '<span class="muted">نزدیک‌ترین منبع فیبر متصل (FTTH/تجمیع/هسته) انتخاب می‌شود؛ هزینه و زمان بر اساس فاصله است. بدون انشعاب، این ساختمان از فیبر سرویس نمی‌گیرد.</span>';
+        }
+        html += '</div>';
+      }
       box.innerHTML = html;
+      box.querySelectorAll('[data-fiber-connect]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          if (window.GameSim && GameSim.connectBuildingFiber) {
+            var r = GameSim.connectBuildingFiber(state, btn.getAttribute('data-fiber-connect'));
+            toast(r && r.ok === false ? (r.error || 'اتصال فیبر انجام نشد.') : 'اتصال فیبر شروع شد؛ حدود ' + fmt(r.days) + ' روز طول می‌کشد.', r && r.ok === false ? 'error' : 'success');
+          } else toast('اتصال فیبر در این نسخه موجود نیست.', 'warn');
+          refresh();
+        });
+      });
+      box.querySelectorAll('[data-fiber-disconnect]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          if (window.GameSim && GameSim.disconnectBuildingFiber) {
+            var r = GameSim.disconnectBuildingFiber(state, btn.getAttribute('data-fiber-disconnect'));
+            toast(r && r.ok === false ? (r.error || 'قطع اتصال انجام نشد.') : 'انشعاب فیبر قطع شد.', r && r.ok === false ? 'error' : 'success');
+          }
+          refresh();
+        });
+      });
       return;
     }
     if (found.kind === 'district') {
@@ -668,6 +704,25 @@
           '<div class="sector-row"><label>پهنا: <input type="range" min="30" max="360" value="' + angV + '" data-sector-angle="' + esc(n.id) + '"> <span data-sector-angle-val>' + fmt(angV) + '°</span></label></div>' +
           '<p class="muted">جهت ۰ درجه یعنی شمال؛ پهنا ۳۶۰ درجه یعنی پوشش کامل دایره‌ای.</p>';
       }
+      // ارتقای سطح (افزایش پهنای باند)
+      var upInfo = null;
+      try { upInfo = (window.GameSim && GameSim.upgradeInfo) ? GameSim.upgradeInfo(state, n.id) : null; } catch (e) { upInfo = null; }
+      if (upInfo) {
+        html += '<h5>ارتقای سطح</h5><div class="upgrade-row">' +
+          '<span>سطح فعلی: <strong>' + fmt(upInfo.level) + ' از ' + fmt(upInfo.maxLevel) + '</strong> — ظرفیت: ' + fmt(n.capacity || 0) + ' Mbps</span>';
+        if (upInfo.maxed) {
+          html += '<span class="status-ok">به حداکثر سطح رسیده است.</span>';
+        } else if (n.status === 'upgrading') {
+          html += '<span class="status-warn">در حال ارتقا… (گره آفلاین است)</span>';
+        } else {
+          html += '<button class="btn sm primary" data-upgrade-node="' + esc(n.id) + '"' +
+            ((upInfo.busy || !upInfo.canAfford) ? ' disabled' : '') + '>' + ICONS.upgrade + ' ارتقا به سطح ' + fmt(upInfo.level + 1) + '</button>' +
+            '<span class="muted">ظرفیت جدید: ' + fmt(upInfo.nextCapacity) + ' Mbps' +
+            ((n.radius || 0) > 0 ? ' — شعاع: ' + fmt(upInfo.nextRadius) : '') +
+            ' — هزینه: ' + fmt(upInfo.cost) + ' تومان — زمان: حدود ' + fmt(upInfo.workDays) + ' روز (در مدت ارتقا آفلاین)</span>';
+        }
+        html += '</div>';
+      }
       html += '<div class="fix-btns" style="margin-top:10px">' +
         '<button class="btn sm" data-move-node="' + esc(n.id) + '">' + ICONS.move + ' جابه‌جایی</button>' +
         '<button class="btn sm danger" data-delete-node="' + esc(n.id) + '">' + ICONS.trash + ' حذف</button></div>';
@@ -685,6 +740,15 @@
     box.innerHTML = html;
     box.querySelectorAll('[data-move-node]').forEach(function (btn) {
       btn.addEventListener('click', function () { startMove(btn.getAttribute('data-move-node')); });
+    });
+    box.querySelectorAll('[data-upgrade-node]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        if (window.GameSim && GameSim.upgradeNode) {
+          var r = GameSim.upgradeNode(state, btn.getAttribute('data-upgrade-node'));
+          toast(r && r.ok === false ? (r.error || 'ارتقا انجام نشد.') : 'ارتقا شروع شد؛ گره تا پایان آفلاین است.', r && r.ok === false ? 'error' : 'success');
+        } else toast('ارتقا در این نسخه موجود نیست.', 'warn');
+        refresh();
+      });
     });
     box.querySelectorAll('[data-delete-node]').forEach(function (btn) {
       btn.addEventListener('click', function () { openDeleteConfirm(btn.getAttribute('data-delete-node')); });
