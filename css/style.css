@@ -69,12 +69,20 @@ button{font-family:inherit}
 .side-item .ic{width:21px;height:21px}
 
 /* Layout */
-#layout{flex:1;display:flex;min-height:0}
+#layout{flex:1;display:flex;min-height:0;position:relative}
 .panel{
   width:280px;flex-shrink:0;background:var(--surface);border-inline-end:1px solid var(--border);
   overflow-y:auto;padding:12px;
 }
-#panel-detail{border-inline-end:none;border-inline-start:1px solid var(--border)}
+/* Details panel: hidden by default on desktop too — slides in over the map's
+   inline-end edge only when something is selected (canvas size never changes) */
+#panel-detail{
+  position:absolute;top:0;bottom:0;inset-inline-end:0;z-index:25;
+  border-inline-end:none;border-inline-start:1px solid var(--border);
+  transform:translateX(-105%);transition:transform .25s;
+  box-shadow:0 0 30px rgba(0,0,0,.6);
+}
+#panel-detail.open{transform:none}
 .panel h3{margin:14px 0 8px;font-size:14px;color:var(--accent)}
 .panel-head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:14px 0 8px}
 .panel-head h3{margin:0}
@@ -127,6 +135,20 @@ button{font-family:inherit}
 .cap-bar{background:var(--surface2);height:10px;border-radius:6px;overflow:hidden;margin:4px 0 10px}
 .cap-fill{background:var(--accent2);height:100%;transition:width .3s}
 .cap-fill.hot{background:var(--danger)} .cap-fill.warm{background:var(--warn)}
+/* per-technology demand rows (district detail + speed test) */
+.tech-row{margin:6px 0}
+.tech-head{display:flex;justify-content:space-between;align-items:baseline;font-size:12px;margin-bottom:2px;gap:8px}
+.tech-sub{font-size:11px}
+/* build-menu guide (info) button */
+.bi-info{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;color:var(--muted);flex-shrink:0;cursor:pointer}
+.bi-info:hover{color:var(--accent);background:rgba(255,255,255,.07)}
+.bi-info .ic{width:17px;height:17px}
+/* equipment guide + technology overview */
+.guide-text{font-size:13px;line-height:1.8;margin:0 0 8px}
+.guide-tech{margin:0 0 16px}
+.guide-tech h4{margin:0 0 4px;color:var(--accent);font-size:14px}
+.guide-tech p{margin:2px 0;font-size:13px;line-height:1.8}
+#guide-popover{max-height:88vh;overflow-y:auto}
 .path-list{font-size:12px;margin:6px 0;padding-inline-start:18px}
 .fix-btns{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
 
@@ -246,3 +268,29 @@ input[type=number]{background:var(--bg);color:var(--text);border:1px solid var(-
   /* toasts on the physical left, clear of zoom buttons */
   #toasts{inset-inline-start:auto;inset-inline-end:12px;bottom:12px;max-width:86vw}
 }
+
+/* Layers menu (map corner) */
+.map-corner-btn{position:absolute;top:10px;left:10px;z-index:20;width:42px;height:42px;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 4px 14px rgba(0,0,0,.45)}
+#layers-popover{position:absolute;top:60px;left:10px;inset-inline-start:auto;transform:none;width:min(240px,80vw);padding:12px 14px;z-index:25}
+.popover-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.popover-head h3{margin:0;font-size:14px}
+#layers-popover #layer-toggles label{display:flex;align-items:center;gap:8px;font-size:13px;padding:7px 0;cursor:pointer;border-bottom:1px dotted var(--border)}
+#layers-popover #layer-toggles label:last-child{border-bottom:none}
+#layers-popover #layer-toggles input{width:18px;height:18px;accent-color:var(--accent)}
+
+/* Full event log inside its modal */
+.log-full{font-size:12px;max-height:none;line-height:1.9}
+
+/* Staff panel cards */
+.staff-card{border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;margin-bottom:12px;background:rgba(255,255,255,.02)}
+.staff-head{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.staff-head h4{margin:0;font-size:15px}
+.staff-count{display:flex;align-items:center;gap:8px}
+.staff-count .num{font-size:18px;font-weight:800;min-width:28px;text-align:center}
+.staff-count button{width:34px;height:34px;font-size:17px;line-height:1}
+.staff-meta{font-size:12px;color:var(--muted);margin-top:4px}
+.staff-effect{font-size:13px;line-height:1.9;margin-top:6px}
+.staff-now{font-size:13px;margin-top:6px;color:var(--accent);font-weight:700}
+.staff-warn{margin-top:8px;padding:8px 10px;border:1px solid #b45309;background:rgba(180,83,9,.14);border-radius:8px;font-size:12px;line-height:1.9}
+.staff-summary{border-top:1px solid var(--border);padding-top:10px;font-size:14px;font-weight:700}
+.btn.danger{border-color:var(--danger);color:var(--danger)}
