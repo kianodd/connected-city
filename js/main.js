@@ -75,7 +75,7 @@
     var canvas = $('city-canvas');
     if (window.CityMap && CityMap.init) {
       CityMap.init(canvas, state, {
-        onSelect: function (id, kind) { GameUI.onMapSelect(id, kind); },
+        onSelect: function (kind, id) { GameUI.onMapSelect(id, kind); },
         onPlace: function (x, y) { GameUI.onPlace(x, y); }
       });
     }
