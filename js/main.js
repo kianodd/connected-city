@@ -134,10 +134,80 @@
       else if (e.key === '-' || e.key === '_') { if (CityMap.zoomBy) CityMap.zoomBy(1 / 1.2); }
     });
 
+    var btnUpdate = $('btn-update');
+    if (btnUpdate) btnUpdate.addEventListener('click', function () { window.checkAppUpdate(); });
+    var btnApply = $('btn-apply-update');
+    if (btnApply) btnApply.addEventListener('click', function () { window.applyAppUpdate(); });
+    var btnLater = $('btn-update-later');
+    if (btnLater) btnLater.addEventListener('click', hideUpdateBanner);
+
     window.addEventListener('beforeunload', saveGame);
     setSpeed(0); // پیش‌فرض: بازی متوقف شروع می‌شود تا بازیکن خودش پخش کند
+    registerSW();
     requestAnimationFrame(loop);
   }
+
+  // ---------- PWA: ثبت سرویس‌ورکر + بررسی/اعمال آپدیت ----------
+  var swReg = null;
+  var updateReady = false;
+
+  function toastFa(msg, type) { if (window.GameUI && GameUI.toast) GameUI.toast(msg, type); }
+
+  function showUpdateBanner() {
+    var b = $('update-banner'); if (b) b.classList.remove('hidden');
+    var m = $('btn-menu'); if (m) m.classList.add('has-update');
+  }
+  function hideUpdateBanner() { var b = $('update-banner'); if (b) b.classList.add('hidden'); }
+
+  function watchWorker(worker) {
+    if (!worker) return;
+    worker.addEventListener('statechange', function () {
+      // ورکر جدید نصب شده و منتظر فعال‌سازی است (نسخهٔ قبلی هنوز کنترل‌کننده است)
+      if (worker.state === 'installed' && navigator.serviceWorker.controller) {
+        updateReady = true;
+        showUpdateBanner();
+      }
+    });
+  }
+
+  function registerSW() {
+    var verEl = $('app-version');
+    if (verEl) verEl.textContent = 'نسخهٔ برنامه: ' + (window.APP_VERSION || '—');
+    if (!('serviceWorker' in navigator)) return;
+    var hadController = !!navigator.serviceWorker.controller;
+    var reloading = false;
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+      if (!hadController) { hadController = true; return; } // نصب اول نیازی به بارگذاری مجدد ندارد
+      if (reloading) return;
+      reloading = true;
+      location.reload(); // ذخیرهٔ localStorage دست‌نخورده می‌ماند
+    });
+    navigator.serviceWorker.register('sw.js').then(function (reg) {
+      swReg = reg;
+      if (reg.waiting && navigator.serviceWorker.controller) { updateReady = true; showUpdateBanner(); }
+      reg.addEventListener('updatefound', function () { watchWorker(reg.installing); });
+      reg.update().catch(function () {}); // بررسی خاموش هنگام بارگذاری
+    }).catch(function () { /* PWA اختیاری است؛ بازی بدون آن هم کار می‌کند */ });
+  }
+
+  window.checkAppUpdate = function () {
+    if (!('serviceWorker' in navigator) || !swReg) { toastFa('بررسی آپدیت در این مرورگر ممکن نیست.', 'warn'); return; }
+    if (!navigator.onLine) { toastFa('آفلاین هستید؛ بررسی آپدیت نیازمند اینترنت است.', 'warn'); return; }
+    if (updateReady || swReg.waiting) { showUpdateBanner(); toastFa('نسخهٔ جدید آماده است.', 'success'); return; }
+    toastFa('در حال بررسی آپدیت…', 'info');
+    swReg.update().then(function () {
+      setTimeout(function () {
+        if (updateReady || swReg.waiting) { showUpdateBanner(); toastFa('نسخهٔ جدید آماده است.', 'success'); }
+        else toastFa('شما آخرین نسخه را دارید.', 'success');
+      }, 3500);
+    }).catch(function () { toastFa('بررسی آپدیت ممکن نشد؛ اتصال اینترنت را بررسی کنید.', 'error'); });
+  };
+
+  window.applyAppUpdate = function () {
+    var w = swReg && (swReg.waiting || swReg.installing);
+    if (w) w.postMessage({ type: 'SKIP_WAITING' }); // بعد از فعال‌شدن، controllerchange صفحه را تازه می‌کند
+    else location.reload();
+  };
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
