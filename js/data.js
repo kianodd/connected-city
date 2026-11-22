@@ -296,7 +296,7 @@ const GAME_DATA = (() => {
       fiber:     { name: 'فیبر نوری',  capacity: 10000, latency: 2 },
       copper:    { name: 'مسی',        capacity: 100,   latency: 5 },
       ethernet:  { name: 'اترنت',      capacity: 1000,  latency: 1 },
-      ptp:       { name: 'نقطه‌به‌نقطه', capacity: 1000, latency: 8 },
+      ptp:       { name: 'نقطه‌به‌نقطه', capacity: 1000, latency: 8, maxRange: 1800 },
       satellite: { name: 'ماهواره‌ای', capacity: 600,   latency: 45 },
     },
     // همان رسانه‌ها به‌صورت آرایه (برای انتخاب‌گر UI)
@@ -304,7 +304,7 @@ const GAME_DATA = (() => {
       { id: 'fiber',     name: 'فیبر نوری',    costPerUnit: 8, capacity: 10000, latency: 2 },
       { id: 'copper',    name: 'مسی',          costPerUnit: 3, capacity: 100,   latency: 5 },
       { id: 'ethernet',  name: 'اترنت',        costPerUnit: 2, capacity: 1000,  latency: 1 },
-      { id: 'ptp',       name: 'نقطه‌به‌نقطه', costPerUnit: 5, capacity: 1000,  latency: 8 },
+      { id: 'ptp',       name: 'نقطه‌به‌نقطه', costPerUnit: 5, capacity: 1000,  latency: 8, maxRange: 1800 },
       { id: 'satellite', name: 'ماهواره‌ای',   costPerUnit: 20, capacity: 600,  latency: 45 },
     ],
     linkTypes: null, // در ادامه برابر media می‌شود
