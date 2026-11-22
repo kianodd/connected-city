@@ -1,7 +1,7 @@
 /* ============================================================
    شبکه‌ساز: شهر متصل — CityMap
    Vanilla JS + Canvas 2D map renderer.
-   World size comes from GAME_DATA.world (3200 x 2400). No build step.
+   World size comes from GAME_DATA.world (7200 x 5400). No build step.
    Rendering: static city layer (ground/roads/districts/buildings) is
    cached on an offscreen canvas and blitted with offset while panning;
    only dynamic elements (coverage, links, nodes, pulses) redraw per frame.
@@ -220,8 +220,9 @@
   var pointers = {};            // pointerId -> {x,y}
   var pinchDist = 0, pinchMid = null;
   var layers = {
+    districts: true, buildings: true, links: true, coverage: true, labels: true,
     cellular: true, fiber: true, copper: true, fwa: true, satellite: true,
-    demand: false, traffic: false, failures: true, revenue: false, qos: false
+    demand: false, traffic: false, failures: true, revenue: false, qos: false, techdemand: false
   };
 
   /* ---------- perf: frame cache, viewport culling, static layer ---------- */
@@ -241,6 +242,7 @@
   var STATIC_MARGIN = 320; // css px of pre-rendered margin around the viewport
   var staticCanvas = null, staticCtx = null, staticCam = null, staticViewW = 0, staticViewH = 0;
   var _staticBldLen = -1; // buildings count baked into the static layer (city growth invalidates it)
+  var _staticNodeLen = -1; // nodes count baked in (district label offsets depend on node positions)
   var _prevCamZ = 0, _lastZoomChangeTs = 0;
   var canStatic = typeof document !== 'undefined' && !!document.createElement;
 
@@ -256,7 +258,7 @@
     var z;
     if (viewH > viewW) z = Math.max(viewW / WORLD_W, viewH / WORLD_H); // portrait: fill the viewport, crop the sides
     else z = Math.min(viewW / WORLD_W, viewH / WORLD_H) * 0.98;        // landscape/desktop: whole world visible
-    camT.z = clamp(z, 0.15, 3); camT.x = WORLD_W / 2; camT.y = WORLD_H / 2;
+    camT.z = clamp(z, 0.08, 3); camT.x = WORLD_W / 2; camT.y = WORLD_H / 2;
     cam.x = camT.x; cam.y = camT.y; cam.z = camT.z;
   }
 
@@ -329,8 +331,8 @@
   function drawStaticScene() {
     drawGround();
     drawRoadsAndRiver();
-    drawBuildings();
-    drawDistrictLabels(); // after buildings: district names stay on top
+    if (layers.buildings) drawBuildings();
+    if (layers.districts && layers.labels) drawDistrictLabels(); // after buildings: district names stay on top
   }
   function ensureStatic(force) {
     if (!canStatic) return;
@@ -355,6 +357,7 @@
     ctx.restore();
     ctx = savedCtx; selected = savedSel; cullRect = savedCull;
     _staticBldLen = getBuildings().length;
+    _staticNodeLen = ((state && state.nodes) || []).length;
     staticCam = { x: cam.x, y: cam.y, z: cam.z };
     staticViewW = viewW; staticViewH = viewH;
   }
@@ -375,7 +378,7 @@
 
     if (canStatic) {
       // city growth: new buildings must appear without waiting for a camera move
-      if (getBuildings().length !== _staticBldLen) ensureStatic(true);
+      if (getBuildings().length !== _staticBldLen || ((state && state.nodes) || []).length !== _staticNodeLen) ensureStatic(true);
       // zoom handling: blit the cached layer scaled during a zoom gesture (cheap),
       // re-render crisply once the zoom settles or jumps too far.
       if (cam.z !== _prevCamZ) { _prevCamZ = cam.z; _lastZoomChangeTs = Date.now(); }
@@ -404,10 +407,11 @@
     drawRiverFlow();
     var srcs = coverageSources();
     if (layers.qos) drawQosTint();
-    drawCoverage(srcs);
+    if (layers.techdemand) drawTechDemandTint();
+    if (layers.coverage) drawCoverage(srcs);
     if (layers.demand) drawDemandHeat();
     drawBuildingSelection();
-    drawLinks();
+    if (layers.links) drawLinks();
     drawNodes();
     drawHighlights();
     if (layers.revenue) drawRevenue();
@@ -548,6 +552,31 @@
     ctx.restore();
   }
 
+  /* District label anchor: normally the district center, but shifted up
+     when a node icon sits on/near the center (e.g. HQ core at مرکز شهر)
+     so the plaque is never hidden under the icon or its label. */
+  function districtLabelPos(d) {
+    var c = districtCenter(d);
+    var nodes = (state && state.nodes) || [];
+    for (var i = 0; i < nodes.length; i++) {
+      if (dist(nodes[i].x, nodes[i].y, c.x, c.y) < 80) return { x: c.x, y: c.y - 56 };
+    }
+    return c;
+  }
+  /* Plaque rect of a district label — shared by the static draw and by the
+     dynamic node-label collision pass (district plaques are obstacles). */
+  function districtLabelRect(d) {
+    var p = districtLabelPos(d);
+    ctx.save();
+    ctx.font = 'bold ' + Math.max(14, 17 / Math.sqrt(cam.z)) + 'px Vazirmatn, Tahoma, sans-serif';
+    var tw = ctx.measureText(String(d.name || d.id || '')).width;
+    ctx.restore();
+    return { x: p.x - tw / 2 - 8, y: p.y - 12, w: tw + 16, h: 24 };
+  }
+  function rectsOverlap(a, b) {
+    return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  }
+
   /* District NAMES only (no zoning circles). Drawn AFTER buildings in the
      static scene so building/landmark labels never cover them. */
   function drawDistrictLabels() {
@@ -556,17 +585,18 @@
     for (var i = 0; i < ds.length; i++) {
       var d = ds[i], c = districtCenter(d), r = districtRadius(d);
       if (!circleInRect(c.x, c.y, r, cullRect)) continue;
+      var p = districtLabelPos(d);
       ctx.font = 'bold ' + Math.max(14, 17 / Math.sqrt(cam.z)) + 'px Vazirmatn, Tahoma, sans-serif';
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       var label = String(d.name || d.id || '');
       var tw = ctx.measureText(label).width;
       // dark halo plate keeps the name readable over any building
       ctx.fillStyle = 'rgba(8,12,20,0.72)';
-      ctx.fillRect(c.x - tw / 2 - 8, c.y - 12, tw + 16, 24);
+      ctx.fillRect(p.x - tw / 2 - 8, p.y - 12, tw + 16, 24);
       ctx.strokeStyle = 'rgba(255,255,255,0.22)'; ctx.lineWidth = 1 / cam.z;
-      ctx.strokeRect(c.x - tw / 2 - 8, c.y - 12, tw + 16, 24);
+      ctx.strokeRect(p.x - tw / 2 - 8, p.y - 12, tw + 16, 24);
       ctx.fillStyle = 'rgba(240,244,255,0.97)';
-      ctx.fillText(label, c.x, c.y);
+      ctx.fillText(label, p.x, p.y);
     }
     ctx.restore();
   }
@@ -581,6 +611,32 @@
       // green good -> red bad
       var col = q > 0.66 ? 'rgba(34,197,94,0.20)' : (q > 0.4 ? 'rgba(245,158,11,0.22)' : 'rgba(239,68,68,0.24)');
       ctx.fillStyle = col;
+      ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  /* Districts tinted by their dominant technology demand */
+  var TECH_TINT = {
+    fiber: 'rgba(34,211,238,0.22)', cellular: 'rgba(63,185,80,0.22)',
+    fwa: 'rgba(251,146,60,0.24)', wifi: 'rgba(167,139,250,0.24)', satellite: 'rgba(232,121,249,0.22)'
+  };
+  function drawTechDemandTint() {
+    var ds = (state && state.districts) || [];
+    var splitAll = (global.GAME_DATA && global.GAME_DATA.techDemandSplit) || {};
+    ctx.save();
+    for (var i = 0; i < ds.length; i++) {
+      var d = ds[i];
+      var c = districtCenter(d), r = districtRadius(d);
+      if (!circleInRect(c.x, c.y, r, cullRect)) continue;
+      var best = null, bestV = -1, t;
+      if (d.techDemand) {
+        for (t in d.techDemand) if ((d.techDemand[t].demand || 0) > bestV) { bestV = d.techDemand[t].demand; best = t; }
+      } else if (splitAll[d.type]) {
+        for (t in splitAll[d.type]) if (splitAll[d.type][t] > bestV) { bestV = splitAll[d.type][t]; best = t; }
+      }
+      if (!best || !TECH_TINT[best]) continue;
+      ctx.fillStyle = TECH_TINT[best];
       ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, Math.PI * 2); ctx.fill();
     }
     ctx.restore();
@@ -765,14 +821,16 @@
       ctx.beginPath(); ctx.arc(cx, cy + 3, 8, Math.PI, 0); ctx.fill();
       ctx.fillRect(cx - 9, cy + 3, 18, 5);
     }
-    ctx.font = 'bold ' + Math.max(11, 12 / Math.sqrt(cam.z)) + 'px Vazirmatn, Tahoma, sans-serif';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-    var label = b.nameFa || info.fa;
-    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    var tw = ctx.measureText(label).width;
-    ctx.fillRect(cx - tw / 2 - 5, b.y + h + 3, tw + 10, 18);
-    ctx.fillStyle = '#fde68a';
-    ctx.fillText(label, cx, b.y + h + 5);
+    if (layers.labels) {
+      ctx.font = 'bold ' + Math.max(11, 12 / Math.sqrt(cam.z)) + 'px Vazirmatn, Tahoma, sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      var label = b.nameFa || info.fa;
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      var tw = ctx.measureText(label).width;
+      ctx.fillRect(cx - tw / 2 - 5, b.y + h + 3, tw + 10, 18);
+      ctx.fillStyle = '#fde68a';
+      ctx.fillText(label, cx, b.y + h + 5);
+    }
     ctx.restore();
   }
 
@@ -961,6 +1019,7 @@
   function drawNodes() {
     var nodes = (state && state.nodes) || [];
     ctx.save();
+    var labelJobs = [], labelObstacles = [];
     for (var i = 0; i < nodes.length; i++) {
       var n = nodes[i], k = nodeKind(n.type);
       if (!inRect(n.x, n.y, cullRect)) continue;
@@ -968,6 +1027,7 @@
       var conn = isConnected(n), failed = isFailed(n), bld = isBuilding(n);
       if (!conn) col = '#6b7280';
       var r = (k === 'core' || k === 'gateway') ? 13 : 10;
+      labelObstacles.push({ x: n.x - r, y: n.y - r, w: r * 2, h: r * 2 });
 
       // building pulse (amber)
       if (bld) {
@@ -1032,18 +1092,58 @@
         ctx.strokeStyle = 'rgba(156,163,175,0.8)'; ctx.lineWidth = 1 / Math.sqrt(cam.z);
         var bx = n.x - tw / 2 - 6, by = n.y - r - 24;
         ctx.fillRect(bx, by, tw + 12, 17); ctx.strokeRect(bx, by, tw + 12, 17);
+        labelObstacles.push({ x: bx, y: by, w: tw + 12, h: 17 });
         ctx.fillStyle = '#d1d5db'; ctx.textBaseline = 'middle';
         ctx.fillText(txt, n.x, by + 9);
       }
-      // label (name if present)
+      // label (name if present) — drawn in the collision-aware pass below
       var lbl = n.nameFa || n.name;
-      if (lbl && cam.z > 0.45) {
-        ctx.font = Math.max(10, 11 / Math.sqrt(cam.z)) + 'px Vazirmatn, Tahoma, sans-serif';
-        ctx.fillStyle = 'rgba(235,240,250,0.9)'; ctx.textBaseline = 'top';
-        ctx.fillText(String(lbl), n.x, n.y + r + 3);
-      }
+      if (lbl && cam.z > 0.45) labelJobs.push({ n: n, r: r, text: String(lbl) });
     }
+    if (layers.labels) drawNodeLabels(labelJobs, labelObstacles);
     ctx.restore();
+  }
+
+  /* Node labels with dark plaques + collision resolution: each label tries
+     below its icon first, then above, then further out — avoiding other
+     labels, node icons, unconnected badges and district plaques. This keeps
+     close pairs (e.g. core/gateway in old saves) fully readable. */
+  function drawNodeLabels(jobs, obstacles) {
+    if (!jobs.length) return;
+    var fs = Math.max(10, 11 / Math.sqrt(cam.z));
+    ctx.font = fs + 'px Vazirmatn, Tahoma, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    var placed = obstacles.slice();
+    var ds = getDistricts();
+    for (var i = 0; i < ds.length; i++) {
+      var c = districtCenter(ds[i]);
+      if (circleInRect(c.x, c.y, districtRadius(ds[i]), cullRect)) placed.push(districtLabelRect(ds[i]));
+    }
+    // districtLabelRect saved/restored ctx, but re-assert our font anyway
+    ctx.font = fs + 'px Vazirmatn, Tahoma, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (var j = 0; j < jobs.length; j++) {
+      var job = jobs[j], n = job.n, r = job.r;
+      var tw = ctx.measureText(job.text).width;
+      var w = tw + 10, h = fs + 6;
+      var belowY = n.y + r + 3, aboveY = n.y - r - 3 - h;
+      var cands = [belowY, aboveY, belowY + h + 2, aboveY - h - 2, belowY + 2 * (h + 2), aboveY - 2 * (h + 2)];
+      var rect = null;
+      for (var k2 = 0; k2 < cands.length; k2++) {
+        var cand = { x: n.x - w / 2, y: cands[k2], w: w, h: h };
+        var hit = false;
+        for (var m = 0; m < placed.length; m++) if (rectsOverlap(cand, placed[m])) { hit = true; break; }
+        if (!hit) { rect = cand; break; }
+      }
+      if (!rect) rect = { x: n.x - w / 2, y: belowY, w: w, h: h };
+      placed.push(rect);
+      ctx.fillStyle = 'rgba(8,12,20,0.78)';
+      ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+      ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 1 / Math.sqrt(cam.z);
+      ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+      ctx.fillStyle = 'rgba(235,240,250,0.95)';
+      ctx.fillText(job.text, n.x, rect.y + rect.h / 2);
+    }
   }
 
   function drawHighlights() {
@@ -1217,7 +1317,7 @@
       var mid = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
       if (pinchDist > 0) {
         var before = screenToWorld(mid.x, mid.y);
-        camT.z = clamp(camT.z * (nd / pinchDist), 0.15, 3.5);
+        camT.z = clamp(camT.z * (nd / pinchDist), 0.08, 3.5);
         cam.z = camT.z; // snap z for stable pinch anchor math
         var after = screenToWorld(mid.x, mid.y);
         camT.x += (before.x - after.x); camT.y += (before.y - after.y);
@@ -1262,14 +1362,14 @@
     }
     var hit = hitTest(w.x, w.y);
     selected = hit;
-    if (cb.onSelect) cb.onSelect(hit ? hit.kind : null, hit ? hit.id : null);
+    if (cb.onSelect) cb.onSelect(hit ? hit.kind : null, hit ? hit.id : null, Math.round(w.x), Math.round(w.y));
   }
   function onWheel(e) {
     e.preventDefault();
     var p = eventPos(e);
     var before = screenToWorld(p.x, p.y);
     var factor = e.deltaY < 0 ? 1.12 : 0.89;
-    camT.z = clamp(camT.z * factor, 0.15, 3.5);
+    camT.z = clamp(camT.z * factor, 0.08, 3.5);
     cam.z = camT.z;
     var after = screenToWorld(p.x, p.y);
     camT.x += (before.x - after.x); camT.y += (before.y - after.y);
@@ -1279,7 +1379,7 @@
     var p = eventPos(e);
     var w = screenToWorld(p.x, p.y);
     camT.x = w.x; camT.y = w.y;
-    camT.z = clamp(camT.z * 1.4, 0.15, 3.5);
+    camT.z = clamp(camT.z * 1.4, 0.08, 3.5);
   }
 
   /* ============================================================
@@ -1336,11 +1436,16 @@
     setState: function (s) { state = s || state; staticCam = null; _distCache = null; applyMapData(); },
     getState: function () { return state; },
 
+    layers: layers,
+    setLayer: function (name, val) {
+      if (name in layers) { layers[name] = !!val; staticCam = null; } // static cache must rebuild (buildings/labels live there)
+    },
     setLayers: function (obj) {
       if (!obj) return;
       for (var k in layers) if (typeof obj[k] === 'boolean') layers[k] = obj[k];
+      staticCam = null;
     },
-    toggleLayer: function (name) { if (name in layers) layers[name] = !layers[name]; return layers[name]; },
+    toggleLayer: function (name) { if (name in layers) { layers[name] = !layers[name]; staticCam = null; } return layers[name]; },
 
     setSelected: function (kind, id) { selected = kind ? { kind: kind, id: id } : null; },
     getSelected: function () { return selected; },
@@ -1363,8 +1468,8 @@
     worldToScreen: worldToScreen,
 
     panTo: function (wx, wy) { camT.x = wx; camT.y = wy; },
-    zoomTo: function (z) { camT.z = clamp(z, 0.15, 3.5); },
-    zoomBy: function (f) { camT.z = clamp(camT.z * f, 0.15, 3.5); },
+    zoomTo: function (z) { camT.z = clamp(z, 0.08, 3.5); },
+    zoomBy: function (f) { camT.z = clamp(camT.z * f, 0.08, 3.5); },
     fit: fitCamera,
     resize: resize,
     draw: draw,
