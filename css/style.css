@@ -354,6 +354,9 @@ input[type=number]{background:var(--bg);color:var(--text);border:1px solid var(-
 .sector-row input[type=range]{flex:1;accent-color:var(--accent)}
 .indiv-list{margin-bottom:8px}
 .indiv-row{margin-bottom:8px}
+.indiv-row[data-indiv-bld]{cursor:pointer;border-radius:6px;padding:2px 4px}
+.indiv-row[data-indiv-bld]:hover{background:rgba(163,113,247,.12)}
+.subs-table td,.subs-table th{padding:3px 6px;text-align:right}
 .indiv-head{display:flex;justify-content:space-between;gap:8px;font-size:12px;margin-bottom:2px}
 .pkg-kind{display:inline-block;font-size:11px;padding:1px 7px;border-radius:999px;border:1px solid var(--border);vertical-align:middle}
 .pkg-kind.kind-gaming{border-color:var(--accent2);color:var(--accent2)}
