@@ -31,20 +31,20 @@ function feed4G(s, x, y) { // دکل 4G متصل نزدیک نقطه تا TD-LTE
 // ---------- 9) فناوری‌های پیشرفته در شروع قفل‌اند و با R&D باز می‌شوند ----------
 {
   const s = GameSim.newGame(7);
-  check('9a ماهواره LEO در شروع قفل است', GameSim.isUnlocked(s, 'sat_terminal_leo') === false);
+  check('9a سایت 4G در شروع قفل است', GameSim.isUnlocked(s, 'cell_4g') === false);
   check('9b سایت 5G در شروع قفل است', GameSim.isUnlocked(s, 'cell_5g') === false);
   check('9c FTTH در شروع قفل است', GameSim.isUnlocked(s, 'ftth') === false);
   const before = s.nodes.length;
-  check('9d ساخت تجهیز قفل‌شده رد می‌شود', GameSim.buildNode(s, 'sat_terminal_leo', 100, 100) === null && s.nodes.length === before);
+  check('9d ساخت تجهیز قفل‌شده رد می‌شود', GameSim.buildNode(s, 'cell_5g', 100, 100) === null && s.nodes.length === before);
   // باز کردن با تحقیق‌وتوسعه (پیش‌نیازها)
   const techs = DATA.techs || DATA.techTree || [];
-  const leo = techs.find(t => (t.unlocks || []).includes('sat_terminal_leo'));
-  if (leo) {
+  const nr = techs.find(t => (t.unlocks || []).includes('cell_5g'));
+  if (nr) {
     s.cash = 99999999;
-    (leo.requires || []).forEach(r => GameSim.unlockTech(s, r));
-    const ok = GameSim.unlockTech(s, leo.id);
-    check('9e ماهواره LEO پس از R&D باز می‌شود', ok !== false && GameSim.isUnlocked(s, 'sat_terminal_leo') === true, JSON.stringify(ok));
-  } else check('9e ماهواره LEO پس از R&D باز می‌شود', false, 'tech برای LEO پیدا نشد');
+    (nr.requires || []).forEach(r => GameSim.unlockTech(s, r));
+    const ok = GameSim.unlockTech(s, nr.id);
+    check('9e سایت 5G پس از R&D باز می‌شود', ok !== false && GameSim.isUnlocked(s, 'cell_5g') === true, JSON.stringify(ok));
+  } else check('9e سایت 5G پس از R&D باز می‌شود', false, 'tech برای 5G پیدا نشد');
 }
 
 // ---------- 2) تجهیز بدون اتصال سرویس نمی‌دهد ----------
@@ -140,31 +140,6 @@ let s1, cell1, link1;
   check('6d با فیل‌اور روشن، سرویس از مسیر پشتیبان برمی‌گردد', (d.servedDemand || 0) > 0, 'served=' + d.servedDemand);
 }
 
-// ---------- 3) ماهواره به پایانه+شبکه ماهواره+دروازه زمینی+هسته وابسته است ----------
-{
-  const s = GameSim.newGame(19);
-  s.cash = 99999999;
-  const techs = DATA.techs || DATA.techTree || [];
-  const leo = techs.find(t => (t.unlocks || []).includes('sat_terminal_leo'));
-  if (leo) { (leo.requires || []).forEach(r => GameSim.unlockTech(s, r)); GameSim.unlockTech(s, leo.id); }
-  const term = GameSim.buildNode(s, 'sat_terminal_leo', 1640, 300); // مرکز حاشیه شمالی در نقشهٔ جدید 3200×2400
-  const gw = GameSim.buildNode(s, 'sat_gateway', 1600, 1200);      // مرکز دادهٔ مرکزی (HQ)
-  check('3a پایانه و دروازه زمینی پس از R&D ساخته می‌شوند', !!term && !!gw);
-  if (term && gw) {
-    finishBuild(s, term); finishBuild(s, gw);
-    GameSim.connect(s, gw.id, coreOf(s).id, 'fiber');
-    const satLink = GameSim.connect(s, term.id, gw.id, 'satellite');
-    const path = GameSim.traceSatellitePath(s, term.id);
-    const flat = JSON.stringify(path || '');
-    check('3b مسیر ماهواره‌ای کامل: پایانه→ماهواره→دروازه→هسته', !!path && flat.includes(gw.id) && flat.includes(coreOf(s).id), flat.slice(0, 200));
-    // شکستن هر حلقه مسیر را می‌کشد
-    const sl = s.links.find(l => l.id === (satLink && (satLink.id || satLink)));
-    if (sl) { sl.status = 'cut'; check('3c قطع لینک ماهواره‌ای مسیر را می‌کشد', !GameSim.traceSatellitePath(s, term.id)); sl.status = 'active'; }
-    const gwCore = s.links.find(l => (l.from === gw.id && l.to === coreOf(s).id) || (l.to === gw.id && l.from === coreOf(s).id));
-    if (gwCore) { gwCore.status = 'cut'; check('3d قطع دروازه↔هسته مسیر ماهواره را می‌کشد', !GameSim.traceSatellitePath(s, term.id)); gwCore.status = 'active'; }
-  }
-}
-
 // ---------- 7) سیم علت مشکل و گزینه رفع را به UI می‌دهد ----------
 {
   const s = withLTE(GameSim.newGame(23));
@@ -225,10 +200,10 @@ let s1, cell1, link1;
 // ---------- 11) اقتصاد شروع: فقط ساده‌ترین‌ها قابل خریدند ----------
 {
   const s = GameSim.newGame(202);
-  const wifi = eq('fwa_ap'), g2 = eq('cell_2g'), g4 = eq('cell_4g'), g5 = eq('cell_5g'), sat = eq('sat_terminal_leo'), agg = eq('aggregation');
+  const wifi = eq('fwa_ap'), g2 = eq('cell_2g'), g4 = eq('cell_4g'), g5 = eq('cell_5g'), agg = eq('aggregation');
   check('11a نقدینگی شروع برای شبکهٔ حداقلی (وای‌فای/2G) کافی است', s.cash >= wifi.cost && s.cash >= g2.cost, 'cash=' + s.cash);
-  check('11b تجهیزات پیشرفته در شروع قابل خرید نیستند', s.cash < g4.cost && s.cash < g5.cost && s.cash < sat.cost && s.cash < agg.cost,
-    'cash=' + s.cash + ' 4g=' + g4.cost + ' 5g=' + g5.cost + ' sat=' + sat.cost + ' agg=' + agg.cost);
+  check('11b تجهیزات پیشرفته در شروع قابل خرید نیستند', s.cash < g4.cost && s.cash < g5.cost && s.cash < agg.cost,
+    'cash=' + s.cash + ' 4g=' + g4.cost + ' 5g=' + g5.cost + ' agg=' + agg.cost);
   const d = s.districts.find(x => x.id === 'north') || s.districts[0];
   const node = GameSim.buildNode(s, 'fwa_ap', d.x, d.y);
   check('11c اولین ساخت آموزش با نقدینگی شروع ممکن است', !!node);
@@ -369,7 +344,7 @@ let s1, cell1, link1;
 {
   const eqs = DATA.equipmentList || [];
   const missing = eqs.filter(e => !e.guide || !String(e.guide).trim()).map(e => e.id);
-  check('17a همه تجهیزات راهنمای فارسی دارند (' + eqs.length + ' تجهیز)', eqs.length >= 18 && missing.length === 0,
+  check('17a همه تجهیزات راهنمای فارسی دارند (' + eqs.length + ' تجهیز)', eqs.length >= 17 && missing.length === 0,
     'missing=' + missing.join(','));
   const guides = DATA.techGuides || [];
   const badG = guides.filter(g => !g.desc || !g.whenToUse || (!(g.equipmentIds || []).length && g.id !== 'wifi')).map(g => g.id);
@@ -423,7 +398,7 @@ let s1, cell1, link1;
     rServed.wifi.speed === 0 && rServed.wifi.reason === 'no_subscription', JSON.stringify(rServed.wifi));
   const rFar = GameSim.speedTestAt(s, 60, 60);
   check('19c نقطه بدون پوشش: همه فناوری‌ها صفر با علت «خارج از پوشش»',
-    ['fiber', 'cellular', 'fwa', 'satellite'].every(t => rFar[t].speed === 0 && rFar[t].reason === 'no_coverage'), JSON.stringify(rFar));
+    ['fiber', 'cellular', 'fwa'].every(t => rFar[t].speed === 0 && rFar[t].reason === 'no_coverage'), JSON.stringify(rFar));
 }
 
 // ---------- 20) کارکنان: اثرات واقعی + پیشرفت بدون کارمند ----------
@@ -732,7 +707,7 @@ let s1, cell1, link1;
 {
   const list = DATA.equipmentList || [];
   const techIds = new Set((DATA.techList || []).map(t => t.id));
-  const CATS = new Set(['cable', 'access', 'antenna', 'backhaul', 'satellite', 'core', 'power', 'tools']);
+  const CATS = new Set(['cable', 'access', 'antenna', 'backhaul', 'core', 'power', 'tools']);
   const ids = new Set(); let bad = [];
   for (const e of list) {
     if (ids.has(e.id)) bad.push('dup ' + e.id);
@@ -745,7 +720,7 @@ let s1, cell1, link1;
     if ((e.category === 'access' || e.category === 'antenna') && !GameSim.TECH_KEYS.includes(e.tech)) bad.push(e.id + ' tech=' + e.tech);
     if (!(e.radius >= 0) || !(e.capacity >= 0)) bad.push(e.id + ' radius/capacity');
   }
-  check('28a کاتالوگ کلی ساده: ۱۸ تا ۳۰ تجهیز، شناسه یکتا، قیمت/راهنما/دسته/بازشدن معتبر', list.length >= 18 && list.length <= 30 && bad.length === 0,
+  check('28a کاتالوگ کلی ساده: ۱۷ تا ۳۰ تجهیز، شناسه یکتا، قیمت/راهنما/دسته/بازشدن معتبر', list.length >= 17 && list.length <= 30 && bad.length === 0,
     'total=' + list.length + (bad.length ? ' bad: ' + bad.slice(0, 8).join(', ') : ''));
   const unlockMismatch = (DATA.techList || []).some(t => (t.unlocks || []).some(id => !ids.has(id))) ||
     list.some(e => e.unlock && !(DATA.techList.find(t => t.id === e.unlock) || { unlocks: [] }).unlocks.includes(e.id));
@@ -923,7 +898,7 @@ let s1, cell1, link1;
     'spent ' + spentAtStop + ' -> ' + withC.camp.spent);
 }
 
-// ---------- 35) بستهٔ گیمینگ: تأخیر مسیر فیبر در برابر ماهوارهٔ GEO ----------
+// ---------- 35) بستهٔ گیمینگ: تأخیر مسیر فیبر در برابر مسیر زمینی پرتأخیر ----------
 {
   function gamingClean(kind) {
     const s = GameSim.newGame(55); s.cash = 99999999;
@@ -939,26 +914,24 @@ let s1, cell1, link1;
       for (const b of s.buildings.filter((x) => x.districtId === d.id)) GameSim.connectBuildingFiber(s, b.id, n.id);
       for (let i = 0; i < 8; i++) { GameSim.tick(s, 1); keepAlive(s); }
     } else {
-      GameSim.unlockTech(s, 'satellite_leo'); GameSim.unlockTech(s, 'satellite_geo');
-      const term = GameSim.buildNode(s, 'sat_terminal_geo', d.x, d.y);
-      const gw = GameSim.buildNode(s, 'sat_gateway', coreOf(s).x + 300, coreOf(s).y);
-      finishBuild(s, term); finishBuild(s, gw);
-      GameSim.connect(s, gw.id, coreOf(s).id, 'fiber');
-      GameSim.connect(s, term.id, gw.id, 'satellite');
+      // مسیر زمینی پرتأخیر: دکل 2G با لینک فیبر با تأخیر تحمیلی ۶۰۰ میلی‌ثانیه
+      const term = GameSim.buildNode(s, 'cell_2g', d.x, d.y);
+      finishBuild(s, term);
+      GameSim.connect(s, term.id, coreOf(s).id, 'fiber', { latency: 600 });
     }
     s.weather = { kind: 'clear', untilDay: 9999 };
     s.failoverActive = false;
-    d.subscribers = 50; d.satisfaction = 0; // ترافیک کم (۵۰×۲=۱۰۰) تا کیفیت هر دو مسیر کامل باشد و فقط تأخیر فرق کند
+    d.subscribers = 30; d.satisfaction = 0; // ترافیک کم (۳۰×۱٫۲=۳۶ < ظرفیت 2G) تا کیفیت هر دو مسیر کامل باشد و فقط تأخیر فرق کند
     GameSim.computeFlow(s);
     return d;
   }
-  const gf = gamingClean('fiber'), gs = gamingClean('geo');
-  check('35a تأخیر متوسط مسیر فیبر بسیار کمتر از ماهوارهٔ GEO است',
+  const gf = gamingClean('fiber'), gs = gamingClean('highlat');
+  check('35a تأخیر متوسط مسیر فیبر بسیار کمتر از مسیر پرتأخیر است',
     gf.avgLatency > 0 && gf.avgLatency < gs.avgLatency && gs.avgLatency >= 600,
-    'fiber=' + gf.avgLatency + 'ms geo=' + gs.avgLatency + 'ms');
-  check('35b با کیفیت برابر، رضایت بستهٔ گیمینگ روی فیبر بیشتر از GEO است',
+    'fiber=' + gf.avgLatency + 'ms highlat=' + gs.avgLatency + 'ms');
+  check('35b با کیفیت برابر، رضایت بستهٔ گیمینگ روی فیبر بیشتر از مسیر پرتأخیر است',
     gf.qos === gs.qos && gf.satisfaction > gs.satisfaction,
-    'qos=' + gf.qos.toFixed(2) + '/' + gs.qos.toFixed(2) + ' sat fiber=' + gf.satisfaction.toFixed(1) + ' geo=' + gs.satisfaction.toFixed(1));
+    'qos=' + gf.qos.toFixed(2) + '/' + gs.qos.toFixed(2) + ' sat fiber=' + gf.satisfaction.toFixed(1) + ' highlat=' + gs.satisfaction.toFixed(1));
 }
 
 // ---------- 36) کانال فرکانسی و تداخل ----------
@@ -1057,45 +1030,6 @@ let s1, cell1, link1;
     'nearest=' + (best && best.d.id) + ' dist=' + (best && Math.round(best.dd)) + ' limit=' + (best && (eq.radius + best.d.radius)));
 }
 
-// ---------- 40) ماهواره‌های اختصاصی (صورت فلکی) ----------
-{
-  const s = GameSim.newGame(77); s.cash = 99999999;
-  GameSim.unlockTech(s, 'satellite_leo');
-  const term = GameSim.buildNode(s, 'sat_terminal_leo', 1640, 300);
-  const gw = GameSim.buildNode(s, 'sat_gateway', coreOf(s).x + 300, coreOf(s).y);
-  finishBuild(s, term); finishBuild(s, gw);
-  GameSim.connect(s, gw.id, coreOf(s).id, 'fiber');
-  GameSim.connect(s, term.id, gw.id, 'satellite');
-  GameSim.computeFlow(s);
-  const mc0 = s.finance.monthlyCosts;
-  const noTech = GameSim.launchSatellite(s, 'leo');
-  check('40a پرتاب ماهواره بدون فناوری «ماهواره اختصاصی» رد می‌شود', noTech.ok === false,
-    JSON.stringify(noTech));
-  GameSim.unlockTech(s, 'own_satellite');
-  const r = GameSim.launchSatellite(s, 'leo');
-  check('40b پس از باز کردن فناوری، ماهواره LEO آنی در مدار فعال می‌شود',
-    r.ok && r.satellite.status === 'active' && r.satellite.launchTimer === 0,
-    'status=' + (r.satellite && r.satellite.status));
-  for (let i = 0; i < DATA.satelliteLaunch.leo.buildDays + 5; i++) { GameSim.tick(s, 1); keepAlive(s); }
-  const sat = s.satellites[0];
-  check('40c پس از پایان ساخت، ماهواره فعال و ظرفیت صورت فلکی مثبت است',
-    sat.status === 'active' && GameSim.constellationCapacity(s) === DATA.satelliteLaunch.leo.capacity,
-    'status=' + sat.status + ' capacity=' + GameSim.constellationCapacity(s));
-  GameSim.computeFlow(s);
-  const mc1 = s.finance.monthlyCosts;
-  // صورت فلکی اشتراک پایانه را به ۳۰٪ می‌رساند (−۱۸۲۰) و هزینهٔ خود ماهواره (+۳۰۰۰) اضافه می‌شود
-  const termMonthly = DATA.equipmentList.find(e => e.id === 'sat_terminal_leo').monthlyCost;
-  const expectedDelta = DATA.satelliteLaunch.leo.monthlyCost - Math.round(termMonthly * 0.7);
-  check('40d صورت فلکی هزینهٔ ماهانهٔ پایانهٔ ماهواره‌ای را کم می‌کند',
-    mc1 - mc0 === expectedDelta && (mc1 - DATA.satelliteLaunch.leo.monthlyCost) < mc0,
-    'monthlyCosts ' + mc0 + ' -> ' + mc1 + ' delta=' + (mc1 - mc0) + ' expected=' + expectedDelta);
-  sat.ageDays = sat.lifetimeDays - 1;
-  for (let i = 0; i < 3; i++) { GameSim.tick(s, 1); keepAlive(s); }
-  check('40e ماهواره در پایان عمر از مدار خارج می‌شود (deorbited/failed)',
-    sat.status === 'deorbited' || sat.status === 'failed',
-    'status=' + sat.status);
-}
-
 // ---------- 41) ساعت اوج و ساعت روز ----------
 {
   check('41a ضریب تقاضا: نیمه‌شب < ظهر < اوج عصرگاهی',
@@ -1187,8 +1121,8 @@ let s1, cell1, link1;
   const raw = JSON.parse(GameSim.saveGame(s));
   delete raw.hour; delete raw.weather; delete raw.achievements; delete raw.newAchievements;
   delete raw.individuals; delete raw.contracts; delete raw.contractOffers; delete raw.campaigns;
-  delete raw.satellites; delete raw.history;
-  ['individual', 'contract', 'campaign', 'satellite', 'built', 'contractsDone', 'campaignsRun', 'profitMonths']
+  delete raw.history;
+  ['individual', 'contract', 'campaign', 'built', 'contractsDone', 'campaignsRun', 'profitMonths']
     .forEach(k => delete raw.counters[k]);
   raw.nodes.forEach(x => { delete x.channel; delete x.interference; });
   raw.districts.forEach(x => { delete x.avgLatency; delete x.perSubMbps; delete x._qosAcc; delete x._qosDays; });
@@ -1198,24 +1132,24 @@ let s1, cell1, link1;
     s2.hour === 10 && s2.weather.kind === 'clear' &&
     Array.isArray(s2.individuals) && s2.individuals.length === 0 &&
     Array.isArray(s2.contracts) && Array.isArray(s2.contractOffers) &&
-    Array.isArray(s2.campaigns) && Array.isArray(s2.satellites) && Array.isArray(s2.history) &&
+    Array.isArray(s2.campaigns) && Array.isArray(s2.history) && s2.satellites === undefined &&
     !!s2.achievements && !!wifi && wifi.channel != null && wifi.interference === 0 &&
     s2.districts.every(x => x.avgLatency === 0 && x.perSubMbps === 0),
     'hour=' + s2.hour + ' weather=' + s2.weather.kind + ' wifiChannel=' + (wifi && wifi.channel));
   check('44b بازی مهاجرت‌کرده بدون خطا ادامه پیدا می‌کند', !!GameSim.tick(s2, 1));
 }
 
-// ---------- 47: کاتالوگ ساده و کلی (۲۰ قلم) ----------
+// ---------- 47: کاتالوگ ساده و کلی (۱۷ قلم) ----------
 {
   const eqs = DATA.equipmentList;
-  check('47a کاتالوگ کلی و ساده است (۱۸ تا ۳۰ قلم)', eqs.length >= 18 && eqs.length <= 30, 'n=' + eqs.length);
+  check('47a کاتالوگ کلی و ساده است (۱۷ تا ۳۰ قلم)', eqs.length >= 17 && eqs.length <= 30, 'n=' + eqs.length);
   const ids = new Set(eqs.map((e) => e.id));
   check('47b شناسه‌های کاتالوگ یکتا هستند', ids.size === eqs.length);
   const techIds = new Set(DATA.techList.map((t) => t.id));
   check('47c هر unlock به فناوری واقعی اشاره می‌کند', eqs.every((e) => !e.unlock || techIds.has(e.unlock)));
   check('47d هر قلم راهنمای فارسی دارد', eqs.every((e) => e.guide && e.guide.length > 20));
-  const coreIds = ['fiber_cable', 'copper_cable', 'ftth', 'cell_2g', 'cell_3g', 'cell_4g', 'cell_5g', 'fwa_ap', 'ptp_link', 'fwa_ap', 'sat_terminal_leo', 'sat_terminal_geo', 'sat_gateway', 'router', 'switch', 'aggregation', 'core_router', 'internet_gateway'];
-  check('47e هر ۱۸ قلم کلی اصلی حاضرند', coreIds.every((id) => ids.has(id)));
+  const coreIds = ['fiber_cable', 'copper_cable', 'street_cabinet', 'ftth', 'cell_2g', 'cell_3g', 'cell_4g', 'cell_5g', 'fwa_ap', 'ptp_link', 'router', 'switch', 'aggregation', 'core_router', 'internet_gateway', 'backup_power', 'test_tools_kit'];
+  check('47e هر ۱۷ قلم کلی اصلی حاضرند', coreIds.every((id) => ids.has(id)));
   const guideBad = (DATA.techGuides || []).flatMap((g) => (g.equipmentIds || []).filter((id) => !ids.has(id)));
   check('47f راهنمای فناوری‌ها فقط به اقلام موجود اشاره می‌کند', guideBad.length === 0, guideBad.join(','));
 }
@@ -1670,7 +1604,7 @@ let s1, cell1, link1;
     'near=' + Math.round(nearSpeed) + ' far=' + farSpeed);
   const bd = (id) => (GameSim.getEq(id) || {}).buildDays;
   check('59c زمان ساخت همهٔ تجهیزات سریع و حداکثر یک روز است',
-    bd('fwa_ap') === 0.25 && bd('cell_4g') === 0.625 && bd('cell_5g') === 0.75 && bd('sat_gateway') === 1 && bd('ftth') === 0.375,
+    bd('fwa_ap') === 0.25 && bd('cell_4g') === 0.625 && bd('cell_5g') === 0.75 && bd('ftth') === 0.375,
     'wifi=' + bd('fwa_ap') + ' 4g=' + bd('cell_4g') + ' 5g=' + bd('cell_5g'));
   const s2 = GameSim.newGame(42);
   const w = GameSim.buildNode(s2, 'fwa_ap', d.x, d.y);
@@ -1750,7 +1684,7 @@ let s1, cell1, link1;
 // ---------- 61: مشخصهٔ اتصال‌ها (connects) و سازگاری با اعتبارسنجی ----------
 {
   const list = DATA.equipmentList || Object.values(DATA.equipment || {});
-  check('61a همهٔ تجهیزات مشخصهٔ اتصال غیرخالی دارند', list.length === 20 && list.every((e) => Array.isArray(e.connects) && e.connects.length > 0),
+  check('61a همهٔ تجهیزات مشخصهٔ اتصال غیرخالی دارند', list.length === 17 && list.every((e) => Array.isArray(e.connects) && e.connects.length > 0),
     'items=' + list.length);
   const s = GameSim.newGame(42); s.cash = 9999999;
   GameSim.unlockTech(s, 'fiber'); GameSim.unlockTech(s, 'ftth');
@@ -1781,14 +1715,13 @@ let s1, cell1, link1;
   GameSim.refreshConnectivity(s);
   const rFtth = GameSim.connectBuildingWired(s, bNear.id, ftth.id, 'fiber');
   check('61e انشعاب جدید مستقیم به FTTH رد می‌شود (فقط از کابینت)', rFtth.ok === false, rFtth.error || '');
-  // ماهواره: فقط پایانه ↔ دروازه زمینی
-  GameSim.unlockTech(s, 'satellite_leo');
-  const term = GameSim.buildNode(s, 'sat_terminal_leo', d.x + 120, d.y + 120);
-  const sgw = GameSim.buildNode(s, 'sat_gateway', d.x - 120, d.y + 120);
-  finishBuild(s, term); finishBuild(s, sgw);
-  const okSat = GameSim.connect(s, term.id, sgw.id, 'satellite');
-  const badSat = GameSim.connect(s, term.id, coreOf(s).id, 'satellite');
-  check('61f لینک ماهواره‌ای فقط بین پایانه و دروازه زمینی', !!okSat && badSat === null);
+  // رسانهٔ ماهواره‌ای حذف شده است: اتصال با آن رد می‌شود و در گزینه‌های تغییر نوع لینک نیست
+  const satTry = GameSim.connect(s, ftth.id, coreOf(s).id, 'satellite');
+  const cellLink = s.links.find(l => l.from === cell.id || l.to === cell.id);
+  const opts61 = cellLink ? GameSim.linkChangeOptions(s, cellLink.id) : [];
+  check('61f رسانهٔ ماهواره‌ای حذف شده: اتصال با آن رد و در گزینه‌های تغییر لینک نیست',
+    satTry === null && opts61.length > 0 && opts61.every(o => o.medium !== 'satellite'),
+    'opts=' + opts61.map(o => o.medium).join(','));
   // هسته/دروازه: بدون انشعاب ساختمان و بدون خدمت مشترک؛ دروازه اینترنت دارد
   const coreSpec = eq('core_router').connects, gwSpec = eq('internet_gateway').connects;
   check('61g هسته و دروازه انشعاب ساختمان ندارند و دروازه به اینترنت وصل است',
@@ -1823,14 +1756,13 @@ let s1, cell1, link1;
   const farLink = GameSim.connect(s, far.id, coreOf(s).id, 'copper');
   const rFar = GameSim.changeLinkMedium(s, farLink.id, 'ptp');
   check('62f تغییر به PtP در فاصله بیش از ۱۸۰۰ رد می‌شود', rFar.ok === false, rFar.error || '');
-  // قابلیت: پایانه ماهواره‌ای فیبر پشتیبانی نمی‌کند
-  GameSim.unlockTech(s, 'satellite_leo');
-  const term = GameSim.buildNode(s, 'sat_terminal_leo', d.x + 100, d.y + 100);
-  const sgw = GameSim.buildNode(s, 'sat_gateway', d.x - 100, d.y + 100);
-  finishBuild(s, term); finishBuild(s, sgw);
-  const satLink = GameSim.connect(s, term.id, sgw.id, 'satellite');
-  const rCap = GameSim.changeLinkMedium(s, satLink.id, 'fiber');
-  check('62g تغییر لینک پایانه به فیبر (بدون پشتیبانی) رد می‌شود', rCap.ok === false, rCap.error || '');
+  // قابلیت: روتر PtP پشتیبانی نمی‌کند (فقط فیبر/مسی)
+  const rA = GameSim.buildNode(s, 'router', d.x + 100, d.y + 100);
+  const rB = GameSim.buildNode(s, 'router', d.x - 100, d.y + 100);
+  finishBuild(s, rA); finishBuild(s, rB);
+  const rLink = GameSim.connect(s, rA.id, rB.id, 'copper');
+  const rCap = GameSim.changeLinkMedium(s, rLink.id, 'ptp');
+  check('62g تغییر لینک روتر به PtP (بدون پشتیبانی) رد می‌شود', rCap.ok === false, rCap.error || '');
   // ارتقا: ×۱٫۵ ظرفیت، آنی
   const rUp = GameSim.upgradeLink(s, link.id);
   check('62h ارتقای لینک آنی ظرفیت را ۱٫۵ برابر کرد', rUp.ok === true && link.level === 2 && link.capacity === 15000 && link.status === 'active',
@@ -2134,7 +2066,7 @@ let s1, cell1, link1;
   const techFaBlocks = [...uiSrc.matchAll(/var TECH_FA = \{([^}]*)\}/g)].map(m => m[1]);
   check('70a برچسب همهٔ فناوری‌ها (از جمله وای‌فای) در UI هست و undefined رندر نمی‌شود',
     techFaBlocks.length >= 2 &&
-    techFaBlocks.every(b => ['fiber', 'cellular', 'fwa', 'satellite'].every(k => b.includes(k + ':'))) &&
+    techFaBlocks.every(b => ['fiber', 'cellular', 'fwa'].every(k => b.includes(k + ':'))) &&
     techFaBlocks.some(b => b.includes('wifi:')),
     'blocks=' + techFaBlocks.length);
   // 70b: خروجی speedTestAt برای نقاط نمونه هیچ فیلد undefined ندارد
@@ -2147,7 +2079,7 @@ let s1, cell1, link1;
   let ok70 = true, bad70 = '';
   for (const [x, y] of pts) {
     const r = GameSim.speedTestAt(s, x, y);
-    for (const t of ['fiber', 'cellular', 'fwa', 'wifi', 'satellite']) {
+    for (const t of ['fiber', 'cellular', 'fwa', 'wifi']) {
       const e = r[t];
       if (!e || typeof e.speed !== 'number' || e.reason === undefined || e.nodeName === undefined) {
         ok70 = false; bad70 = t + '@' + x + ',' + y + '=' + JSON.stringify(e);
@@ -2233,7 +2165,7 @@ let s1, cell1, link1;
 // ---------- 72: ترجیح نوع اینترنت ساختمان و منطقه ----------
 {
   const s = GameSim.newGame(42);
-  const keys = ['fiber', 'cellular', 'fwa', 'satellite'];
+  const keys = ['fiber', 'cellular', 'fwa'];
   const sumPref = (p) => keys.reduce((a, t) => a + (p[t] || 0), 0);
   // 72a: ترجیح هر ساختمان جمعش ۱۰۰٪ است
   const allSum = s.buildings.every(b => { const p = GameSim.buildingPreference(s, b); return Math.abs(sumPref(p) - 1) < 1e-6 && keys.every(t => p[t] >= 0 && p[t] <= 1); });
@@ -2243,7 +2175,7 @@ let s1, cell1, link1;
   for (const d of s.districts) {
     const bs = s.buildings.filter(b => b.districtId === d.id);
     if (!bs.length) continue;
-    const acc = { fiber: 0, cellular: 0, fwa: 0, satellite: 0 }; let wSum = 0;
+    const acc = { fiber: 0, cellular: 0, fwa: 0 }; let wSum = 0;
     for (const b of bs) {
       const w = (b.w || 10) * (b.h || 10) * (b.height || 1);
       const p = GameSim.buildingPreference(s, b);
@@ -2276,7 +2208,7 @@ let s1, cell1, link1;
   const recOk = d2.demand > 0 && keys.every(t => Math.abs(((td2[t] || {}).demand || 0) / d2.demand - pref2[t]) <= 0.02);
   check('72d سهم تقاضای فناوری‌ها با ترجیح کلی منطقه یکی است (دو پنل تناقض ندارند)', recOk,
     'demand=' + Math.round(d2.demand) + ' td=' + JSON.stringify(td2) + ' pref=' + JSON.stringify(pref2));
-  // 72e: شکل‌دهی plausible — اداری‌ها فیبرپسندتر از مسکونی‌ها؛ منطقهٔ کم‌تراکم TD-LTE/ماهواره‌پسندتر از تجاری
+  // 72e: شکل‌دهی plausible — اداری‌ها فیبرپسندتر از مسکونی‌ها؛ منطقهٔ کم‌تراکم TD-LTE‌پسندتر از تجاری
   const avgShare = (bs, t) => bs.length ? bs.reduce((a, b) => a + GameSim.buildingPreference(s, b)[t], 0) / bs.length : 0;
   const offices = s.buildings.filter(b => b.type === 'office');
   const homes = s.buildings.filter(b => b.type === 'residential');
@@ -2284,11 +2216,76 @@ let s1, cell1, link1;
   const commD = s.districts.find(d => d.type === 'commercial');
   const sparsePref = sparseD ? GameSim.districtPreference(s, sparseD) : null;
   const commPref = commD ? GameSim.districtPreference(s, commD) : null;
-  check('72e شکل‌دهی ترجیح: اداری فیبرپسندتر از مسکونی؛ کم‌تراکم TD-LTE/ماهواره‌پسندتر از تجاری',
+  check('72e شکل‌دهی ترجیح: اداری فیبرپسندتر از مسکونی؛ کم‌تراکم TD-LTE‌پسندتر از تجاری',
     offices.length > 0 && homes.length > 0 && avgShare(offices, 'fiber') > avgShare(homes, 'fiber') &&
-    !!sparsePref && !!commPref && (sparsePref.fwa + sparsePref.satellite) > (commPref.fwa + commPref.satellite),
+    !!sparsePref && !!commPref && sparsePref.fwa > commPref.fwa,
     'officeFiber=' + avgShare(offices, 'fiber').toFixed(2) + ' homeFiber=' + avgShare(homes, 'fiber').toFixed(2) +
-    ' sparse=' + (sparsePref && (sparsePref.fwa + sparsePref.satellite).toFixed(2)) + ' comm=' + (commPref && (commPref.fwa + commPref.satellite).toFixed(2)));
+    ' sparse=' + (sparsePref && sparsePref.fwa.toFixed(2)) + ' comm=' + (commPref && commPref.fwa.toFixed(2)));
+}
+
+// ---------- 73: حذف کامل اینترنت ماهواره‌ای ----------
+{
+  // 73a: هیچ شناسهٔ ماهواره‌ای در کاتالوگ/فناوری‌ها/بسته‌ها/رسانه‌ها/ماموریت‌ها/دستاوردها نیست
+  const satRe = /satellite|sat_/;
+  const noSat = !(DATA.equipmentList || []).some(e => satRe.test(e.id)) &&
+    !(DATA.techList || []).some(t => satRe.test(t.id)) &&
+    !(DATA.packageList || []).some(p => satRe.test(p.id)) &&
+    !Object.keys(DATA.linkMedia || {}).some(k => satRe.test(k)) &&
+    !(DATA.media || []).some(m => satRe.test(m.id)) &&
+    !GameSim.TECH_KEYS.some(k => satRe.test(k)) &&
+    !DATA.satelliteLaunch &&
+    !(DATA.techGuides || []).some(g => satRe.test(g.id)) &&
+    !(DATA.missions || []).some(m => satRe.test(m.id)) &&
+    !(DATA.achievements || []).some(a => satRe.test(a.id)) &&
+    !GameSim.launchSatellite && !GameSim.constellationCapacity && !GameSim.traceSatellitePath;
+  check('73a هیچ شناسهٔ ماهواره‌ای در کاتالوگ/فناوری/بسته/رسانه/ماموریت/دستاورد نیست', noSat);
+
+  // 73b: هر ردیف تقسیم تقاضا دقیقاً ۳ کلید دارد و جمعش ۱ است
+  const rows73 = [...Object.values(DATA.techDemandSplit || {}), DATA.techDemandSplitDefault];
+  const rowsOk = rows73.length > 1 && rows73.every(r => {
+    const ks = Object.keys(r).sort();
+    return JSON.stringify(ks) === JSON.stringify(['cellular', 'fiber', 'fwa']) &&
+      Math.abs(r.fiber + r.cellular + r.fwa - 1) < 1e-9;
+  });
+  check('73b همهٔ ردیف‌های تقسیم تقاضا ۳ فناوری و جمع ۱۰۰٪ هستند', rowsOk, 'rows=' + rows73.length);
+
+  // 73c: ذخیرهٔ قدیمی با گره/لینک/فناوری/بستهٔ ماهواره‌ای تمیز بارگذاری می‌شود
+  const s0 = GameSim.newGame(42);
+  const raw73 = JSON.parse(GameSim.saveGame(s0));
+  const core73 = raw73.nodes.find(n => n.type === 'core_router');
+  const clone73 = (id, type, dx) => { const n = JSON.parse(JSON.stringify(core73)); n.id = id; n.type = type; n.x += dx; return n; };
+  raw73.nodes.push(clone73('oldsat_term', 'sat_terminal_leo', -200));
+  raw73.nodes.push(clone73('oldsat_gw', 'sat_gateway', 200));
+  raw73.links.push({ id: 'oldsat_link', from: 'oldsat_term', to: 'oldsat_gw', medium: 'satellite', status: 'active', level: 1, capacity: 600, latency: 45, usage: 0, isBackup: false });
+  raw73.techsUnlocked = [...(raw73.techsUnlocked || []), 'satellite_leo', 'satellite_geo', 'own_satellite'];
+  raw73.satellites = [{ id: 'sat1', kind: 'leo', status: 'active', capacity: 2000, monthlyCost: 3000, ageDays: 10, lifetimeDays: 720, health: 100 }];
+  raw73.counters.satellite = 1;
+  raw73.packages.push({ id: 'satellite', name: 'ماهواره‌ای', speedMbps: 300, price: 1500, kind: 'satellite' });
+  raw73.customers[0].packageId = 'satellite';
+  raw73.missions.push({ id: 'm_satellite', done: false });
+  raw73.individuals.push({ id: 'ind_old', name: 'مشترک قدیمی', needMbps: 25, priceSensitivity: 1, prefTech: 'satellite', districtId: raw73.districts[0].id, buildingId: raw73.buildings[0].id, status: 'candidate', joinedDay: null, satisfaction: 0 });
+  const s3 = GameSim.loadGame(JSON.stringify(raw73));
+  const term3 = s3.nodes.find(n => n.id === 'oldsat_term');
+  const gw3 = s3.nodes.find(n => n.id === 'oldsat_gw');
+  const link3 = s3.links.find(l => l.id === 'oldsat_link');
+  const ind3 = s3.individuals.find(p => p.id === 'ind_old');
+  check('73c ذخیرهٔ قدیمی ماهواره‌ای تمیز مهاجرت می‌کند (گره‌ها معادل، لینک فیبر، بقیه پاک)',
+    !!term3 && term3.type === 'fwa_ap' && !!gw3 && gw3.type === 'aggregation' &&
+    !!link3 && link3.medium === 'fiber' && !s3.links.some(l => l.medium === 'satellite') &&
+    !s3.techsUnlocked.some(id => satRe.test(id)) &&
+    s3.satellites === undefined && s3.counters.satellite === undefined &&
+    !s3.packages.some(p => p.id === 'satellite') && s3.customers[0].packageId === 'home' &&
+    !s3.missions.some(m => m.id === 'm_satellite') && !!ind3 && ind3.prefTech === 'fwa',
+    JSON.stringify({ term: term3 && term3.type, gw: gw3 && gw3.type, link: link3 && link3.medium, techs: s3.techsUnlocked, pref: ind3 && ind3.prefTech }));
+  check('73c2 بازی مهاجرت‌کرده بدون خطا تیک می‌خورد', !!GameSim.tick(s3, 1));
+
+  // 73d: ترجیح ساختمان/منطقه کلید ماهواره ندارد
+  const p73 = GameSim.buildingPreference(s0, s0.buildings[0]);
+  const dp73 = GameSim.districtPreference(s0, s0.districts[0]);
+  check('73d ترجیح ساختمان و منطقه فقط ۳ نوع دارد (بدون ماهواره)',
+    JSON.stringify(Object.keys(p73).sort()) === JSON.stringify(['cellular', 'fiber', 'fwa']) &&
+    JSON.stringify(Object.keys(dp73).sort()) === JSON.stringify(['cellular', 'fiber', 'fwa']),
+    JSON.stringify({ p: Object.keys(p73), dp: Object.keys(dp73) }));
 }
 
 console.log('\nنتیجه: ' + pass + ' پاس، ' + fail + ' رد');
