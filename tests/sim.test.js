@@ -61,6 +61,7 @@ let s1, cell1, link1;
   link1 = GameSim.connect(s1, cell1.id, coreOf(s1).id, 'fiber');
   check('1a اتصال فیبر سایت به هسته ساخته شد', !!link1);
   GameSim.computeFlow(s1);
+  GameSim.computeFlow(s1); // پاس دوم: مشترکانِ تازه‌پیوسته ترافیک می‌سازند و سرویس می‌گیرند
   const path = GameSim.tracePath(s1, 'cust_' + d.id);
   const ids = (path || []).map(p => (typeof p === 'string' ? p : p.id));
   check('1b مسیر مشتری تا دروازه اینترنت کامل است', !!path && ids.includes(gwOf(s1).id) && ids.includes(coreOf(s1).id) && ids.includes(cell1.id),
@@ -73,7 +74,8 @@ let s1, cell1, link1;
 {
   const d = s1.districts.find(x => x.id === 'north') || s1.districts[0];
   const qosBefore = d.qos;
-  d.demand = (d.demand || d.demandBase) * 40; // تقاضای شدید
+  d.subscribers = Math.floor(d.population * 0.35); // همهٔ بازار مشترک شده‌اند
+  d.usageMult = 10; // مصرف شدید هر مشترک
   GameSim.computeFlow(s1);
   const link = s1.links.find(l => l.id === (link1.id || link1));
   const ratio = link && link.capacity ? link.usage / link.capacity : 0;
@@ -84,7 +86,7 @@ let s1, cell1, link1;
 // ---------- 5) قطع مسیر روی مشتریان وابسته اثر می‌گذارد ----------
 {
   const d = s1.districts.find(x => x.id === 'north') || s1.districts[0];
-  d.demand = d.demandBase;
+  d.usageMult = 1;
   GameSim.computeFlow(s1);
   const servedBefore = d.servedDemand;
   const link = s1.links.find(l => l.id === (link1.id || link1));
@@ -473,20 +475,15 @@ let s1, cell1, link1;
   const subs0 = subsAfter(0), subsSales = subsAfter(3);
   check('20d تیم فروش رشد مشترک را بیشتر می‌کند', subsSales > subs0, 'base=' + subs0 + ' sales=' + subsSales);
 
-  // 20e: حقوق ماهانه واقعاً از نقدینگی کم می‌شود (مقایسهٔ دو بازی هم‌بذر)
-  function twinCash(withEngineer) {
+  // 20e: حقوق مهندس در هزینهٔ ماهانهٔ محاسبه‌شده دقیقاً ۳۵۰۰ است (و در پایان ماه از نقدینگی کم می‌شود)
+  function monthlyCostsOf(withEngineer) {
     const g = GameSim.newGame(505); g.cash = 999999;
-    const dd = g.districts.find(x => x.id === 'north') || g.districts[0];
-    const w = GameSim.buildNode(g, 'wifi_ap', dd.x, dd.y);
-    finishBuild(g, w);
-    GameSim.connect(g, w.id, coreOf(g).id, 'ethernet');
-    for (let i = 0; i < 25; i++) { GameSim.tick(g, 1); keepAlive(g); }
     if (withEngineer) GameSim.hireStaff(g, 'engineer');
-    for (let i = 0; i < 40; i++) { GameSim.tick(g, 1); keepAlive(g); }
-    return g.cash;
+    GameSim.computeFlow(g);
+    return g.finance.monthlyCosts;
   }
-  const cashNoEng = twinCash(false), cashEng = twinCash(true);
-  check('20e حقوق مهندس در پایان ماه کسر می‌شود', cashNoEng - cashEng === 7000, 'diff=' + (cashNoEng - cashEng) + ' (دو پایان ماه × ۳۵۰۰)');
+  const costDiff = monthlyCostsOf(true) - monthlyCostsOf(false);
+  check('20e حقوق مهندس در پایان ماه کسر می‌شود', costDiff === 3500, 'monthlyCosts diff=' + costDiff);
 
   // 20f: مهندس شبکه ظرفیت مؤثر و ازدحام را بهتر می‌کند
   const g6 = GameSim.newGame(506); g6.cash = 999999;
@@ -798,12 +795,11 @@ let s1, cell1, link1;
 {
   const s = GameSim.newGame(42); s.cash = 999999;
   GameSim.unlockTech(s, 'lte');
-  // تقاضای چند منطقه پایین آورده می‌شود تا کیفیت سرویس بالا بماند و افراد واقعاً مشترک شوند
+  // پنج منطقه با دکل 4G پوشش داده می‌شوند تا کیفیت بالقوه بالا بماند و افراد واقعاً مشترک شوند
   const servedIds = ['north', 'residential', 'center', 'east_res', 'west_town'];
   const nodes = [];
   for (const did of servedIds) {
     const d = s.districts.find(x => x.id === did);
-    d.demandBase = 300;
     const n = GameSim.buildNode(s, 'cell_4g', d.x, d.y);
     finishBuild(s, n);
     GameSim.connect(s, n.id, coreOf(s).id, 'fiber');
@@ -811,8 +807,8 @@ let s1, cell1, link1;
   }
   for (let i = 0; i < 25; i++) { GameSim.tick(s, 1); keepAlive(s); }
   const subBefore = s.individuals.filter(i => i.status === 'subscribed').length;
-  check('32a مشترکان فردی ساخته می‌شوند (سقف ۳۰۰) و دست‌کم یکی مشترک می‌شود',
-    s.individuals.length > 0 && s.individuals.length <= 300 && subBefore >= 1,
+  check('32a مشترکان فردی ساخته می‌شوند (سقف ۲۰۰۰) و دست‌کم یکی مشترک می‌شود',
+    s.individuals.length > 0 && s.individuals.length <= 2000 && subBefore >= 1,
     'total=' + s.individuals.length + ' subscribed=' + subBefore);
   nodes.forEach(n => GameSim.demolishNode(s, n.id));
   for (let i = 0; i < 15; i++) { GameSim.tick(s, 1); keepAlive(s); }
@@ -828,7 +824,7 @@ let s1, cell1, link1;
   const s = GameSim.newGame(7); s.cash = 9999999;
   GameSim.unlockTech(s, 'lte');
   const d = s.districts.find(x => x.id === 'center');
-  d.demandBase = 200; // تقاضای کم تا کیفیت ماه قرارداد بالا بماند
+  d.population = 1000; // بازار کوچک تا ترافیک مشترکان زیر ظرفیت بماند و کیفیت ماه قرارداد بالا باشد
   const nodes = [];
   for (let k = 0; k < 3; k++) {
     const n = GameSim.buildNode(s, 'cell_4g', d.x + k * 60, d.y);
@@ -917,7 +913,6 @@ let s1, cell1, link1;
   function gamingClean(kind) {
     const s = GameSim.newGame(55); s.cash = 99999999;
     const d = s.districts.find(x => x.id === 'north') || s.districts[0];
-    d.demandBase = 100; // تقاضای کم تا کیفیت هر دو مسیر کامل باشد و فقط تأخیر فرق کند
     s.customers.find(c => c.districtId === d.id).packageId = 'gaming';
     if (kind === 'fiber') {
       GameSim.unlockTech(s, 'fiber'); GameSim.unlockTech(s, 'ftth');
@@ -937,7 +932,7 @@ let s1, cell1, link1;
     }
     s.weather = { kind: 'clear', untilDay: 9999 };
     s.failoverActive = false;
-    d.subscribers = 100; d.satisfaction = 0;
+    d.subscribers = 50; d.satisfaction = 0; // ترافیک کم (۵۰×۲=۱۰۰) تا کیفیت هر دو مسیر کامل باشد و فقط تأخیر فرق کند
     GameSim.computeFlow(s);
     return d;
   }
@@ -989,6 +984,7 @@ let s1, cell1, link1;
   // قرارداد جهت: ۰=شرق، مثبت پادساعتگرد؛ زاویهٔ نقطه با atan2(-dy, dx) گرفته می‌شود
   const dirTo = Math.atan2(-(d.y - n.y), d.x - n.x) * 180 / Math.PI;
   const r1 = GameSim.setNodeDirection(s, n.id, dirTo, 60);
+  d.subscribers = 500; // مشترکِ موجود تا ترافیک و سرویس سنجیده شود
   GameSim.computeFlow(s);
   check('37a آنتن سکتوری رو به منطقه سرویس می‌دهد', r1.ok && d.servedDemand > 0,
     'dir=' + Math.round(dirTo) + ' served=' + d.servedDemand);
@@ -1097,6 +1093,7 @@ let s1, cell1, link1;
   const n = GameSim.buildNode(s, 'wifi_ap', d.x, d.y);
   finishBuild(s, n);
   GameSim.connect(s, n.id, coreOf(s).id, 'ethernet');
+  d.subscribers = 2000; // مشترکِ موجود تا ترافیک ساعت اوج/نیمه‌شب قابل مقایسه باشد
   s.hour = 3; GameSim.computeFlow(s);
   const dem3 = d.demand, qos3 = d.qos;
   s.hour = 20; GameSim.computeFlow(s);
@@ -1130,6 +1127,7 @@ let s1, cell1, link1;
   const n = GameSim.buildNode(s, 'wifi_ap', d.x, d.y);
   finishBuild(s, n);
   GameSim.connect(s, n.id, coreOf(s).id, 'ethernet');
+  d.subscribers = 2000; // ترافیک بیشتر از ظرفیت تا افت طوفان در سرویس دیده شود
   s.weather = { kind: 'clear', untilDay: 9999 };
   GameSim.computeFlow(s);
   const servedClear = d.servedDemand, effClear = n._effCap;
@@ -1377,7 +1375,7 @@ let s1, cell1, link1;
   check('54a بدون ساختمان: افت صفر و PtP سالم',
     GameSim.buildingAttenuation(s, A.x, A.y, B.x, B.y) === 1 && GameSim.ptpLosFactor(s, A, B) === 1);
   s.buildings.push({ id: 'bt1', x: core54.x - 333, y: core54.y - 10, w: 26, h: 20, height: 15, type: 'commercial', districtId: null });
-  check('54b یک ساختمان بلند سر راه: افت سلولار فقط ۴٪', Math.abs(GameSim.buildingAttenuation(s, A.x, A.y, B.x, B.y) - 0.96) < 1e-9,
+  check('54b یک ساختمان بلند سر راه: افت FWA/وای‌فای فقط ۴٪', Math.abs(GameSim.buildingAttenuation(s, A.x, A.y, B.x, B.y) - 0.96) < 1e-9,
     'att=' + GameSim.buildingAttenuation(s, A.x, A.y, B.x, B.y));
   check('54c همان ساختمان بلند، دید PtP را مخدوش می‌کند (×۰٫۳۵)', GameSim.ptpLosFactor(s, A, B) === 0.35);
   s.buildings.push({ id: 'bt2', x: core54.x - 283, y: core54.y - 10, w: 26, h: 20, height: 3, type: 'residential', districtId: null });
@@ -1387,7 +1385,7 @@ let s1, cell1, link1;
   for (let i = 0; i < 10; i++) s.buildings.push({ id: 'btm' + i, x: core54.x - 410 + i * 18, y: core54.y - 10, w: 26, h: 20, height: 2, type: 'residential', districtId: null });
   check('54f افت ساختمان‌ها تا سقف ‎−۳۰٪ انباشته می‌شود', Math.abs(GameSim.buildingAttenuation(s, A.x, A.y, B.x, B.y) - 0.70) < 1e-9,
     'att=' + GameSim.buildingAttenuation(s, A.x, A.y, B.x, B.y));
-  // سیگنال سلولار پشت یک ساختمان بلند: قابل استفاده می‌ماند (نه سایهٔ سخت ۰٫۳۵)
+  // سیگنال سلولار از ساختمان هیچ اثری نمی‌گیرد: پشت ساختمان بلند دقیقاً برابر پایه است
   s.buildings = [{ id: 'bt1', x: core54.x - 333, y: core54.y - 10, w: 26, h: 20, height: 15, type: 'commercial', districtId: null }];
   const cell = GameSim.buildNode(s, 'cell_4g', A.x, A.y);
   finishBuild(s, cell);
@@ -1395,14 +1393,28 @@ let s1, cell1, link1;
   GameSim.tick(s, 1); keepAlive(s);
   const sig = GameSim.signalAt(s, B.x, B.y);
   const base = 1 - 200 / cell.radius;
-  check('54g سیگنال سلولار پشت ساختمان بلند ≈ پایه×۰٫۹۶ و قابل استفاده است',
-    sig.signal > 0.4 * base && Math.abs(sig.signal - base * 0.96) < 0.03,
+  check('54g سیگنال سلولار پشت ساختمان بلند بدون افت است (برابر پایه)',
+    sig.signal > 0.4 * base && Math.abs(sig.signal - base) < 0.03,
     'signal=' + sig.signal.toFixed(3) + ' base=' + base.toFixed(3));
+  // پشت ساختمان‌های زیاد هم سیگنال و سرعت سلولار هیچ افتی ندارد
+  s.buildings = [];
+  for (let i = 0; i < 10; i++) s.buildings.push({ id: 'btc' + i, x: core54.x - 410 + i * 18, y: core54.y - 10, w: 26, h: 20, height: 15, type: 'commercial', districtId: null });
+  const sigMany = GameSim.signalAt(s, B.x, B.y);
+  check('54i سیگنال سلولار پشت ساختمان‌های زیاد هم بدون افت است',
+    Math.abs(sigMany.signal - base) < 0.03,
+    'signal=' + sigMany.signal.toFixed(3) + ' base=' + base.toFixed(3));
+  const stCellMany = GameSim.speedTestAt(s, B.x, B.y).cellular;
+  s.buildings = [];
+  const stCellClear = GameSim.speedTestAt(s, B.x, B.y).cellular;
+  check('54j سرعت سلولار پشت ساختمان‌ها با حالت باز برابر است',
+    stCellMany.speed > 0 && stCellMany.speed === stCellClear.speed,
+    'many=' + stCellMany.speed + ' clear=' + stCellClear.speed);
+  s.buildings = [{ id: 'bt1', x: core54.x - 333, y: core54.y - 10, w: 26, h: 20, height: 15, type: 'commercial', districtId: null }];
   // لینک PtP عبوری از ساختمان بلند در تست سرعت گلوگاه می‌شود
   s.buildings.push({ id: 'bt3', x: core54.x - 123, y: core54.y - 10, w: 26, h: 20, height: 15, type: 'commercial', districtId: null });
   const relay = GameSim.buildNode(s, 'cell_4g', B.x, B.y);
   finishBuild(s, relay);
-  GameSim.connect(s, relay.id, coreOf(s).id, 'ptp');
+  GameSim.connect(s, relay.id, coreOf(s).id, 'ptp', { capacity: 1000 }); // ظرفیت لینک گلوگاه شود تا اثر ساختمان بلند دیده شود
   GameSim.tick(s, 1); keepAlive(s);
   // نقطه‌ای که فقط رله پوشش می‌دهد (دکل فیبری در A به آن نمی‌رسد)
   const stBlocked = GameSim.speedTestAt(s, core54.x + 30, core54.y).cellular;
@@ -1411,6 +1423,191 @@ let s1, cell1, link1;
   check('54h ساختمان بلند سرعت مسیر PtP را به‌طور محسوس کم می‌کند',
     stBlocked.speed > 0 && stBlocked.speed < stClear.speed * 0.6,
     'blocked=' + stBlocked.speed + ' clear=' + stClear.speed);
+}
+
+// ---------- 54k/l: افت ساختمان برای FWA پابرجاست (فقط سلولار معاف شد) ----------
+{
+  const s2 = GameSim.newGame(42);
+  s2.cash = 99999999;
+  s2.buildings = []; // هندسهٔ کنترل‌شده
+  const core2 = coreOf(s2);
+  const A2 = { x: core2.x - 420, y: core2.y }, B2 = { x: core2.x - 220, y: core2.y };
+  const fwa = GameSim.buildNode(s2, 'fwa_ap', A2.x, A2.y);
+  finishBuild(s2, fwa);
+  GameSim.connect(s2, fwa.id, core2.id, 'fiber');
+  GameSim.tick(s2, 1); keepAlive(s2);
+  s2.buildings.push({ id: 'ft1', x: core2.x - 333, y: core2.y - 10, w: 26, h: 20, height: 15, type: 'commercial', districtId: null });
+  const sigF = GameSim.signalAt(s2, B2.x, B2.y);
+  const baseF = 1 - 200 / fwa.radius;
+  s2.buildings = [];
+  const sigFClear = GameSim.signalAt(s2, B2.x, B2.y);
+  check('54k سیگنال FWA پشت ساختمان بلند ≈ حالت باز×۰٫۹۶ (افت ساختمان پابرجاست)',
+    sigFClear.signal > 0 && Math.abs(sigF.signal / sigFClear.signal - 0.96) < 0.03,
+    'signal=' + sigF.signal.toFixed(3) + ' clear=' + sigFClear.signal.toFixed(3) + ' base=' + baseF.toFixed(3));
+  s2.buildings.push({ id: 'ft1', x: core2.x - 333, y: core2.y - 10, w: 26, h: 20, height: 15, type: 'commercial', districtId: null });
+  const stFBlocked = GameSim.speedTestAt(s2, B2.x, B2.y).fwa;
+  s2.buildings = [];
+  const stFClear = GameSim.speedTestAt(s2, B2.x, B2.y).fwa;
+  check('54l سرعت FWA پشت ساختمان کمتر از حالت باز است',
+    stFBlocked.speed > 0 && stFBlocked.speed < stFClear.speed,
+    'blocked=' + stFBlocked.speed + ' clear=' + stFClear.speed);
+}
+
+// ---------- 55: بازتعادل پهنای باند (ظرفیت‌های واقعی سایت) ----------
+{
+  const cap = (id) => (GameSim.getEq(id) || {}).capacity;
+  check('55a ترتیب ظرفیت نسل‌ها: 5G > 4G > 3G > 2G و مقادیر واقعی سایت',
+    cap('cell_5g') === 2500 && cap('cell_4g') === 900 && cap('cell_3g') === 250 && cap('cell_2g') === 60 &&
+    cap('wifi_ap') === 1200 && cap('ftth') === 2500 && cap('fwa_ap') === 600,
+    '2g=' + cap('cell_2g') + ' 3g=' + cap('cell_3g') + ' 4g=' + cap('cell_4g') + ' 5g=' + cap('cell_5g'));
+  // شروع بازی: وای‌فای در مرکز شهر مشترک می‌گیرد و درآمد می‌سازد
+  const s = GameSim.newGame(42);
+  const d = s.districts.find(x => x.id === 'center');
+  const w = GameSim.buildNode(s, 'wifi_ap', d.x, d.y);
+  finishBuild(s, w);
+  GameSim.connect(s, w.id, coreOf(s).id, 'ethernet');
+  for (let i = 0; i < 10; i++) { GameSim.tick(s, 1); keepAlive(s); }
+  check('55b شروع با وای‌فای: مشترک و درآمد در چند روز اول',
+    d.subscribers > 100 && d.revenue > 0,
+    'subs=' + d.subscribers + ' revenue=' + d.revenue);
+  // دکل 4G میان‌بازی هزاران مشترک خانگی را بدون اشباع فوری سرویس می‌دهد
+  const s2 = withLTE(GameSim.newGame(42)); s2.cash = 999999;
+  const d2 = s2.districts.find(x => x.id === 'residential') || s2.districts[1];
+  const t = GameSim.buildNode(s2, 'cell_4g', d2.x, d2.y);
+  finishBuild(s2, t);
+  GameSim.connect(s2, t.id, coreOf(s2).id, 'fiber');
+  for (let i = 0; i < 90; i++) { GameSim.tick(s2, 1); keepAlive(s2); }
+  check('55c دکل 4G میان‌بازی هزاران مشترک را سرویس می‌دهد (بدون اشباع فوری)',
+    d2.subscribers >= 2000 && d2.qos >= 0.15,
+    'subs=' + d2.subscribers + ' qos=' + d2.qos.toFixed(2));
+}
+
+// ---------- 56: سرویس فقط با اشتراک ----------
+{
+  const s = GameSim.newGame(42); s.cash = 999999;
+  const d = s.districts.find(x => x.id === 'north') || s.districts[0];
+  const n = GameSim.buildNode(s, 'wifi_ap', d.x, d.y);
+  finishBuild(s, n);
+  GameSim.connect(s, n.id, coreOf(s).id, 'ethernet');
+  GameSim.refreshConnectivity(s); // بدون اثرات روزانه: هنوز مشترکی نیست
+  check('56a منطقهٔ تحت پوشش با صفر مشترک: ترافیک و درآمد و مصرف ظرفیت صفر',
+    d.subscribers === 0 && d.demand === 0 && d.servedDemand === 0 && d.revenue === 0 && (n.usage || 0) === 0,
+    'demand=' + d.demand + ' served=' + d.servedDemand + ' rev=' + d.revenue + ' usage=' + (n.usage || 0));
+  // ترافیک متناسب با مشترکان است، نه جمعیت
+  d.subscribers = 100;
+  GameSim.computeFlow(s, { dailyAvg: true, noDailyEffects: true });
+  const dem100 = d.demand;
+  d.subscribers = 200;
+  GameSim.computeFlow(s, { dailyAvg: true, noDailyEffects: true });
+  check('56b ترافیک متناسب با تعداد مشترکان است (دوبرابر مشترک = دوبرابر ترافیک)',
+    dem100 > 0 && Math.abs(d.demand - dem100 * 2) < 0.01,
+    'dem100=' + dem100.toFixed(1) + ' dem200=' + d.demand.toFixed(1));
+  // جمعیتِ غیرمشترکِ بیشتر، کیفیت مشترکان را عوض نمی‌کند
+  d.subscribers = 500;
+  GameSim.computeFlow(s, { dailyAvg: true, noDailyEffects: true });
+  const qos1 = d.qos;
+  d.population = d.population * 3;
+  GameSim.computeFlow(s, { dailyAvg: true, noDailyEffects: true });
+  check('56c جمعیت غیرمشترک بیشتر، کیفیت مشترکان را تغییر نمی‌دهد',
+    Math.abs(d.qos - qos1) < 1e-9,
+    'qos ' + qos1.toFixed(3) + ' -> ' + d.qos.toFixed(3));
+  // رضایت: شبکهٔ چندمشترکی هرگز ۱۰۰٪ خوانده نمی‌شود (نفوذ اشتراک کم است)
+  const s2 = GameSim.newGame(42);
+  const d2 = s2.districts.find(x => x.id === 'north') || s2.districts[0];
+  const w2 = GameSim.buildNode(s2, 'wifi_ap', d2.x, d2.y);
+  finishBuild(s2, w2);
+  GameSim.connect(s2, w2.id, coreOf(s2).id, 'ethernet');
+  for (let i = 0; i < 5; i++) { GameSim.tick(s2, 1); keepAlive(s2); }
+  check('56d رضایت با نفوذ کم پایین می‌ماند (نه ۱۰۰٪ با چند مشترک)',
+    d2.qos >= 0.9 && d2.satisfaction < 10,
+    'qos=' + d2.qos.toFixed(2) + ' sat=' + d2.satisfaction.toFixed(1) + ' subs=' + d2.subscribers);
+}
+
+// ---------- 57: مشترکان فردی (نمونهٔ بزرگ‌تر) + آمار تجمیعی ----------
+{
+  const s = withLTE(GameSim.newGame(42)); s.cash = 9999999;
+  const d = s.districts.find(x => x.id === 'center');
+  const t = GameSim.buildNode(s, 'cell_4g', d.x, d.y);
+  finishBuild(s, t);
+  GameSim.connect(s, t.id, coreOf(s).id, 'fiber');
+  d.subscribers = 2000; // بازار پرمشترک تا نمونهٔ فردی رشد کند
+  for (let i = 0; i < 20; i++) { GameSim.tick(s, 1); keepAlive(s); }
+  const inD = s.individuals.filter(p => String(p.districtId) === String(d.id));
+  check('57a نمونهٔ فردی با مشترکان تجمیعی منطقه مقیاس می‌شود (سقف ۲۰۰۰ کل / ۳۰۰ منطقه)',
+    inD.length >= 50 && inD.length <= 300 && s.individuals.length <= 2000,
+    'districtIndiv=' + inD.length + ' total=' + s.individuals.length);
+  const bIds = new Set(s.buildings.map(b => String(b.id)));
+  const bDistrict = new Map(s.buildings.map(b => [String(b.id), b.districtId || null]));
+  check('57b هر مشترک فردی ساختمان معتبر در منطقهٔ خودش دارد',
+    s.individuals.every(p => bIds.has(String(p.buildingId)) && String(bDistrict.get(String(p.buildingId)) || '') === String(p.districtId || '')),
+    'invalid=' + s.individuals.filter(p => !bIds.has(String(p.buildingId))).length);
+  const stats = GameSim.subscriberStats(s);
+  const sumDistricts = stats.districts.reduce((a, r) => a + r.subscribers, 0);
+  check('57c آمار تجمیعی سازگار است: مجموع مناطق + پراکنده‌ها = کل و نمونه ≤ کل',
+    stats.total === sumDistricts + stats.scatteredSubscribers && stats.individualsTotal <= stats.total,
+    'total=' + stats.total + ' sum=' + sumDistricts + ' scattered=' + stats.scatteredSubscribers + ' indiv=' + stats.individualsTotal);
+  const perBuilding = {};
+  for (const p of s.individuals) perBuilding[p.buildingId] = (perBuilding[p.buildingId] || 0) + 1;
+  const sumPerBuilding = Object.values(perBuilding).reduce((a, b) => a + b, 0);
+  check('57d مجموع شمارش ساختمان‌ها = کل مشترکان فردی',
+    sumPerBuilding === s.individuals.length,
+    'sum=' + sumPerBuilding + ' total=' + s.individuals.length);
+  const loaded = GameSim.loadGame(GameSim.saveGame(s));
+  const sameAssign = loaded.individuals.length === s.individuals.length &&
+    loaded.individuals.every((p, i) => String(p.buildingId) === String(s.individuals[i].buildingId));
+  check('57e ذخیره/بارگذاری انتساب ساختمان مشترکان فردی را حفظ می‌کند', sameAssign,
+    'loaded=' + loaded.individuals.length);
+}
+
+// ---------- 58: تعادل پیشرفت (بازی اسکریپتی با استراتژی معقول) ----------
+{
+  const s = GameSim.newGame(42);
+  const biggestUnserved = () => {
+    let best = null, bestScore = -1;
+    for (const d of s.districts) {
+      const maxSubs = Math.floor(d.population * 0.35);
+      const unserved = maxSubs - (d.subscribers || 0);
+      const score = ((d.subscribers || 0) > 0 && (d.qos || 0) >= 0.5) ? unserved * 0.3 : unserved;
+      if (score > bestScore) { bestScore = score; best = d; }
+    }
+    return best;
+  };
+  const accNodes = () => s.nodes.filter(n => ['wifi_ap', 'cell_2g', 'cell_3g', 'cell_4g', 'cell_5g', 'fwa_ap', 'ftth'].includes(n.type));
+  let firstIncome = null, secondNode = null, fourG = null;
+  for (let day = 1; day <= 90; day++) {
+    for (const n of s.nodes) if (n.status === 'failed') GameSim.applyFix(s, { nodeId: n.id }, { action: 'repair', nodeId: n.id });
+    for (const l of s.links) if (l.status === 'cut') GameSim.applyFix(s, { linkId: l.id }, { action: 'repair_link', linkId: l.id });
+    for (const [tid, need] of [['lte', 45000], ['fiber', 30000], ['ftth', 70000], ['5g', 120000]]) {
+      if (!s.techsUnlocked.includes(tid) && s.cash >= need) { GameSim.unlockTech(s, tid); break; }
+    }
+    const acc = accNodes();
+    if (acc.length === 0) {
+      const d = biggestUnserved();
+      const n = GameSim.buildNode(s, 'wifi_ap', d.x, d.y);
+      if (n) GameSim.connect(s, n.id, coreOf(s).id, 'ethernet');
+    } else if (s.techsUnlocked.includes('lte') && !acc.some(n => n.type === 'cell_4g') && s.cash >= 75000) {
+      const d = biggestUnserved();
+      const n = GameSim.buildNode(s, 'cell_4g', d.x, d.y);
+      if (n) GameSim.connect(s, n.id, coreOf(s).id, 'fiber');
+    } else if (s.cash >= 25000) {
+      const d = biggestUnserved();
+      if (d) {
+        const type = (s.techsUnlocked.includes('lte') && s.cash >= 75000) ? 'cell_4g' : 'wifi_ap';
+        const n = GameSim.buildNode(s, type, d.x, d.y);
+        if (n) GameSim.connect(s, n.id, coreOf(s).id, type === 'cell_4g' ? 'fiber' : 'ethernet');
+      }
+    }
+    GameSim.tick(s, 1);
+    if (firstIncome == null && s.totalRevenue > 0) firstIncome = s.day;
+    if (secondNode == null && accNodes().filter(n => n.status === 'active').length >= 2) secondNode = s.day;
+    if (fourG == null && accNodes().some(n => n.type === 'cell_4g' && n.status === 'active')) fourG = s.day;
+  }
+  const subs90 = s.districts.reduce((a, d) => a + (d.subscribers || 0), 0);
+  check('58a اولین درآمد در چند روز اول بازی', firstIncome != null && firstIncome <= 5, 'firstIncome=day ' + firstIncome);
+  check('58b گره دوم تا دو هفته اول ساخته می‌شود', secondNode != null && secondNode <= 14, 'secondNode=day ' + secondNode);
+  check('58c دکل 4G تا حدود دو ماه اول می‌رسد', fourG != null && fourG <= 75, 'fourG=day ' + fourG);
+  check('58d تا روز ۹۰ هزاران مشترک و بدون بدهی', subs90 >= 5000 && (s.debt || 0) === 0,
+    'subs=' + subs90 + ' debt=' + (s.debt || 0) + ' cash=' + Math.round(s.cash));
 }
 
 console.log('\nنتیجه: ' + pass + ' پاس، ' + fail + ' رد');
