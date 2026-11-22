@@ -278,7 +278,7 @@
     districts: true, buildings: true, links: true, coverage: true, labels: true,
     cellular: true, fiber: true, copper: true, fwa: true, satellite: true,
     demand: false, traffic: false, failures: true, revenue: false, qos: false, techdemand: false,
-    signal: false, weather: true
+    signal: false, weather: true, indivsubs: true
   };
 
   /* ---------- ویژگی‌های جدید: سکشن، هیت‌مپ سیگنال، پیشنهادها، آب‌وهوا ---------- */
@@ -495,6 +495,7 @@
     if (layers.coverage) drawCoverage(srcs);
     if (layers.demand) drawDemandHeat();
     drawBuildingSelection();
+    if (layers.indivsubs) drawIndivBadges(); // نشان تعداد مشترکان فردی روی ساختمان‌ها
     if (layers.links) drawLinks();
     drawFiberDrops();
     drawNodes();
@@ -894,6 +895,49 @@
       lmAt('hospital', 'hospital', 2320, 780);
       lmAt('station', 'station', 1600, 2180);
       lmAt('stadium', 'stadium', 2650, 420);
+    }
+    ctx.restore();
+  }
+
+  /* نشان مشترکان فردی روی ساختمان‌ها: دایرهٔ بنفش با تعداد مشترکانِ فعالِ هر ساختمان */
+  var _indivBadgeCache = null; // {len, ts, counts:{buildingId:count}, byId:{buildingId:building}}
+  function drawIndivBadges() {
+    if (cam.z < 0.3) return; // در زوم خیلی دور خوانا نیست و نقشه را شلوغ می‌کند
+    var inds = (state && state.individuals) || [];
+    if (!inds.length) return;
+    var now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    if (!_indivBadgeCache || _indivBadgeCache.len !== inds.length || now - _indivBadgeCache.ts > 1000) {
+      var counts = {}, byId = {};
+      var bs = getBuildings();
+      for (var bi = 0; bi < bs.length; bi++) byId[String(bs[bi].id)] = bs[bi];
+      for (var ii = 0; ii < inds.length; ii++) {
+        var p = inds[ii];
+        if (p.status !== 'subscribed' || p.buildingId == null) continue;
+        var k = String(p.buildingId);
+        counts[k] = (counts[k] || 0) + 1;
+      }
+      _indivBadgeCache = { len: inds.length, ts: now, counts: counts, byId: byId };
+    }
+    var cache = _indivBadgeCache;
+    var r = clamp(8 / cam.z, 7, 16); // شعاع در واحد جهان (روی صفحه تقریباً ثابت)
+    ctx.save();
+    ctx.font = 'bold ' + Math.round(r * 1.05) + 'px Vazirmatn, Tahoma, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (var bid in cache.counts) {
+      var b = cache.byId[bid];
+      if (!b) continue;
+      var bw = b.w || 26, bh = b.h || 20;
+      if (b.x + bw < cullRect.x0 || b.x > cullRect.x1 || b.y + bh < cullRect.y0 || b.y > cullRect.y1) continue;
+      var cx = b.x + bw - 1, cy = b.y + 1;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fillStyle = '#a371f7';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+      ctx.lineWidth = 1.2 / cam.z;
+      ctx.stroke();
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(String(cache.counts[bid]), cx, cy + r * 0.06);
     }
     ctx.restore();
   }
