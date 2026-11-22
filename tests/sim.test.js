@@ -917,10 +917,10 @@ let s1, cell1, link1;
     s.customers.find(c => c.districtId === d.id).packageId = 'gaming';
     if (kind === 'fiber') {
       GameSim.unlockTech(s, 'fiber'); GameSim.unlockTech(s, 'ftth');
-      const n = GameSim.buildNode(s, 'ftth', d.x, d.y);
+      const n = GameSim.buildNode(s, 'street_cabinet', d.x, d.y);
       finishBuild(s, n);
       GameSim.connect(s, n.id, coreOf(s).id, 'fiber');
-      // فیبر دستی است: همهٔ ساختمان‌های منطقه انشعاب می‌گیرند تا سرویس کامل شود
+      // فیبر دستی است: ساختمان‌های در برد کابینت انشعاب می‌گیرند تا سرویس کامل شود
       for (const b of s.buildings.filter((x) => x.districtId === d.id)) GameSim.connectBuildingFiber(s, b.id, n.id);
       for (let i = 0; i < 8; i++) { GameSim.tick(s, 1); keepAlive(s); }
     } else {
@@ -1257,22 +1257,26 @@ let s1, cell1, link1;
   s.cash = 9999999;
   GameSim.unlockTech(s, 'fiber'); GameSim.unlockTech(s, 'ftth');
   const d = s.districts.find((x) => (s.buildings || []).some((b) => b.districtId === x.id)) || s.districts[0];
-  const n = GameSim.buildNode(s, 'ftth', d.x, d.y);
+  const n = GameSim.buildNode(s, 'street_cabinet', d.x, d.y);
   finishBuild(s, n);
   GameSim.connect(s, n.id, coreOf(s).id, 'fiber');
+  const legacyFtth = GameSim.buildNode(s, 'ftth', d.x + 40, d.y); // برای مسیر مهاجرت ذخیرهٔ قدیمی (50h)
+  finishBuild(s, legacyFtth);
+  GameSim.connect(s, legacyFtth.id, coreOf(s).id, 'fiber');
   GameSim.tick(s, 1); keepAlive(s);
-  check('50a منطقه زیر پوشش FTTH بدون انشعاب دستی از فیبر سرویس نمی‌گیرد',
+  check('50a منطقه زیر پوشش کابینت بدون انشعاب دستی از فیبر سرویس نمی‌گیرد',
     d.servedDemand === 0 && (d.techDemand.fiber.served === 0),
     'served=' + d.servedDemand + ' fiberServed=' + d.techDemand.fiber.served);
-  const dBuildings = s.buildings.filter((b) => b.districtId === d.id);
+  const dBuildings = s.buildings.filter((b) => b.districtId === d.id)
+    .filter((b) => Math.hypot(b.x + (b.w || 26) / 2 - n.x, b.y + (b.h || 20) / 2 - n.y) <= (n.radius || 180));
   const b0 = dBuildings[0];
   const st0 = GameSim.speedTestAt(s, b0.x + 5, b0.y + 5);
   check('50b تست سرعت فیبر برای ساختمان بدون انشعاب صفر با دلیل «به فیبر متصل نیست»',
     st0.fiber.speed === 0 && st0.fiber.reason === 'no_fiber_drop', JSON.stringify(st0.fiber));
   const cashBefore = s.cash;
-  let okAll = true;
+  let okAll = dBuildings.length > 0;
   for (const b of dBuildings) { const r = GameSim.connectBuildingFiber(s, b.id, n.id); if (!r.ok) okAll = false; }
-  check('50c اتصال دستی همهٔ ساختمان‌های منطقه موفق و هزینه کم شد', okAll && s.cash < cashBefore);
+  check('50c اتصال دستی ساختمان‌های در برد کابینت موفق و هزینه کم شد', okAll && s.cash < cashBefore);
   check('50d وضعیت ساختمان در حال اتصال است', GameSim.buildingFiberStatus(s, b0.id).status === 'building');
   for (let i = 0; i < 10 && (s.fiberDrops || []).some((x) => x.status === 'building'); i++) { GameSim.tick(s, 1); keepAlive(s); }
   check('50e انشعاب‌ها فعال شدند', GameSim.buildingFiberStatus(s, b0.id).status === 'active');
@@ -1654,6 +1658,62 @@ let s1, cell1, link1;
     for (const n of s3.nodes) if (n.status === 'failed' && !failedIds.has(n.id)) { failedIds.add(n.id); failures++; }
   }
   check('59e خرابی تصادفی نادر است (۳۰ گره × ۳۶۵ روز، انتظار ~۴)', failures < 15, 'failures=' + failures);
+}
+
+// ---------- 60: کابینت خیابانی + انشعاب مسی + انحصار فیبر/مسی ----------
+{
+  const s = GameSim.newGame(42); s.cash = 9999999;
+  GameSim.unlockTech(s, 'fiber'); GameSim.unlockTech(s, 'ftth');
+  const d = s.districts.find(x => x.id === 'center');
+  const byDist = (a, b) => Math.hypot(a.x - d.x, a.y - d.y) - Math.hypot(b.x - d.x, b.y - d.y);
+  const bNear = s.buildings.filter(b => b.districtId === d.id).sort(byDist)[0];
+  const r0 = GameSim.connectBuildingWired(s, bNear.id, null, 'fiber');
+  check('60a بدون کابینت در برد، انشعاب سیمی رد می‌شود', r0.ok === false, r0.error || '');
+  const cab = GameSim.buildNode(s, 'street_cabinet', d.x, d.y);
+  finishBuild(s, cab);
+  GameSim.connect(s, cab.id, coreOf(s).id, 'fiber');
+  GameSim.refreshConnectivity(s);
+  const r1 = GameSim.connectBuildingWired(s, bNear.id, cab.id, 'fiber');
+  const r2 = GameSim.connectBuildingWired(s, bNear.id, cab.id, 'copper');
+  check('60b انشعاب فیبر موفق و اتصال دوم (مسی) به‌خاطر انحصار رد می‌شود', r1.ok && r2.ok === false,
+    'r1=' + r1.ok + ' r2=' + (r2.error || r2.ok));
+  for (let i = 0; i < 6 && GameSim.buildingWiredStatus(s, bNear.id).status === 'building'; i++) { GameSim.tick(s, 1); keepAlive(s); }
+  GameSim.disconnectBuildingWired(s, bNear.id);
+  const r3 = GameSim.connectBuildingWired(s, bNear.id, cab.id, 'copper');
+  check('60c بعد از قطع فیبر، اتصال مسی ممکن است', r3.ok === true, r3.error || '');
+  for (let i = 0; i < 6 && GameSim.buildingWiredStatus(s, bNear.id).status === 'building'; i++) { GameSim.tick(s, 1); keepAlive(s); }
+  const stCopper = GameSim.speedTestAt(s, bNear.x + 5, bNear.y + 5).fiber;
+  const b2 = s.buildings.filter(b => b.districtId === d.id && b.id !== bNear.id).sort(byDist)[0];
+  GameSim.connectBuildingWired(s, b2.id, cab.id, 'fiber');
+  for (let i = 0; i < 6 && GameSim.buildingWiredStatus(s, b2.id).status === 'building'; i++) { GameSim.tick(s, 1); keepAlive(s); }
+  const stFiber = GameSim.speedTestAt(s, b2.x + 5, b2.y + 5).fiber;
+  check('60d سرعت مسی سقف DSL دارد و فیبر بیشتر است', stCopper.speed > 0 && stCopper.speed <= 100 && stFiber.speed > 100,
+    'copper=' + stCopper.speed + ' fiber=' + stFiber.speed);
+  s.buildings.push({ id: 'bx150', x: cab.x + 150, y: cab.y, w: 26, h: 20, height: 2, type: 'residential', districtId: d.id });
+  const rFar = GameSim.connectBuildingWired(s, 'bx150', cab.id, 'copper');
+  const rFarF = GameSim.connectBuildingWired(s, 'bx150', cab.id, 'fiber');
+  check('60e مسی در فاصله ۱۵۰ رد و فیبر در همان فاصله قبول می‌شود', rFar.ok === false && rFarF.ok === true,
+    'copper=' + (rFar.error || '') + ' fiber=' + rFarF.ok);
+  let portOk = true;
+  for (let i = 0; i < 30; i++) {
+    const bid = 'bp' + i;
+    s.buildings.push({ id: bid, x: cab.x + (i % 6) * 12, y: cab.y + Math.floor(i / 6) * 12, w: 10, h: 10, height: 1, type: 'residential', districtId: d.id });
+    const rr = GameSim.connectBuildingWired(s, bid, cab.id, 'fiber');
+    if (i < 21 && !rr.ok) portOk = false; // ۳ پورت قبلاً پر است → ۲۱ تای بعدی تا سقف ۲۴
+    if (i === 21 && rr.ok) portOk = false; // بیست‌وپنجمین باید رد شود
+  }
+  check('60f سقف پورت کابینت (۲۴ در سطح ۱) اعمال می‌شود', portOk && GameSim.cabinetUsedPorts(s, cab.id) === 24,
+    'used=' + GameSim.cabinetUsedPorts(s, cab.id));
+  const ftth = GameSim.buildNode(s, 'ftth', d.x + 60, d.y);
+  finishBuild(s, ftth);
+  GameSim.connect(s, ftth.id, coreOf(s).id, 'fiber');
+  s.buildings.push({ id: 'blegacy', x: ftth.x + 20, y: ftth.y, w: 26, h: 20, height: 2, type: 'residential', districtId: d.id });
+  s.fiberDrops.push({ id: 'fdlegacy', buildingId: 'blegacy', nodeId: ftth.id, status: 'active', work: 0 });
+  GameSim.refreshConnectivity(s);
+  const stLegacy = GameSim.speedTestAt(s, ftth.x + 25, ftth.y + 5).fiber;
+  check('60g انشعاب مستقیم قدیمی (بدون کابینت) همچنان سرویس می‌دهد',
+    GameSim.buildingWiredStatus(s, 'blegacy').status === 'active' && stLegacy.speed > 0,
+    'speed=' + stLegacy.speed);
 }
 
 console.log('\nنتیجه: ' + pass + ' پاس، ' + fail + ' رد');
