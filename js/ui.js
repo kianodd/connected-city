@@ -7,7 +7,8 @@
   var state = null;          // reference to sim state (set via setState)
   var mode = 'select';       // select | place | connect | demolish
   var selectedTool = null;   // equipment id chosen for placement
-  var connectFirst = null;   // first node id in connect mode
+  var connectFirst = null;   // source node id armed from its detail panel
+  var connectFromBuilding = null; // building id when arming a fiber drop from the building panel
   var selectedId = null;     // currently inspected node/building id
   var pendingBuild = null;   // {equipId, x, y} awaiting confirm
   var pendingSuggestions = null; // last suggestPlacements list shown on map
@@ -300,16 +301,18 @@
 
   var moveNodeId = null, pendingDeleteId = null;
   function setMode(m) {
-    mode = m; connectFirst = null;
+    mode = m; connectFirst = null; connectFromBuilding = null;
     if (m !== 'move') moveNodeId = null;
     if (window.CityMap && CityMap.setPlacementMode) CityMap.setPlacementMode(m === 'place' || m === 'move');
-    ['tool-select', 'tool-connect', 'tool-demolish', 'tool-speedtest'].forEach(function (id) {
-      var b = $(id); if (b) b.classList.toggle('active', (m === 'select' && id === 'tool-select') || (m === 'connect' && id === 'tool-connect') || (m === 'demolish' && id === 'tool-demolish') || (m === 'speedtest' && id === 'tool-speedtest'));
+    ['tool-select', 'tool-demolish', 'tool-speedtest'].forEach(function (id) {
+      var b = $(id); if (b) b.classList.toggle('active', (m === 'select' && id === 'tool-select') || (m === 'demolish' && id === 'tool-demolish') || (m === 'speedtest' && id === 'tool-speedtest'));
     });
+    var cancelBtn = $('btn-connect-cancel');
+    if (cancelBtn) cancelBtn.classList.toggle('hidden', m !== 'connect');
     var hint = $('map-hint');
     var hints = {
       place: 'روی نقشه کلیک کنید تا دستگاه نصب شود (Esc برای لغو)',
-      connect: 'روی گره اول کلیک کنید، سپس گره دوم را انتخاب کنید',
+      connect: 'مقصد اتصال رو انتخاب کن',
       demolish: 'روی گره کلیک کنید تا حذف شود',
       move: 'روی محل جدید گره کلیک کنید (Esc برای لغو) — گره در مدت جابه‌جایی سرویس نمی‌دهد',
       speedtest: 'روی هر نقطه از نقشه کلیک کنید تا سرعت اتصال آنجا سنجیده شود',
@@ -317,6 +320,27 @@
     };
     if (hints[m]) { hint.textContent = hints[m]; hint.classList.remove('hidden'); }
     else hint.classList.add('hidden');
+  }
+
+  // فعال‌کردن حالت اتصال از پنل جزئیات یک گره: همان گره مبدأ است؛ بعد از ساخت لینک حالت خودکار خاموش می‌شود
+  function armConnectFromNode(nodeId) {
+    setMode('connect');
+    connectFirst = nodeId;
+    connectFromBuilding = null;
+    if (window.CityMap && CityMap.setSelected) CityMap.setSelected('node', nodeId);
+    var panel = $('panel-detail'); if (panel) panel.classList.remove('open');
+    toast('حالت اتصال فعال شد؛ مقصد اتصال رو انتخاب کن.');
+  }
+  // فعال‌کردن اتصال فیبر از پنل ساختمان: ضربهٔ بعدی روی یک گره منبع فیبر، انشعاب را می‌سازد
+  function armConnectFromBuilding(buildingId) {
+    setMode('connect');
+    connectFirst = null;
+    connectFromBuilding = buildingId;
+    if (window.CityMap && CityMap.setSelected) CityMap.setSelected('building', buildingId);
+    var hint = $('map-hint');
+    if (hint) { hint.textContent = 'گره منبع فیبر را انتخاب کنید (FTTH/تجمیع/هسته)'; hint.classList.remove('hidden'); }
+    var panel = $('panel-detail'); if (panel) panel.classList.remove('open');
+    toast('حالت اتصال فیبر فعال شد؛ گره منبع فیبر را انتخاب کنید.');
   }
 
   function selectTool(equipId) {
@@ -439,16 +463,32 @@
       return;
     }
     if (mode === 'speedtest') { if (wx != null && wy != null) runSpeedTest(wx, wy); return; }
-    if (id == null) { if (mode === 'select') selectNode(null, kind); return; } // empty tap: clear selection only
+    if (id == null) {
+      if (mode === 'connect') { setMode('select'); toast('حالت اتصال لغو شد.', 'warn'); return; } // empty tap cancels connect
+      if (mode === 'select') selectNode(null, kind);
+      return;
+    }
     if (mode === 'connect') {
+      // اتصال فیبر ساختمان: ضربه روی گره منبع، انشعاب را می‌سازد و حالت خاموش می‌شود
+      if (connectFromBuilding != null) {
+        if (kind !== 'node') { setMode('select'); toast('حالت اتصال لغو شد.', 'warn'); return; }
+        if (window.GameSim && GameSim.connectBuildingFiber) {
+          var rf = GameSim.connectBuildingFiber(state, connectFromBuilding, id);
+          if (rf && rf.ok === false) { toast(rf.error || 'اتصال فیبر انجام نشد.', 'error'); return; } // stay armed
+          toast('اتصال فیبر شروع شد؛ حدود ' + fmt(rf.days) + ' روز طول می‌کشد.', 'success');
+          setMode('select');
+          refresh();
+        }
+        return;
+      }
+      if (kind !== 'node') { setMode('select'); toast('حالت اتصال لغو شد.', 'warn'); return; } // tap on non-node = cancel
       if (connectFirst == null) {
         connectFirst = id;
-        toast('گره اول انتخاب شد. حالا گره دوم را انتخاب کنید.');
+        toast('مقصد اتصال رو انتخاب کن.');
         return;
       }
       if (connectFirst === id) { toast('یک گره را نمی‌توان به خودش وصل کرد.', 'warn'); return; }
       openMediumPicker(connectFirst, id);
-      connectFirst = null;
       return;
     }
     if (mode === 'demolish') {
@@ -474,8 +514,13 @@
       btn.addEventListener('click', function () {
         var res = GameSim.connect(state, a, b, btn.getAttribute('data-medium'));
         $('medium-picker').classList.add('hidden');
-        if (!res || res.ok === false) toast((res && res.error) || 'اتصال برقرار نشد.', 'error');
-        else toast('اتصال برقرار شد.', 'success');
+        if (!res || res.ok === false) {
+          toast((res && res.error) || 'اتصال برقرار نشد.', 'error');
+          // حالت اتصال مسلح می‌ماند تا مقصد یا رسانهٔ دیگری انتخاب شود
+        } else {
+          toast('اتصال برقرار شد.', 'success');
+          setMode('select'); // بعد از ساخت لینک، حالت اتصال خودش غیرفعال می‌شود
+        }
         refresh();
       });
     });
@@ -491,6 +536,8 @@
     if (!state) return null;
     var n = (state.nodes || []).find(function (x) { return String(x.id) === String(id); });
     if (n) return { node: n, kind: 'node' };
+    var lk = (state.links || []).find(function (x) { return String(x.id) === String(id); });
+    if (lk) return { node: lk, kind: 'link' };
     var b = (((state && state.buildings) || (window.GAME_DATA && GAME_DATA.buildings)) || []).find(function (x) { return String(x.id) === String(id); });
     if (b) return { node: b, kind: 'building' };
     var d = (state.districts || []).find(function (x) { return String(x.id) === String(id); });
@@ -516,14 +563,16 @@
 
   function individualsHtml(list, emptyMsg) {
     if (!list || !list.length) return '<p class="muted">' + esc(emptyMsg || 'مشترک فردی ثبت نشده است.') + '</p>';
-    return '<div class="indiv-list">' + list.slice(0, 12).map(function (p) {
+    var subCount = list.filter(function (p) { return p.status === 'subscribed'; }).length;
+    return '<p class="muted">' + fmt(subCount) + ' مشترک از ' + fmt(list.length) + ' نفر</p>' +
+      '<div class="indiv-list">' + list.slice(0, 12).map(function (p) {
       var isSub = p.status === 'subscriber' || p.status === 'subscribed' || p.status === 'active' || p.subscribed === true;
       var stFa = isSub ? 'مشترک' : 'غیرمشترک';
       var satv = Math.max(0, Math.min(100, Math.round(p.satisfaction || 0)));
       return '<div class="indiv-row"><div class="indiv-head"><span>' + esc(p.name || p.id) + '</span>' +
         '<span class="muted">' + fmt(p.needMbps || 0) + ' Mbps — ' + stFa + '</span></div>' +
         '<div class="cap-bar"><div class="cap-fill ' + (satv < 30 ? 'hot' : satv < 60 ? 'warm' : '') + '" style="width:' + satv + '%"></div></div></div>';
-    }).join('') + '</div>';
+    }).join('') + '</div>' + (list.length > 12 ? '<p class="muted">و ' + fmt(list.length - 12) + ' نفر دیگر…</p>' : '');
   }
 
   function selectNode(id, kind) {
@@ -540,6 +589,38 @@
     }
   }
 
+  // دکمهٔ قطع اتصال لینک با تأیید دومرحله‌ای و هشدار جداشدن گره‌های پایین‌دست
+  function disconnectBtnHtml(linkId) {
+    var impact = null;
+    try { impact = (window.GameSim && GameSim.linkDisconnectImpact) ? GameSim.linkDisconnectImpact(state, linkId) : null; } catch (e) { impact = null; }
+    var warn = '';
+    if (impact && impact.orphanCount > 0) {
+      warn = '<div class="warn-box hidden" data-disconnect-warn="' + esc(linkId) + '">' + ICONS.warn +
+        ' هشدار: با قطع این لینک، ' + fmt(impact.orphanCount) + ' گره (' + esc(impact.orphanNames.join('، ')) + (impact.orphanCount > 3 ? ' و…' : '') + ') از شبکه جدا می‌شوند.</div>';
+    }
+    return warn + '<button class="btn sm danger" data-disconnect-link="' + esc(linkId) + '">قطع اتصال</button>';
+  }
+  function wireDisconnectButtons(box) {
+    box.querySelectorAll('[data-disconnect-link]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var linkId = btn.getAttribute('data-disconnect-link');
+        if (btn.getAttribute('data-armed') !== '1') {
+          btn.setAttribute('data-armed', '1');
+          btn.textContent = 'تأیید قطع اتصال؟';
+          var warnEl = box.querySelector('[data-disconnect-warn="' + linkId + '"]');
+          if (warnEl) warnEl.classList.remove('hidden');
+          return;
+        }
+        if (window.GameSim && GameSim.disconnectLink) {
+          var r = GameSim.disconnectLink(state, linkId);
+          toast(r && r.ok === false ? (r.error || 'قطع اتصال انجام نشد.') : 'اتصال قطع شد.', r && r.ok === false ? 'error' : 'success');
+          if (r && r.ok !== false && String(selectedId) === String(linkId)) selectNode(null, 'link');
+        } else toast('قطع اتصال در این نسخه موجود نیست.', 'warn');
+        refresh();
+      });
+    });
+  }
+
   function renderDetail() {
     var box = $('detail-content'); if (!box) return;
     if (selectedId == null) { box.innerHTML = '<p class="muted">یک گره یا ساختمان را انتخاب کنید.</p>'; return; }
@@ -548,7 +629,9 @@
     var n = found.node;
     var BTYPE_FA = (window.GAME_DATA && GAME_DATA.buildingTypeFa) || { residential: 'مسکونی', commercial: 'تجاری', office: 'اداری', industrial: 'صنعتی' };
     var name = n.name || (equipList().find(function (e) { return e.id === n.type || e.id === n.equipId; }) || {}).name ||
-      (found.kind === 'building' ? ('ساختمان ' + (BTYPE_FA[n.type] || '')) : null) || n.type || ('گره ' + n.id);
+      (found.kind === 'building' ? ('ساختمان ' + (BTYPE_FA[n.type] || '')) : null) ||
+      (found.kind === 'link' ? ('لینک ' + (((window.GAME_DATA && GAME_DATA.linkMedia && GAME_DATA.linkMedia[n.medium]) || {}).name || 'ارتباطی')) : null) ||
+      n.type || ('گره ' + n.id);
     var html = '<h4>' + esc(name) + '</h4>';
     if (found.kind === 'building') {
       var bDist = n.districtId ? (state.districts || []).find(function (d) { return d.id === n.districtId; }) : null;
@@ -577,19 +660,13 @@
         } else {
           html += '<span class="status-bad">به فیبر متصل نیست</span>' +
             '<button class="btn sm primary" data-fiber-connect="' + esc(n.id) + '">' + ICONS.cable + ' اتصال به فیبر</button>' +
-            '<span class="muted">نزدیک‌ترین منبع فیبر متصل (FTTH/تجمیع/هسته) انتخاب می‌شود؛ هزینه و زمان بر اساس فاصله است. بدون انشعاب، این ساختمان از فیبر سرویس نمی‌گیرد.</span>';
+            '<span class="muted">بعد از زدن دکمه، روی یک گره منبع فیبر (FTTH/تجمیع/هستهٔ متصل) ضربه بزنید؛ هزینه و زمان بر اساس فاصله است. بدون انشعاب، این ساختمان از فیبر سرویس نمی‌گیرد.</span>';
         }
         html += '</div>';
       }
       box.innerHTML = html;
       box.querySelectorAll('[data-fiber-connect]').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-          if (window.GameSim && GameSim.connectBuildingFiber) {
-            var r = GameSim.connectBuildingFiber(state, btn.getAttribute('data-fiber-connect'));
-            toast(r && r.ok === false ? (r.error || 'اتصال فیبر انجام نشد.') : 'اتصال فیبر شروع شد؛ حدود ' + fmt(r.days) + ' روز طول می‌کشد.', r && r.ok === false ? 'error' : 'success');
-          } else toast('اتصال فیبر در این نسخه موجود نیست.', 'warn');
-          refresh();
-        });
+        btn.addEventListener('click', function () { armConnectFromBuilding(btn.getAttribute('data-fiber-connect')); });
       });
       box.querySelectorAll('[data-fiber-disconnect]').forEach(function (btn) {
         btn.addEventListener('click', function () {
@@ -600,6 +677,23 @@
           refresh();
         });
       });
+      return;
+    }
+    if (found.kind === 'link') {
+      var la = (state.nodes || []).find(function (x) { return String(x.id) === String(n.from); });
+      var lb = (state.nodes || []).find(function (x) { return String(x.id) === String(n.to); });
+      var medName = ((window.GAME_DATA && GAME_DATA.linkMedia && GAME_DATA.linkMedia[n.medium]) || {}).name || n.medium || 'ارتباطی';
+      html += '<dl class="kv">' +
+        '<dt>نوع اتصال</dt><dd>' + esc(medName) + (n.isBackup ? ' (پشتیبان)' : '') + '</dd>' +
+        '<dt>از</dt><dd>' + esc((la && la.name) || '—') + '</dd>' +
+        '<dt>به</dt><dd>' + esc((lb && lb.name) || '—') + '</dd>' +
+        '<dt>ظرفیت</dt><dd>' + fmt(n.capacity || 0) + ' Mbps</dd>' +
+        '<dt>مصرف فعلی</dt><dd>' + fmt(Math.round(n.usage || 0)) + ' Mbps</dd>' +
+        '<dt>وضعیت</dt><dd>' + esc(STATUS_FA[n.status] || n.status || '—') + '</dd>' +
+        '</dl>' +
+        '<div class="fix-btns" style="margin-top:10px">' + disconnectBtnHtml(n.id) + '</div>';
+      box.innerHTML = html;
+      wireDisconnectButtons(box);
       return;
     }
     if (found.kind === 'district') {
@@ -652,7 +746,8 @@
     if (found.kind === 'node') {
       html += connected
         ? '<p class="status-ok"><span class="dot-ok"></span>متصل به شبکه</p>'
-        : '<div class="warn-box">' + ICONS.warn + ' متصل نیست — این دستگاه به هسته/دروازه مسیر ندارد و هیچ سرویسی ارائه نمی‌دهد. با ابزار «اتصال» آن را وصل کنید.</div>';
+        : '<div class="warn-box">' + ICONS.warn + ' متصل نیست — این دستگاه به هسته/دروازه مسیر ندارد و هیچ سرویسی ارائه نمی‌دهد. با دکمهٔ «اتصال» آن را وصل کنید.</div>';
+      html += '<button class="btn primary connect-from-btn" data-connect-from="' + esc(n.id) + '">' + ICONS.backhaul + ' اتصال</button>';
     }
     if (n.status) html += '<p>وضعیت: ' + esc(STATUS_FA[n.status] || n.status) + '</p>';
     if (n.capacity != null) {
@@ -723,6 +818,19 @@
         }
         html += '</div>';
       }
+      // لینک‌های این گره (با امکان قطع اتصال هرکدام)
+      var nodeLinks = [];
+      try { nodeLinks = (window.GameSim && GameSim.linksOfNode) ? GameSim.linksOfNode(state, n.id) : (state.links || []).filter(function (l) { return l.from === n.id || l.to === n.id; }); } catch (e) { nodeLinks = []; }
+      if (nodeLinks.length) {
+        html += '<h5>لینک‌های این گره</h5>';
+        nodeLinks.forEach(function (l) {
+          var otherId = l.from === n.id ? l.to : l.from;
+          var other = (state.nodes || []).find(function (x) { return String(x.id) === String(otherId); });
+          var medName = ((window.GAME_DATA && GAME_DATA.linkMedia && GAME_DATA.linkMedia[l.medium]) || {}).name || l.medium || 'ارتباطی';
+          html += '<div class="link-row"><span>' + esc(medName) + (l.isBackup ? ' (پشتیبان)' : '') + ' ←→ «' + esc((other && other.name) || '—') + '» — ' + fmt(l.capacity || 0) + ' Mbps</span>' +
+            disconnectBtnHtml(l.id) + '</div>';
+        });
+      }
       html += '<div class="fix-btns" style="margin-top:10px">' +
         '<button class="btn sm" data-move-node="' + esc(n.id) + '">' + ICONS.move + ' جابه‌جایی</button>' +
         '<button class="btn sm danger" data-delete-node="' + esc(n.id) + '">' + ICONS.trash + ' حذف</button></div>';
@@ -741,6 +849,10 @@
     box.querySelectorAll('[data-move-node]').forEach(function (btn) {
       btn.addEventListener('click', function () { startMove(btn.getAttribute('data-move-node')); });
     });
+    box.querySelectorAll('[data-connect-from]').forEach(function (btn) {
+      btn.addEventListener('click', function () { armConnectFromNode(btn.getAttribute('data-connect-from')); });
+    });
+    wireDisconnectButtons(box);
     box.querySelectorAll('[data-upgrade-node]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         if (window.GameSim && GameSim.upgradeNode) {
@@ -1365,7 +1477,8 @@
   function init(getState) {
     state = typeof getState === 'function' ? getState() : getState;
     $('tool-select').addEventListener('click', function () { selectedTool = null; setMode('select'); renderBuildMenu(); if (isMobile()) $('panel-right').classList.remove('open'); });
-    $('tool-connect').addEventListener('click', function () { selectedTool = null; setMode('connect'); renderBuildMenu(); if (isMobile()) $('panel-right').classList.remove('open'); });
+    var btnConnectCancel = $('btn-connect-cancel');
+    if (btnConnectCancel) btnConnectCancel.addEventListener('click', function () { setMode('select'); toast('حالت اتصال لغو شد.', 'warn'); });
     $('tool-demolish').addEventListener('click', function () { selectedTool = null; setMode('demolish'); renderBuildMenu(); if (isMobile()) $('panel-right').classList.remove('open'); });
     $('tool-speedtest').addEventListener('click', function () { selectedTool = null; setMode('speedtest'); renderBuildMenu(); if (isMobile()) $('panel-right').classList.remove('open'); });
     $('speedtest-close').addEventListener('click', function () { $('speedtest-popover').classList.add('hidden'); });
@@ -1381,7 +1494,7 @@
       refresh();
     });
     $('delete-no').addEventListener('click', function () { pendingDeleteId = null; $('delete-confirm').classList.add('hidden'); });
-    $('medium-cancel').addEventListener('click', function () { $('medium-picker').classList.add('hidden'); });
+    $('medium-cancel').addEventListener('click', function () { $('medium-picker').classList.add('hidden'); setMode('select'); });
     $('btn-finance').addEventListener('click', function () { renderFinance(); openModal('modal-finance'); });
     $('btn-rd').addEventListener('click', function () { renderRD(); openModal('modal-rd'); });
     $('btn-staff').addEventListener('click', function () { renderStaff(); openModal('modal-staff'); });
