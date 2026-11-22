@@ -291,8 +291,11 @@ let s1, cell1, link1;
 {
   const pkgs = (DATA.packageList || []).slice().sort((a, b) => a.price - b.price);
   const allPositive = pkgs.length >= 4 && pkgs.every(p => p.speedMbps > 0);
-  const monotonic = pkgs.every((p, i) => i === 0 || p.speedMbps > pkgs[i - 1].speedMbps);
-  check('15a همهٔ بسته‌ها سرعت پیش‌فرض مثبت دارند و سرعت با قیمت یکنوا بالا می‌رود', allPositive && monotonic,
+  // بسته‌های گیمینگ/استریمینگ عمداً از یکنوایی سرعت خام بیرون‌اند (گیمینگ تأخیر کم می‌فروشد نه سرعت خام)؛
+  // یکنوایی سرعت با قیمت فقط برای بسته‌های استاندارد سنجیده می‌شود
+  const stdPkgs = pkgs.filter(p => !p.kind || p.kind === 'standard');
+  const monotonic = stdPkgs.every((p, i) => i === 0 || p.speedMbps > stdPkgs[i - 1].speedMbps);
+  check('15a همهٔ بسته‌ها سرعت پیش‌فرض مثبت دارند و سرعت بسته‌های استاندارد با قیمت یکنوا بالا می‌رود', allPositive && monotonic,
     pkgs.map(p => p.id + ':' + p.price + '/' + p.speedMbps).join(' '));
   const raw = JSON.parse(GameSim.saveGame(GameSim.newGame(606)));
   raw.packages.forEach(p => { p.speedMbps = 0; });
@@ -314,6 +317,12 @@ let s1, cell1, link1;
   const satSlow = satWithSpeed(10);
   check('15c بستهٔ کندتر رضایت کمتری می‌دهد (سرعت واقعاً اثر دارد)', satSlow < satDefault - 2,
     'default=' + satDefault.toFixed(1) + ' slow=' + satSlow.toFixed(1));
+  const gaming = pkgs.find(p => p.id === 'gaming');
+  const streaming = pkgs.find(p => p.id === 'streaming');
+  check('15d بسته‌های گیمینگ و استریمینگ با kind مشخص و سرعت مثبت وجود دارند',
+    !!gaming && gaming.kind === 'gaming' && gaming.speedMbps > 0 &&
+    !!streaming && streaming.kind === 'streaming' && streaming.speedMbps > 0,
+    'gaming=' + (gaming && gaming.kind + '/' + gaming.speedMbps) + ' streaming=' + (streaming && streaming.kind + '/' + streaming.speedMbps));
 }
 
 // ---------- 16) تقاضا به تفکیک فناوری ----------
@@ -754,6 +763,406 @@ let s1, cell1, link1;
     fs.readFileSync(root + '/js/main.js', 'utf8').includes('serviceWorker'));
   const ver = fs.readFileSync(root + '/js/version.js', 'utf8');
   check('30c نسخهٔ برنامه یک منبع واحد دارد (APP_VERSION)', /APP_VERSION\s*=\s*['"]\d+\.\d+\.\d+['"]/.test(ver));
+}
+
+// ---------- 31) دستاوردها ----------
+{
+  const s = GameSim.newGame(99);
+  const d = s.districts.find(x => x.id === 'north') || s.districts[0];
+  const node = GameSim.buildNode(s, 'wifi_ap', d.x, d.y);
+  finishBuild(s, node);
+  GameSim.connect(s, node.id, coreOf(s).id, 'ethernet');
+  for (let i = 0; i < 10; i++) { GameSim.tick(s, 1); keepAlive(s); }
+  const prog = GameSim.achievementProgress(s);
+  const firstSub = prog.find(p => p.id === 'first_sub');
+  check('31a پس از جذب مشترک، دستاورد «نخستین مشترک» باز می‌شود',
+    !!firstSub && firstSub.unlocked && s.achievements.first_sub != null &&
+    s.newAchievements.some(a => a.id === 'first_sub'),
+    'unlocked=' + Object.keys(s.achievements).join(','));
+  check('31b پیشرفت دستاورد مقدار فعلی و هدف را درست نشان می‌دهد',
+    !!firstSub && firstSub.target === 1 && firstSub.current >= 1 &&
+    prog.length === (DATA.achievements || []).length && prog.every(p => p.target > 0 && p.current >= 0),
+    'first_sub=' + JSON.stringify(firstSub));
+  const s2 = GameSim.loadGame(GameSim.saveGame(s));
+  const prog2 = GameSim.achievementProgress(s2).find(p => p.id === 'first_sub');
+  check('31c دستاورد بازشده در ذخیره/بارگذاری حفظ می‌شود',
+    s2.achievements.first_sub === s.achievements.first_sub && !!prog2 && prog2.unlocked,
+    'day=' + s.achievements.first_sub + '/' + s2.achievements.first_sub);
+}
+
+// ---------- 32) مشترکان فردی ----------
+{
+  const s = GameSim.newGame(42); s.cash = 999999;
+  GameSim.unlockTech(s, 'lte');
+  // تقاضای چند منطقه پایین آورده می‌شود تا کیفیت سرویس بالا بماند و افراد واقعاً مشترک شوند
+  const servedIds = ['north', 'residential', 'center', 'east_res', 'west_town'];
+  const nodes = [];
+  for (const did of servedIds) {
+    const d = s.districts.find(x => x.id === did);
+    d.demandBase = 300;
+    const n = GameSim.buildNode(s, 'cell_4g', d.x, d.y);
+    finishBuild(s, n);
+    GameSim.connect(s, n.id, coreOf(s).id, 'fiber');
+    nodes.push(n);
+  }
+  for (let i = 0; i < 25; i++) { GameSim.tick(s, 1); keepAlive(s); }
+  const subBefore = s.individuals.filter(i => i.status === 'subscribed').length;
+  check('32a مشترکان فردی ساخته می‌شوند (سقف ۳۰۰) و دست‌کم یکی مشترک می‌شود',
+    s.individuals.length > 0 && s.individuals.length <= 300 && subBefore >= 1,
+    'total=' + s.individuals.length + ' subscribed=' + subBefore);
+  nodes.forEach(n => GameSim.demolishNode(s, n.id));
+  for (let i = 0; i < 15; i++) { GameSim.tick(s, 1); keepAlive(s); }
+  const subAfter = s.individuals.filter(i => i.status === 'subscribed').length;
+  const unsub = s.individuals.filter(i => i.status === 'unsubscribed').length;
+  check('32b با قطع سرویس، مشترکان فردی شبکه را ترک می‌کنند',
+    subAfter < subBefore && unsub >= 1,
+    'subscribed ' + subBefore + ' -> ' + subAfter + ' unsubscribed=' + unsub);
+}
+
+// ---------- 33) قراردادهای سازمانی ----------
+{
+  const s = GameSim.newGame(7); s.cash = 9999999;
+  GameSim.unlockTech(s, 'lte');
+  const d = s.districts.find(x => x.id === 'center');
+  d.demandBase = 200; // تقاضای کم تا کیفیت ماه قرارداد بالا بماند
+  const nodes = [];
+  for (let k = 0; k < 3; k++) {
+    const n = GameSim.buildNode(s, 'cell_4g', d.x + k * 60, d.y);
+    finishBuild(s, n);
+    GameSim.connect(s, n.id, coreOf(s).id, 'fiber');
+    nodes.push(n);
+  }
+  let guard = 0;
+  while (!s.contractOffers.length && guard++ < 200) { GameSim.tick(s, 1); keepAlive(s); }
+  check('33a برای منطقهٔ سرویس‌گرفته پیشنهاد قرارداد سازمانی تولید می‌شود', s.contractOffers.length >= 1,
+    'offers=' + s.contractOffers.length + ' after ' + guard + ' days');
+  const offer = s.contractOffers[0];
+  const bad = GameSim.negotiateContract(s, offer.id, {
+    speed: Math.round(offer.wantSpeed * 0.3), sla: Math.round(offer.wantSla * 0.5), price: offer.wantPrice * 3,
+  });
+  check('33b شرایط خیلی بد (قیمت سه‌برابر، سرعت و SLA پایین) رد می‌شود',
+    bad.status === 'rejected' && !s.contractOffers.some(o => o.id === offer.id),
+    'status=' + bad.status);
+  guard = 0;
+  while (!s.contractOffers.length && guard++ < 200) { GameSim.tick(s, 1); keepAlive(s); }
+  const offer2 = s.contractOffers[0];
+  const price = Math.round(offer2.wantPrice * 0.8);
+  const res = GameSim.negotiateContract(s, offer2.id, { speed: offer2.wantSpeed, sla: offer2.wantSla, price });
+  const contract = res.contract;
+  check('33c شرایط سخاوتمندانه (قیمت ۸۰٪ خواسته) پذیرفته و قرارداد فعال می‌شود',
+    res.status === 'accepted' && !!contract && contract.status === 'active' && contract.priceMonthly === price,
+    'status=' + res.status + ' priceMonthly=' + (contract && contract.priceMonthly));
+  // انباشت کیفیت از اول ماه قرارداد سنجیده شود (روزهای پیش از قرارداد آلوده‌اش نکند)
+  d._qosAcc = 0; d._qosDays = 0;
+  const monthsLeft0 = contract.monthsLeft;
+  let boundaryDelta = null;
+  guard = 0;
+  while (guard++ < 60) {
+    const lm = s.lastMonthDay, tr = s.totalRevenue;
+    GameSim.tick(s, 1); keepAlive(s);
+    if (s.lastMonthDay !== lm) { boundaryDelta = s.totalRevenue - tr; break; }
+  }
+  check('33d پرداخت ماهانهٔ قرارداد در پایان ماه واریز می‌شود و بدون نقض SLA است',
+    boundaryDelta != null && boundaryDelta >= price && contract.monthsLeft === monthsLeft0 - 1 && contract.breaches === 0,
+    'delta=' + boundaryDelta + ' price=' + price + ' monthsLeft ' + monthsLeft0 + '->' + contract.monthsLeft + ' breaches=' + contract.breaches);
+  nodes.forEach(n => GameSim.demolishNode(s, n.id));
+  guard = 0;
+  while (guard++ < 60) {
+    const lm = s.lastMonthDay;
+    GameSim.tick(s, 1); keepAlive(s);
+    if (s.lastMonthDay !== lm) break;
+  }
+  check('33e یک ماه بدون سرویس = نقض SLA و جریمه',
+    contract.breaches >= 1 && s.log.some(l => l.msg.includes('جریمه')),
+    'breaches=' + contract.breaches);
+}
+
+// ---------- 34) کمپین‌های تبلیغاتی ----------
+{
+  function campGame(withCamp) {
+    const s = GameSim.newGame(88); s.cash = 999999;
+    const d = s.districts.find(x => x.id === 'north') || s.districts[0];
+    const n = GameSim.buildNode(s, 'wifi_ap', d.x, d.y);
+    finishBuild(s, n);
+    GameSim.connect(s, n.id, coreOf(s).id, 'ethernet');
+    let camp = null;
+    if (withCamp) camp = GameSim.startCampaign(s, 'social', [d.id], 30).campaign;
+    return { s, d, camp };
+  }
+  const ctrl = campGame(false), withC = campGame(true);
+  const costPerDay = (DATA.campaignTypes || []).find(t => t.id === 'social').costPerDay;
+  for (let i = 0; i < 5; i++) { GameSim.tick(withC.s, 1); keepAlive(withC.s); GameSim.tick(ctrl.s, 1); keepAlive(ctrl.s); }
+  const spent5 = withC.camp.spent;
+  check('34a کمپین فعال هر روز از نقدینگی هزینه برمی‌دارد',
+    withC.camp.active && spent5 === costPerDay * 5,
+    'spent=' + spent5 + ' expected=' + (costPerDay * 5));
+  for (let i = 0; i < 15; i++) { GameSim.tick(withC.s, 1); keepAlive(withC.s); GameSim.tick(ctrl.s, 1); keepAlive(ctrl.s); }
+  check('34b رشد مشترک با کمپین از بازی شاهدِ هم‌بذر سریع‌تر است',
+    withC.d.subscribers > ctrl.d.subscribers,
+    'campaign=' + withC.d.subscribers + ' control=' + ctrl.d.subscribers);
+  GameSim.stopCampaign(withC.s, withC.camp.id);
+  const spentAtStop = withC.camp.spent;
+  for (let i = 0; i < 3; i++) { GameSim.tick(withC.s, 1); keepAlive(withC.s); }
+  check('34c توقف کمپین کسر روزانه را متوقف می‌کند',
+    !withC.camp.active && withC.camp.spent === spentAtStop,
+    'spent ' + spentAtStop + ' -> ' + withC.camp.spent);
+}
+
+// ---------- 35) بستهٔ گیمینگ: تأخیر مسیر فیبر در برابر ماهوارهٔ GEO ----------
+{
+  function gamingClean(kind) {
+    const s = GameSim.newGame(55); s.cash = 99999999;
+    const d = s.districts.find(x => x.id === 'north') || s.districts[0];
+    d.demandBase = 100; // تقاضای کم تا کیفیت هر دو مسیر کامل باشد و فقط تأخیر فرق کند
+    s.customers.find(c => c.districtId === d.id).packageId = 'gaming';
+    if (kind === 'fiber') {
+      GameSim.unlockTech(s, 'fiber'); GameSim.unlockTech(s, 'ftth');
+      const n = GameSim.buildNode(s, 'ftth', d.x, d.y);
+      finishBuild(s, n);
+      GameSim.connect(s, n.id, coreOf(s).id, 'fiber');
+    } else {
+      GameSim.unlockTech(s, 'satellite_leo'); GameSim.unlockTech(s, 'satellite_geo');
+      const term = GameSim.buildNode(s, 'sat_terminal_geo', d.x, d.y);
+      const gw = GameSim.buildNode(s, 'sat_gateway', coreOf(s).x + 300, coreOf(s).y);
+      finishBuild(s, term); finishBuild(s, gw);
+      GameSim.connect(s, gw.id, coreOf(s).id, 'fiber');
+      GameSim.connect(s, term.id, gw.id, 'satellite');
+    }
+    s.weather = { kind: 'clear', untilDay: 9999 };
+    s.failoverActive = false;
+    d.subscribers = 100; d.satisfaction = 0;
+    GameSim.computeFlow(s);
+    return d;
+  }
+  const gf = gamingClean('fiber'), gs = gamingClean('geo');
+  check('35a تأخیر متوسط مسیر فیبر بسیار کمتر از ماهوارهٔ GEO است',
+    gf.avgLatency > 0 && gf.avgLatency < gs.avgLatency && gs.avgLatency >= 600,
+    'fiber=' + gf.avgLatency + 'ms geo=' + gs.avgLatency + 'ms');
+  check('35b با کیفیت برابر، رضایت بستهٔ گیمینگ روی فیبر بیشتر از GEO است',
+    gf.qos === gs.qos && gf.satisfaction > gs.satisfaction,
+    'qos=' + gf.qos.toFixed(2) + '/' + gs.qos.toFixed(2) + ' sat fiber=' + gf.satisfaction.toFixed(1) + ' geo=' + gs.satisfaction.toFixed(1));
+}
+
+// ---------- 36) کانال فرکانسی و تداخل ----------
+{
+  const s = GameSim.newGame(66); s.cash = 999999;
+  const d = s.districts.find(x => x.id === 'north') || s.districts[0];
+  const a = GameSim.buildNode(s, 'wifi_ap', d.x, d.y);
+  const b = GameSim.buildNode(s, 'wifi_ap', d.x + 50, d.y);
+  finishBuild(s, a); finishBuild(s, b);
+  GameSim.connect(s, a.id, coreOf(s).id, 'ethernet');
+  GameSim.connect(s, b.id, coreOf(s).id, 'ethernet');
+  GameSim.setNodeChannel(s, a.id, 1); GameSim.setNodeChannel(s, b.id, 1);
+  GameSim.computeFlow(s);
+  const servedSame = d.servedDemand, effSame = a._effCap;
+  check('36a دو گرهٔ نزدیک روی یک کانال: تداخل مثبت و ظرفیت مؤثر کمتر',
+    a.interference > 0 && b.interference > 0 && effSame < a.capacity,
+    'interference=' + a.interference.toFixed(2) + ' effCap=' + Math.round(effSame) + '/' + a.capacity);
+  const ac = GameSim.autoChannel(s, b.id);
+  GameSim.computeFlow(s);
+  check('36b انتخاب خودکار کانال، کانال متفاوت از همسایه می‌دهد و سرویس بیشتر می‌شود',
+    ac.ok && ac.channel !== a.channel && a.interference === 0 && d.servedDemand > servedSame,
+    'auto=' + ac.channel + ' neighbor=' + a.channel + ' served ' + servedSame + ' -> ' + d.servedDemand);
+  const badHigh = GameSim.setNodeChannel(s, a.id, 99);
+  const badZero = GameSim.setNodeChannel(s, a.id, 0);
+  const badCore = GameSim.setNodeChannel(s, coreOf(s).id, 1);
+  const good = GameSim.setNodeChannel(s, a.id, 2);
+  check('36c تنظیم کانال بازهٔ مجاز و گره‌های بدون کانال را اعتبارسنجی می‌کند',
+    !badHigh.ok && !badZero.ok && !badCore.ok && good.ok && a.channel === 2,
+    'high=' + badHigh.ok + ' zero=' + badZero.ok + ' core=' + badCore.ok + ' good=' + good.ok);
+}
+
+// ---------- 37) گوهٔ سکتوری آنتن ----------
+{
+  const s = GameSim.newGame(31); s.cash = 999999;
+  const d = s.districts.find(x => x.id === 'north') || s.districts[0];
+  const n = GameSim.buildNode(s, 'wifi_ap', d.x + 150, d.y);
+  finishBuild(s, n);
+  GameSim.connect(s, n.id, coreOf(s).id, 'ethernet');
+  // قرارداد جهت: ۰=شرق، مثبت پادساعتگرد؛ زاویهٔ نقطه با atan2(-dy, dx) گرفته می‌شود
+  const dirTo = Math.atan2(-(d.y - n.y), d.x - n.x) * 180 / Math.PI;
+  const r1 = GameSim.setNodeDirection(s, n.id, dirTo, 60);
+  GameSim.computeFlow(s);
+  check('37a آنتن سکتوری رو به منطقه سرویس می‌دهد', r1.ok && d.servedDemand > 0,
+    'dir=' + Math.round(dirTo) + ' served=' + d.servedDemand);
+  GameSim.setNodeDirection(s, n.id, dirTo + 180, 60);
+  GameSim.computeFlow(s);
+  check('37b چرخاندن آنتن به سمت مخالف، سرویس منطقه را قطع می‌کند', d.servedDemand === 0,
+    'served=' + d.servedDemand);
+}
+
+// ---------- 38) سیگنال در یک نقطه ----------
+{
+  const s = GameSim.newGame(31); s.cash = 999999;
+  const d = s.districts.find(x => x.id === 'north') || s.districts[0];
+  const n = GameSim.buildNode(s, 'wifi_ap', d.x, d.y);
+  finishBuild(s, n);
+  s.buildings.forEach(b => { b.height = 5; }); // ساختمان‌های موجود دید را نبندند تا اثر ساختمان آزمایشی جدا سنجیده شود
+  const atNode = GameSim.signalAt(s, n.x, n.y);
+  check('38a سیگنال در محل گرهٔ فعال قوی است (>۰٫۵)', atNode.signal > 0.5 && atNode.nodeId === n.id,
+    'signal=' + atNode.signal.toFixed(2));
+  const far = GameSim.signalAt(s, 60, 60);
+  check('38b گوشهٔ دور نقشه بدون پوشش سیگنال صفر دارد', far.signal === 0 && far.nodeId === null,
+    'signal=' + far.signal);
+  const open = GameSim.signalAt(s, n.x + 60, n.y).signal;
+  s.buildings.push({ id: 'fake_tall', districtId: null, x: n.x + 30, y: n.y, w: 26, h: 20, height: 30, type: 'commercial' });
+  const blocked = GameSim.signalAt(s, n.x + 60, n.y).signal;
+  check('38c نقطهٔ پشت ساختمان بلند سیگنال ضعیف‌تری از نقطهٔ باز دارد',
+    open > 0 && blocked < open,
+    'open=' + open.toFixed(3) + ' blocked=' + blocked.toFixed(3));
+}
+
+// ---------- 39) پیشنهاد مکان نصب ----------
+{
+  const s = GameSim.newGame(42);
+  const eq = DATA.equipmentList.find(e => e.id === 'wifi_ap');
+  const r = GameSim.suggestPlacements(s, 'wifi_ap');
+  check('39a پیشنهاد مکان ۱ تا ۵ نقطهٔ معتبر برمی‌گرداند',
+    r.length >= 1 && r.length <= 5 && r.every(x => GameSim.isValidPlacement(s, x.x, x.y).ok),
+    'count=' + r.length);
+  const subsDesc = r.every((x, i) => i === 0 || x.expectedSubs <= r[i - 1].expectedSubs);
+  check('39b پیشنهادها بر اساس مشترکان موردانتظار نزولی مرتب‌اند', subsDesc,
+    r.map(x => x.expectedSubs + '/' + x.expectedCoverage).join(' '));
+  const top = r[0];
+  let best = null;
+  for (const d of s.districts) {
+    const dd = Math.hypot(top.x - d.x, top.y - d.y);
+    if (!best || dd < best.dd) best = { dd, d };
+  }
+  check('39c بهترین پیشنهاد نزدیک یک منطقهٔ بدون سرویس است',
+    !!best && best.d.qos < 0.5 && best.dd <= eq.radius + best.d.radius,
+    'nearest=' + (best && best.d.id) + ' dist=' + (best && Math.round(best.dd)) + ' limit=' + (best && (eq.radius + best.d.radius)));
+}
+
+// ---------- 40) ماهواره‌های اختصاصی (صورت فلکی) ----------
+{
+  const s = GameSim.newGame(77); s.cash = 99999999;
+  GameSim.unlockTech(s, 'satellite_leo');
+  const term = GameSim.buildNode(s, 'sat_terminal_leo', 1640, 300);
+  const gw = GameSim.buildNode(s, 'sat_gateway', coreOf(s).x + 300, coreOf(s).y);
+  finishBuild(s, term); finishBuild(s, gw);
+  GameSim.connect(s, gw.id, coreOf(s).id, 'fiber');
+  GameSim.connect(s, term.id, gw.id, 'satellite');
+  GameSim.computeFlow(s);
+  const mc0 = s.finance.monthlyCosts;
+  const noTech = GameSim.launchSatellite(s, 'leo');
+  check('40a پرتاب ماهواره بدون فناوری «ماهواره اختصاصی» رد می‌شود', noTech.ok === false,
+    JSON.stringify(noTech));
+  GameSim.unlockTech(s, 'own_satellite');
+  const r = GameSim.launchSatellite(s, 'leo');
+  check('40b پس از باز کردن فناوری، پرتاب LEO با وضعیت «در حال پرتاب» شروع می‌شود',
+    r.ok && r.satellite.status === 'launching' && r.satellite.launchTimer === DATA.satelliteLaunch.leo.buildDays,
+    'status=' + (r.satellite && r.satellite.status));
+  for (let i = 0; i < DATA.satelliteLaunch.leo.buildDays + 5; i++) { GameSim.tick(s, 1); keepAlive(s); }
+  const sat = s.satellites[0];
+  check('40c پس از پایان ساخت، ماهواره فعال و ظرفیت صورت فلکی مثبت است',
+    sat.status === 'active' && GameSim.constellationCapacity(s) === DATA.satelliteLaunch.leo.capacity,
+    'status=' + sat.status + ' capacity=' + GameSim.constellationCapacity(s));
+  GameSim.computeFlow(s);
+  const mc1 = s.finance.monthlyCosts;
+  // صورت فلکی اشتراک پایانه را به ۳۰٪ می‌رساند (−۱۸۲۰) و هزینهٔ خود ماهواره (+۳۰۰۰) اضافه می‌شود
+  const termMonthly = DATA.equipmentList.find(e => e.id === 'sat_terminal_leo').monthlyCost;
+  const expectedDelta = DATA.satelliteLaunch.leo.monthlyCost - Math.round(termMonthly * 0.7);
+  check('40d صورت فلکی هزینهٔ ماهانهٔ پایانهٔ ماهواره‌ای را کم می‌کند',
+    mc1 - mc0 === expectedDelta && (mc1 - DATA.satelliteLaunch.leo.monthlyCost) < mc0,
+    'monthlyCosts ' + mc0 + ' -> ' + mc1 + ' delta=' + (mc1 - mc0) + ' expected=' + expectedDelta);
+  sat.ageDays = sat.lifetimeDays - 1;
+  for (let i = 0; i < 3; i++) { GameSim.tick(s, 1); keepAlive(s); }
+  check('40e ماهواره در پایان عمر از مدار خارج می‌شود (deorbited/failed)',
+    sat.status === 'deorbited' || sat.status === 'failed',
+    'status=' + sat.status);
+}
+
+// ---------- 41) ساعت اوج و ساعت روز ----------
+{
+  check('41a ضریب تقاضا: نیمه‌شب < ظهر < اوج عصرگاهی',
+    GameSim.demandFactorAtHour(3) < GameSim.demandFactorAtHour(12) &&
+    GameSim.demandFactorAtHour(12) < GameSim.demandFactorAtHour(20),
+    '3h=' + GameSim.demandFactorAtHour(3) + ' 12h=' + GameSim.demandFactorAtHour(12) + ' 20h=' + GameSim.demandFactorAtHour(20));
+  const s = GameSim.newGame(31); s.cash = 999999;
+  const h0 = s.hour;
+  const h1 = GameSim.clockTick(s, 5);
+  const h2 = GameSim.clockTick(s, 10);
+  check('41b ساعت روز جلو می‌رود و در ۲۴ دور می‌زند',
+    h0 === 10 && h1 === 15 && h2 === 1 && s.hour === 1,
+    h0 + ' -> ' + h1 + ' -> ' + h2);
+  const d = s.districts.find(x => x.id === 'north') || s.districts[0];
+  const n = GameSim.buildNode(s, 'wifi_ap', d.x, d.y);
+  finishBuild(s, n);
+  GameSim.connect(s, n.id, coreOf(s).id, 'ethernet');
+  s.hour = 3; GameSim.computeFlow(s);
+  const dem3 = d.demand, qos3 = d.qos;
+  s.hour = 20; GameSim.computeFlow(s);
+  check('41c در ساعت اوج تقاضا بیشتر و کیفیت کمتر از نیمه‌شب است',
+    d.demand > dem3 && d.qos < qos3,
+    'demand ' + Math.round(dem3) + ' -> ' + Math.round(d.demand) + ' qos ' + qos3.toFixed(2) + ' -> ' + d.qos.toFixed(2));
+}
+
+// ---------- 42) آب‌وهوا و فصل‌ها ----------
+{
+  check('42a فصل با روز عوض می‌شود (بهار، تابستان، پاییز، زمستان)',
+    GameSim.seasonOf({ day: 1 }).id === 'spring' && GameSim.seasonOf({ day: 100 }).id === 'summer' &&
+    GameSim.seasonOf({ day: 200 }).id === 'autumn' && GameSim.seasonOf({ day: 300 }).id === 'winter',
+    [1, 100, 200, 300].map(day => GameSim.seasonOf({ day }).id).join(','));
+  const s = GameSim.newGame(31); s.cash = 999999;
+  const d = s.districts.find(x => x.id === 'north') || s.districts[0];
+  const n = GameSim.buildNode(s, 'wifi_ap', d.x, d.y);
+  finishBuild(s, n);
+  GameSim.connect(s, n.id, coreOf(s).id, 'ethernet');
+  s.weather = { kind: 'clear', untilDay: 9999 };
+  GameSim.computeFlow(s);
+  const servedClear = d.servedDemand, effClear = n._effCap;
+  s.weather = { kind: 'storm', untilDay: 9999 };
+  GameSim.computeFlow(s);
+  check('42b طوفان ظرفیت مؤثر و سرویس گرهٔ بی‌سیم را کم می‌کند',
+    n._effCap < effClear && d.servedDemand < servedClear,
+    'effCap ' + Math.round(effClear) + ' -> ' + Math.round(n._effCap) + ' served ' + servedClear + ' -> ' + d.servedDemand);
+  const s2 = GameSim.newGame(31);
+  for (let i = 0; i < 30; i++) GameSim.tick(s2, 1);
+  check('42c آب‌وهوا با گذر روزها قرعه‌کشی می‌شود و معتبر می‌ماند',
+    s2.weather.untilDay > 1 && ['clear', 'rain', 'storm', 'snow'].includes(s2.weather.kind),
+    'kind=' + s2.weather.kind + ' untilDay=' + s2.weather.untilDay);
+}
+
+// ---------- 43) تاریخچهٔ روزانه ----------
+{
+  const s = GameSim.newGame(31);
+  for (let i = 0; i < 5; i++) GameSim.tick(s, 1);
+  check('43a پس از ۵ روز، تاریخچه دست‌کم ۵ رکورد با روز/نقد/مشترک دارد',
+    s.history.length >= 5 && s.history.every(h => typeof h.day === 'number' && typeof h.cash === 'number' && typeof h.subs === 'number'),
+    'len=' + s.history.length + ' first=' + JSON.stringify(s.history[0] && { day: s.history[0].day, cash: s.history[0].cash, subs: s.history[0].subs }));
+  for (let i = 0; i < 405; i++) GameSim.tick(s, 1);
+  check('43b سقف تاریخچه (۴۰۰ رکورد) رعایت می‌شود', s.history.length <= 400,
+    'len=' + s.history.length);
+}
+
+// ---------- 44) مهاجرت ذخیرهٔ قدیمی (بدون فیلدهای جدید) ----------
+{
+  const s = GameSim.newGame(31);
+  const d = s.districts.find(x => x.id === 'north') || s.districts[0];
+  const n = GameSim.buildNode(s, 'wifi_ap', d.x, d.y);
+  finishBuild(s, n);
+  GameSim.connect(s, n.id, coreOf(s).id, 'ethernet');
+  GameSim.tick(s, 2);
+  const raw = JSON.parse(GameSim.saveGame(s));
+  delete raw.hour; delete raw.weather; delete raw.achievements; delete raw.newAchievements;
+  delete raw.individuals; delete raw.contracts; delete raw.contractOffers; delete raw.campaigns;
+  delete raw.satellites; delete raw.history;
+  ['individual', 'contract', 'campaign', 'satellite', 'built', 'contractsDone', 'campaignsRun', 'profitMonths']
+    .forEach(k => delete raw.counters[k]);
+  raw.nodes.forEach(x => { delete x.channel; delete x.interference; });
+  raw.districts.forEach(x => { delete x.avgLatency; delete x.perSubMbps; delete x._qosAcc; delete x._qosDays; });
+  const s2 = GameSim.loadGame(JSON.stringify(raw));
+  const wifi = s2.nodes.find(x => x.type === 'wifi_ap');
+  check('44a ذخیرهٔ بدون فیلدهای جدید با پیش‌فرض‌ها کامل می‌شود',
+    s2.hour === 10 && s2.weather.kind === 'clear' &&
+    Array.isArray(s2.individuals) && s2.individuals.length === 0 &&
+    Array.isArray(s2.contracts) && Array.isArray(s2.contractOffers) &&
+    Array.isArray(s2.campaigns) && Array.isArray(s2.satellites) && Array.isArray(s2.history) &&
+    !!s2.achievements && !!wifi && wifi.channel != null && wifi.interference === 0 &&
+    s2.districts.every(x => x.avgLatency === 0 && x.perSubMbps === 0),
+    'hour=' + s2.hour + ' weather=' + s2.weather.kind + ' wifiChannel=' + (wifi && wifi.channel));
+  check('44b بازی مهاجرت‌کرده بدون خطا ادامه پیدا می‌کند', !!GameSim.tick(s2, 1));
 }
 
 console.log('\nنتیجه: ' + pass + ' پاس، ' + fail + ' رد');
