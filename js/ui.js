@@ -17,7 +17,7 @@
     { title: 'گام ۳: اتصال انتقال', text: 'ابزار «اتصال» را انتخاب کنید، روی دستگاه دسترسی و سپس روی یک گره تجمیع کلیک کنید و رسانه (فیبر/مسی/نقطه‌به‌نقطه) را انتخاب کنید تا لینک انتقال ساخته شود.' },
     { title: 'گام ۴: اتصال هسته و دروازه', text: 'زنجیره باید کامل باشد: مشتری ← دسترسی ← تجمیع ← هسته ← دروازه اینترنت. گره تجمیع را به هسته و هسته را به دروازه وصل کنید تا اینترنت به شهر برسد.' },
     { title: 'گام ۵: فعال‌سازی سرویس', text: 'حالا مسیر کامل است و مشتریان آنلاین می‌شوند. از پنل «بسته‌ها» قیمت و سرعت بسته‌ها را تنظیم کنید؛ قیمت بالاتر درآمد بیشتر اما تقاضای کمتر می‌دهد.' },
-    { title: 'گام ۶: بررسی ظرفیت و رفع مشکل', text: 'اگر لینک یا دستگاه اشباع شود، هشدار 🔔 ظاهر می‌شود. روی گره مشکل‌دار کلیک کنید: علت مشکل و گزینه‌های رفع آن (ارتقا، لینک موازی، تغییر رسانه) نمایش داده می‌شود.' },
+    { title: 'گام ۶: بررسی ظرفیت و رفع مشکل', text: 'اگر لینک یا دستگاه اشباع شود، هشدار ظاهر می‌شود. روی گره مشکل‌دار کلیک کنید: علت مشکل و گزینه‌های رفع آن (ارتقا، لینک موازی، تغییر رسانه) نمایش داده می‌شود.' },
     { title: 'گام ۷: گسترش به منطقه جدید', text: 'با درآمد حاصل، در مناطق دیگر شهر دستگاه نصب کنید و به شبکه وصل کنید. با «تحقیق و توسعه» فناوری‌های جدید مثل فیبر نوری و 5G را باز کنید.' },
     { title: 'گام ۸: مسیر جایگزین (افزونگی)', text: 'برای جلوگیری از قطعی هنگام خرابی، بین گره‌های کلیدی یک مسیر دوم بسازید. اگر مسیر اصلی قطع شود، ترافیک از مسیر جایگزین (مثلاً ماهواره) عبور می‌کند. موفق باشید!' }
   ];
@@ -26,9 +26,26 @@
   function fmt(n) { return (n == null || isNaN(n)) ? '—' : Math.round(n).toLocaleString('fa-IR'); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); }
 
+  /* ---------- Inline SVG icons (stroke, currentColor; no emoji) ---------- */
+  function svgIcon(path) {
+    return '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + path + '</svg>';
+  }
+  var ICONS = {
+    lock: svgIcon('<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>'),
+    check: svgIcon('<path d="M4 12.5 9.5 18 20 6.5"/>'),
+    warn: svgIcon('<path d="M12 3 2.5 20h19z"/><path d="M12 10v4"/><path d="M12 17h.01"/>'),
+    antenna: svgIcon('<path d="M12 21v-8"/><circle cx="12" cy="10" r="1.6" fill="currentColor" stroke="none"/><path d="M7.5 6.5a6.5 6.5 0 0 1 9 0"/><path d="M4.8 3.8a10.5 10.5 0 0 1 14.4 0"/>'),
+    cable: svgIcon('<path d="M9 3v5M15 3v5"/><path d="M6 8h12v3a6 6 0 0 1-12 0z"/><path d="M12 17v4"/>'),
+    backhaul: svgIcon('<path d="M4 8h13M13 4l4 4-4 4"/><path d="M20 16H7M11 12l-4 4 4 4"/>'),
+    satellite: svgIcon('<path d="M4 16a8 8 0 0 0 12 4"/><path d="M6 18 16 8"/><circle cx="16" cy="8" r="1.6" fill="currentColor" stroke="none"/><path d="M10 20v2"/>'),
+    core: svgIcon('<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>')
+  };
+  var CAT_ICONS = { cable: ICONS.cable, access: ICONS.antenna, backhaul: ICONS.backhaul, satellite: ICONS.satellite, core: ICONS.core };
+
   /* ---------- Mobile panels (drawer / bottom sheet, one at a time) ---------- */
   function isMobile() { return window.innerWidth <= 900; }
   function openPanel(id) {
+    closeSideMenu();
     ['panel-right', 'panel-detail'].forEach(function (p) { $(p).classList.toggle('open', p === id); });
   }
   function closePanels() {
@@ -39,14 +56,16 @@
     if ($(id).classList.contains('open')) $(id).classList.remove('open');
     else openPanel(id);
   }
-  /* On mobile the save buttons join the scrollable actions row; on desktop they stay in place. */
-  function placeSaveBtns() {
-    var save = document.querySelector('.save-btns');
-    var actions = document.querySelector('.tb-group.actions');
-    var topbar = $('topbar');
-    if (!save || !actions || !topbar) return;
-    if (isMobile()) { if (save.parentNode !== actions) actions.appendChild(save); }
-    else if (save.parentNode !== topbar) topbar.insertBefore(save, $('toggle-right'));
+  /* ---------- Side menu (drawer; one overlay at a time) ---------- */
+  function openSideMenu() {
+    closePanels();
+    $('alerts-drawer').classList.add('hidden');
+    $('side-menu').classList.add('open');
+    $('side-menu-backdrop').classList.remove('hidden');
+  }
+  function closeSideMenu() {
+    $('side-menu').classList.remove('open');
+    $('side-menu-backdrop').classList.add('hidden');
   }
 
   /* ---------- Toasts ---------- */
@@ -80,7 +99,7 @@
     var box = $('event-log'); if (!box || !state) return;
     var items = (state.log || []).slice(-30).reverse();
     box.innerHTML = items.map(function (e) {
-      var t = typeof e === 'string' ? e : (e.text || e.message || '');
+      var t = typeof e === 'string' ? e : (e.msg || e.text || e.message || '');
       var d = (typeof e === 'object' && e.day != null) ? 'روز ' + fmt(e.day) + ': ' : '';
       return '<div>' + esc(d + t) + '</div>';
     }).join('') || '<div>رویدادی ثبت نشده است.</div>';
@@ -111,9 +130,9 @@
         var locked = !isUnlocked(it);
         var sel = selectedTool === it.id ? ' selected' : '';
         html += '<button class="build-item' + (locked ? ' locked' : '') + sel + '" data-equip="' + esc(it.id) + '"' + (locked ? ' disabled title="قفل است — ابتدا فناوری لازم را در تحقیق و توسعه باز کنید"' : '') + '>' +
-          '<span class="bi-icon">' + esc(it.icon || '📡') + '</span>' +
+          '<span class="bi-icon">' + (CAT_ICONS[it.category] || ICONS.antenna) + '</span>' +
           '<span class="bi-main"><span class="bi-name">' + esc(it.name || it.id) + '</span><br><span class="bi-sub">' + esc(it.description || '') + '</span></span>' +
-          (locked ? '<span class="lock">🔒</span>' : '<span class="bi-cost">' + fmt(it.cost || 0) + '</span>') +
+          (locked ? '<span class="lock">' + ICONS.lock + '</span>' : '<span class="bi-cost">' + fmt(it.cost || 0) + '</span>') +
           '</button>';
       });
     });
@@ -212,7 +231,7 @@
     box.innerHTML = media.map(function (m) {
       var locked = m.unlockTech && GameSim.isUnlocked && !GameSim.isUnlocked(state, m);
       return '<button class="btn" style="display:block;width:100%;margin:6px 0;text-align:right" data-medium="' + esc(m.id) + '"' + (locked ? ' disabled' : '') + '>' +
-        esc(m.name || m.id) + ' — ظرفیت ' + fmt(m.capacity || 0) + ' Mbps' + (locked ? ' 🔒' : '') + '</button>';
+        esc(m.name || m.id) + ' — ظرفیت ' + fmt(m.capacity || 0) + ' Mbps' + (locked ? ' ' + ICONS.lock : '') + '</button>';
     }).join('');
     box.querySelectorAll('[data-medium]').forEach(function (btn) {
       btn.addEventListener('click', function () {
@@ -235,8 +254,10 @@
     if (!state) return null;
     var n = (state.nodes || []).find(function (x) { return String(x.id) === String(id); });
     if (n) return { node: n, kind: 'node' };
-    var b = ((window.GAME_DATA && GAME_DATA.buildings) || []).find(function (x) { return String(x.id) === String(id); });
+    var b = (((state && state.buildings) || (window.GAME_DATA && GAME_DATA.buildings)) || []).find(function (x) { return String(x.id) === String(id); });
     if (b) return { node: b, kind: 'building' };
+    var d = (state.districts || []).find(function (x) { return String(x.id) === String(id); });
+    if (d) return { node: d, kind: 'district' };
     return null;
   }
 
@@ -262,14 +283,34 @@
     var n = found.node;
     var name = n.name || (equipList().find(function (e) { return e.id === n.type || e.id === n.equipId; }) || {}).name || n.type || ('گره ' + n.id);
     var html = '<h4>' + esc(name) + '</h4>';
+    if (found.kind === 'district') {
+      var TYPE_FA = { commercial: 'تجاری', residential: 'مسکونی', dense: 'پرتراکم', sparse: 'کم‌تراکم', industrial: 'صنعتی', landmark: 'مرکز مهم' };
+      var qosPct = Math.round((n.qos || 0) * 100);
+      html += n.connected
+        ? '<p class="status-ok"><span class="dot-ok"></span>دارای سرویس</p>'
+        : '<div class="warn-box">' + ICONS.warn + ' این منطقه هنوز سرویس ندارد. یک دستگاه دسترسی نزدیک آن نصب و به شبکه وصل کنید.</div>';
+      html += '<dl class="kv">' +
+        '<dt>نوع منطقه</dt><dd>' + esc(TYPE_FA[n.type] || n.type || '—') + '</dd>' +
+        '<dt>جمعیت</dt><dd>' + fmt(n.population) + '</dd>' +
+        '<dt>تقاضا</dt><dd>' + fmt(n.demand) + ' Mbps</dd>' +
+        '<dt>تقاضای سرویس‌شده</dt><dd>' + fmt(n.servedDemand) + ' Mbps</dd>' +
+        '<dt>مشترکان</dt><dd>' + fmt(n.subscribers) + '</dd>' +
+        '<dt>کیفیت سرویس</dt><dd>' + fmt(qosPct) + '٪</dd>' +
+        '<dt>رضایت</dt><dd>' + fmt(Math.round(n.satisfaction || 0)) + '٪</dd>' +
+        '<dt>درآمد ماهانه</dt><dd>' + fmt(n.revenue) + ' تومان</dd>' +
+        '</dl>';
+      html += '<div class="cap-bar"><div class="cap-fill ' + (qosPct < 30 ? 'hot' : qosPct < 60 ? 'warm' : '') + '" style="width:' + qosPct + '%"></div></div>';
+      box.innerHTML = html;
+      return;
+    }
     var connected = n.connected !== false && n.status !== 'unconnected';
     var path = null;
     if (window.GameSim && GameSim.tracePath && found.kind === 'node') path = GameSim.tracePath(state, n.id);
     if (path && path.length === 0) connected = false;
     if (found.kind === 'node') {
       html += connected
-        ? '<p class="status-ok">● متصل به شبکه</p>'
-        : '<div class="warn-box">⚠️ متصل نیست — این دستگاه به هسته/دروازه مسیر ندارد و هیچ سرویسی ارائه نمی‌دهد. با ابزار «اتصال» آن را وصل کنید.</div>';
+        ? '<p class="status-ok"><span class="dot-ok"></span>متصل به شبکه</p>'
+        : '<div class="warn-box">' + ICONS.warn + ' متصل نیست — این دستگاه به هسته/دروازه مسیر ندارد و هیچ سرویسی ارائه نمی‌دهد. با ابزار «اتصال» آن را وصل کنید.</div>';
     }
     if (n.status) html += '<p>وضعیت: ' + esc(STATUS_FA[n.status] || n.status) + '</p>';
     if (n.capacity != null) {
@@ -316,7 +357,7 @@
   }
 
   /* ---------- Modals ---------- */
-  function openModal(id) { $(id).classList.remove('hidden'); $('modal-backdrop').classList.remove('hidden'); }
+  function openModal(id) { closeSideMenu(); $(id).classList.remove('hidden'); $('modal-backdrop').classList.remove('hidden'); }
   function closeModals() {
     ['modal-finance', 'modal-rd', 'modal-staff', 'modal-missions', 'modal-packages'].forEach(function (id) { $(id).classList.add('hidden'); });
     $('modal-backdrop').classList.add('hidden');
@@ -342,7 +383,7 @@
     $('rd-body').innerHTML = '<div class="tech-grid">' + techs.map(function (t) {
       var unlocked = GameSim.isUnlocked ? GameSim.isUnlocked(state, t) : false;
       var canAfford = state.cash >= (t.cost || 0);
-      return '<div class="tech-card ' + (unlocked ? 'unlocked' : 'locked') + '"><h5>' + (unlocked ? '✅ ' : '🔒 ') + esc(t.name || t.id) + '</h5>' +
+      return '<div class="tech-card ' + (unlocked ? 'unlocked' : 'locked') + '"><h5>' + (unlocked ? ICONS.check + ' ' : ICONS.lock + ' ') + esc(t.name || t.id) + '</h5>' +
         '<p>' + esc(t.description || '') + '</p>' +
         (unlocked ? '<span class="status-ok">باز شده</span>' :
           '<button class="btn sm primary" data-tech="' + esc(t.id) + '"' + (canAfford ? '' : ' disabled title="نقدینگی کافی نیست"') + '>باز کردن — ' + fmt(t.cost || 0) + '</button>') + '</div>';
@@ -384,7 +425,7 @@
     $('missions-body').innerHTML = '<table><tr><th>مأموریت</th><th>پاداش</th><th>وضعیت</th></tr>' +
       missions.map(function (m) {
         var isDone = done.indexOf(m.id) >= 0 || m.done;
-        return '<tr><td>' + esc(m.name || m.title || m.id) + '<br><span class="muted">' + esc(m.description || '') + '</span></td><td>' + fmt(m.reward || 0) + '</td><td class="' + (isDone ? 'mission-done' : 'mission-todo') + '">' + (isDone ? 'انجام شده ✅' : 'در حال انجام') + '</td></tr>';
+        return '<tr><td>' + esc(m.name || m.title || m.id) + '<br><span class="muted">' + esc(m.description || '') + '</span></td><td>' + fmt(m.reward || 0) + '</td><td class="' + (isDone ? 'mission-done' : 'mission-todo') + '">' + (isDone ? 'انجام شده ' + ICONS.check : 'در حال انجام') + '</td></tr>';
       }).join('') + '</table>';
   }
 
@@ -414,10 +455,10 @@
   function renderAlerts() {
     var probs = (state && state.problems) || [];
     $('alerts-body').innerHTML = probs.length ? probs.map(function (p) {
-      return '<div class="alert-item"><strong>⚠️ ' + esc(p.title || 'مشکل') + '</strong><br>' + esc(p.message || '') +
+      return '<div class="alert-item"><strong>' + ICONS.warn + ' ' + esc(p.title || 'مشکل') + '</strong><br>' + esc(p.message || '') +
         (p.fixOptions && p.fixOptions.length ? '<br><span class="muted">راه‌حل: ' + esc(p.fixOptions.map(function (f) { return f.label || ''; }).filter(Boolean).join('، ')) + '</span>' : '') +
         (p.nodeId != null ? '<br><button class="btn sm" data-goto="' + esc(p.nodeId) + '">مشاهده گره</button>' : '') + '</div>';
-    }).join('') : '<p class="muted">هشداری وجود ندارد. شبکه سالم است. ✅</p>';
+    }).join('') : '<p class="muted">هشداری وجود ندارد. شبکه سالم است. ' + ICONS.check + '</p>';
     $('alerts-body').querySelectorAll('[data-goto]').forEach(function (b) {
       b.addEventListener('click', function () { selectNode(b.getAttribute('data-goto')); $('alerts-drawer').classList.add('hidden'); });
     });
@@ -457,7 +498,7 @@
     $('btn-packages').addEventListener('click', function () { renderPackages(); openModal('modal-packages'); });
     document.querySelectorAll('.modal-close').forEach(function (b) { b.addEventListener('click', closeModals); });
     $('modal-backdrop').addEventListener('click', closeModals);
-    $('btn-alerts').addEventListener('click', function () { renderAlerts(); $('alerts-drawer').classList.toggle('hidden'); });
+    $('btn-alerts').addEventListener('click', function () { closeSideMenu(); renderAlerts(); $('alerts-drawer').classList.toggle('hidden'); });
     $('alerts-close').addEventListener('click', function () { $('alerts-drawer').classList.add('hidden'); });
     $('tut-next').addEventListener('click', function () {
       var cur = (state && state.tutorialStep) || 0;
@@ -469,8 +510,15 @@
     document.querySelectorAll('.panel-close').forEach(function (b) {
       b.addEventListener('click', function () { $(b.getAttribute('data-close-panel')).classList.remove('open'); });
     });
-    placeSaveBtns();
-    window.addEventListener('resize', placeSaveBtns);
+    // side menu: hamburger opens, backdrop/close/entry-selection closes
+    $('btn-menu').addEventListener('click', function () {
+      if ($('side-menu').classList.contains('open')) closeSideMenu(); else openSideMenu();
+    });
+    $('side-menu-close').addEventListener('click', closeSideMenu);
+    $('side-menu-backdrop').addEventListener('click', closeSideMenu);
+    $('side-menu').addEventListener('click', function (e) {
+      if (e.target.closest && e.target.closest('.side-item')) closeSideMenu();
+    });
     document.querySelectorAll('#layer-toggles input').forEach(function (cb) {
       cb.addEventListener('change', function () {
         if (window.CityMap && CityMap.setLayer) CityMap.setLayer(cb.getAttribute('data-layer'), cb.checked);
@@ -478,7 +526,7 @@
       });
     });
     document.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape') { setMode('select'); selectedTool = null; $('build-confirm').classList.add('hidden'); $('medium-picker').classList.add('hidden'); closeModals(); closePanels(); }
+      if (e.key === 'Escape') { setMode('select'); selectedTool = null; $('build-confirm').classList.add('hidden'); $('medium-picker').classList.add('hidden'); closeModals(); closePanels(); closeSideMenu(); }
     });
     refresh();
     if (state && (state.tutorialStep == null || state.tutorialStep < TUTORIAL.length) && state.isNewGame) showTutorial(state.tutorialStep || 0);
