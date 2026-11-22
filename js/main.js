@@ -6,7 +6,7 @@
   var SAVE_KEY = 'connected-city-save';
   var DAY_MS = 3000;          // 1 game day at speed 1
   var state = null;
-  var speed = 1;              // 0=pause, 1=normal, 3=fast
+  var speed = 0;              // 0=pause, 1=normal, 3=fast — بازی هنگام بارگذاری متوقف است
   var lastTs = 0, acc = 0;
   var lastAutosave = Date.now();
   var lastUiDay = -1;
@@ -77,7 +77,7 @@
     var canvas = $('city-canvas');
     if (window.CityMap && CityMap.init) {
       CityMap.init(canvas, state, {
-        onSelect: function (kind, id) { GameUI.onMapSelect(id, kind); },
+        onSelect: function (kind, id, wx, wy) { GameUI.onMapSelect(id, kind, wx, wy); },
         onPlace: function (x, y) { GameUI.onPlace(x, y); }
       });
     }
@@ -92,7 +92,7 @@
     });
     $('btn-load').addEventListener('click', function () {
       var s = loadGame();
-      if (s) { state = s; GameUI.setState(state); if (CityMap.setState) CityMap.setState(state); GameUI.toast('بازی بارگذاری شد.', 'success'); }
+      if (s) { state = s; GameUI.setState(state); if (CityMap.setState) CityMap.setState(state); setSpeed(0); GameUI.toast('بازی بارگذاری شد.', 'success'); }
       else GameUI.toast('ذخیره‌ای یافت نشد.', 'warn');
     });
     $('btn-export').addEventListener('click', function () {
@@ -108,6 +108,7 @@
         try {
           var s = GameSim.loadGame ? GameSim.loadGame(r.result) : JSON.parse(r.result);
           state = s; GameUI.setState(state); if (CityMap.setState) CityMap.setState(state);
+          setSpeed(0);
           saveGame(); GameUI.toast('بازی درون‌بری شد.', 'success');
         } catch (err) { GameUI.toast('فایل نامعتبر است.', 'error'); }
       };
@@ -118,6 +119,7 @@
       localStorage.removeItem(SAVE_KEY);
       state = newGame();
       GameUI.setState(state); if (CityMap.setState) CityMap.setState(state);
+      setSpeed(0);
       GameUI.showTutorial(0);
       GameUI.toast('بازی جدید شروع شد.', 'success');
     });
@@ -133,7 +135,7 @@
     });
 
     window.addEventListener('beforeunload', saveGame);
-    setSpeed(1);
+    setSpeed(0); // پیش‌فرض: بازی متوقف شروع می‌شود تا بازیکن خودش پخش کند
     requestAnimationFrame(loop);
   }
 
