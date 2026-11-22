@@ -124,8 +124,8 @@ let s1, cell1, link1;
   const techs = DATA.techs || DATA.techTree || [];
   const leo = techs.find(t => (t.unlocks || []).includes('sat_terminal_leo'));
   if (leo) { (leo.requires || []).forEach(r => GameSim.unlockTech(s, r)); GameSim.unlockTech(s, leo.id); }
-  const term = GameSim.buildNode(s, 'sat_terminal_leo', 820, 150);
-  const gw = GameSim.buildNode(s, 'sat_gateway', 800, 600);
+  const term = GameSim.buildNode(s, 'sat_terminal_leo', 1640, 300); // مرکز حاشیه شمالی در نقشهٔ جدید 3200×2400
+  const gw = GameSim.buildNode(s, 'sat_gateway', 1600, 1200);      // مرکز دادهٔ مرکزی (HQ)
   check('3a پایانه و دروازه زمینی پس از R&D ساخته می‌شوند', !!term && !!gw);
   if (term && gw) {
     finishBuild(s, term); finishBuild(s, gw);
