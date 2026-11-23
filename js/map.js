@@ -305,7 +305,8 @@
     cellular: true, fiber: true, copper: true, fwa: true,
     demand: false, traffic: false, failures: true, revenue: false, qos: false, techdemand: false,
     signal: false, weather: true, indivsubs: true, speed: false,
-    packets: true, commute: true, problems: true, latency: false, locked: true
+    packets: true, commute: true, problems: true, latency: false, locked: true,
+    prefnet: true // رنگ ترجیح شبکهٔ هر ساختمان (پیش‌فرض روشن؛ بدون بازکردن جزئیات دیده می‌شود)
   };
 
   /* ---------- ویژگی‌های جدید: سکشن، هیت‌مپ سیگنال، پیشنهادها، آب‌وهوا ---------- */
@@ -542,6 +543,7 @@
     if (layers.signal) drawSignalHeat(); // نقشه حرارتی سیگنال
     if (layers.speed) drawSpeedHeat(); // لایهٔ سرعت اتصال (با سیگنال ناسازگار/انحصاری)
     if (layers.demand) drawDemandHeat();
+    if (layers.prefnet) drawPrefNet(); // رنگ ترجیح شبکهٔ ساختمان‌ها (بالای هیت‌مپ‌ها، زیر انتخاب و نشان‌ها)
     drawBuildingSelection();
     if (layers.indivsubs) drawIndivBadges(); // نشان تعداد مشترکان فردی روی ساختمان‌ها
     if (layers.links) drawLinks();
@@ -1336,6 +1338,74 @@
       ctx.stroke();
       ctx.fillStyle = '#ffffff';
       ctx.fillText(String(cache.counts[bid]), cx, cy + r * 0.06);
+    }
+    ctx.restore();
+  }
+
+  /* رنگ ترجیح شبکهٔ هر ساختمان روی نقشه (بدون بازکردن جزئیات):
+     تینت نیمه‌شفاف + حاشیهٔ هم‌رنگ، در گذر پویا و «بالای» هیت‌مپ‌ها کشیده می‌شود
+     تا زیر رنگ پوشش/حرارت محو نشود؛ پایین‌تر از انتخاب ساختمان و نشان مشترکان.
+     ترجیح از سیم مشتق می‌شود (GameSim.buildingPreference) و فقط با گذر سال (دوران)
+     یا جابه‌جایی منطقهٔ ساختمان عوض می‌شود؛ کش WeakMap با مهر (سال + districtId)
+     آن را ارزان نگه می‌دارد و تغییر دوران همان فریم دیده می‌شود.
+     ساختمان‌های مناطق قفل‌شده رنگ نمی‌گیرند (مثل جزئیاتشان که دیده نمی‌شود) و
+     بناهای شاخص هم ظاهر قهوه‌ای خودشان را نگه می‌دارند. */
+  var PREF_COLORS = (global.GAME_DATA && global.GAME_DATA.prefColors) || { fiber: '#22d3ee', cellular: '#3fb950', fwa: '#fb923c' };
+  var _prefCache = (typeof WeakMap !== 'undefined') ? new WeakMap() : null;
+  var _prefCacheYear = -1;
+  function prefYearStamp() {
+    var day = Math.max(1, Math.floor((state && state.day) || 1));
+    return Math.floor((day - 1) / 10); // همان گام سالانهٔ yearOf در سیم (۱۰ روز = ۱ سال)
+  }
+  function prefTypeOf(b) {
+    var G = global.GameSim;
+    if (!G || !G.buildingPreference || !state) return 'cellular';
+    if (_prefCache) {
+      var ys = prefYearStamp();
+      if (ys !== _prefCacheYear) { _prefCache = new WeakMap(); _prefCacheYear = ys; }
+      var hit = _prefCache.get(b);
+      if (hit && hit.d === (b.districtId || null)) return hit.t;
+      var t = (G.buildingPreference(state, b) || {}).type || 'cellular';
+      _prefCache.set(b, { t: t, d: b.districtId || null });
+      return t;
+    }
+    return (G.buildingPreference(state, b) || {}).type || 'cellular';
+  }
+  function drawPrefNet() {
+    if (!layers.buildings) return; // بدون لایهٔ ساختمان، مستطیل شناور معنا ندارد
+    var bs = getBuildings();
+    if (!bs.length) return;
+    var lockedIds = {};
+    var ds = (state && state.districts) || [];
+    for (var di = 0; di < ds.length; di++) if (ds[di].unlocked === false) lockedIds[String(ds[di].id)] = true;
+    var fills = {}, strokes = {}, order = [];
+    for (var i = 0; i < bs.length; i++) {
+      var b = bs[i], w = b.w || 26, h = b.h || 20;
+      if (b.x + w < cullRect.x0 || b.x > cullRect.x1 || b.y + h < cullRect.y0 || b.y > cullRect.y1) continue;
+      if (b.landmark || (b.type && LANDMARKS[String(b.type).toLowerCase()])) continue; // بناهای شاخص ظاهر خودشان را دارند
+      if (b.districtId && lockedIds[String(b.districtId)]) continue; // مناطق قفل‌شده: نه جزئیات، نه رنگ ترجیح
+      var col = PREF_COLORS[prefTypeOf(b)] || PREF_COLORS.cellular;
+      if (!fills[col]) { fills[col] = []; strokes[col] = []; order.push(col); }
+      fills[col].push(b);
+      if (Math.min(w, h) * cam.z >= 5) strokes[col].push(b); // حاشیه فقط وقتی ساختمان روی صفحه خواناست
+    }
+    if (!order.length) return;
+    ctx.save();
+    for (var ci = 0; ci < order.length; ci++) {
+      var c = order[ci], fg = fills[c], sg = strokes[c], gi, si;
+      ctx.globalAlpha = 0.38;
+      ctx.fillStyle = c;
+      ctx.beginPath();
+      for (gi = 0; gi < fg.length; gi++) ctx.rect(fg[gi].x, fg[gi].y, fg[gi].w || 26, fg[gi].h || 20);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      if (sg.length) {
+        ctx.strokeStyle = c;
+        ctx.lineWidth = 2.2 / cam.z;
+        ctx.beginPath();
+        for (si = 0; si < sg.length; si++) ctx.rect(sg[si].x, sg[si].y, sg[si].w || 26, sg[si].h || 20);
+        ctx.stroke();
+      }
     }
     ctx.restore();
   }
