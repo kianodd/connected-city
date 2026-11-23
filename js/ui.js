@@ -212,6 +212,7 @@
     var q = (buildQuery || '').trim();
     var groups = {};
     equipList().forEach(function (it) {
+      if (it.buildable === false) return; // کابل‌ها رسانه‌اند نه گره ساختنی
       if (q) {
         var hay = ((it.name || '') + ' ' + (it.id || '') + ' ' + (CAT_FA[it.category] || '') + ' ' + (it.guide || '')).toLowerCase();
         if (hay.indexOf(q.toLowerCase()) < 0) return;
@@ -311,8 +312,10 @@
       if (e.reason) sub += (sub ? ' — ' : '') + esc(SPEED_REASON_FA[e.reason] || e.reason);
       var pingTxt = (e.latency != null) ? ('پینگ: ' + faDigits(String(Math.round(e.latency))) + ' میلی‌ثانیه' + (e.jitter != null ? ' (نوسان: ' + faDigits(String(e.jitter)) + ')' : '')) : '';
       if (pingTxt) sub += (sub ? ' — ' : '') + pingTxt;
+      var perUser = (e.perUser != null) ? e.perUser : (e.speed || 0);
+      if ((e.speed || 0) > 0 && e.perUser != null && e.perUser !== e.speed) sub += (sub ? ' — ' : '') + 'ظرفیت سایت: ' + fmt(e.speed) + ' Mbps (تقسیم بین کاربران هم‌زمان)';
       html += '<div class="tech-row"><div class="tech-head"><span>' + esc(TECH_FA[t] || t) + '</span>' +
-        '<span><strong>' + fmt(e.speed || 0) + ' Mbps</strong></span></div>' +
+        '<span><strong>' + fmt(perUser) + ' Mbps</strong></span></div>' +
         (sub ? '<div class="muted tech-sub">' + sub + '</div>' : '') + '</div>';
     });
     html += '<p class="muted">بدون اشتراک، سرویسی فعال نمی‌شود؛ این سرعت‌ها فقط برای مشترک است. TD-LTE پینگ پایدار و بدون نوسان دارد.</p>';
@@ -434,14 +437,14 @@
     var n = found.node;
     pendingDeleteId = id;
     var eq = equipList().find(function (e) { return e.id === n.type; });
-    var refund = eq ? Math.round((eq.cost || 0) * 0.5) : 0;
+    var refund = (window.GameSim && GameSim.demolishRefund) ? GameSim.demolishRefund(state, id) : (eq ? Math.round((eq.cost || 0) * 0.5) : 0);
     $('delete-title').textContent = 'حذف «' + (n.name || n.type) + '»؟';
     $('delete-desc').textContent = n.type === 'internet_gateway'
       ? 'حذف دروازه اینترنت کل شبکه را از اینترنت قطع می‌کند؛ همهٔ مناطق سرویس را از دست می‌دهند تا دروازهٔ جدیدی ساخته و وصل شود.'
       : n.type === 'core_router'
         ? 'حذف روتر هسته همهٔ مسیرها به دروازه اینترنت را قطع می‌کند؛ شبکه تا ساخت هستهٔ جدید سرویس نمی‌دهد.'
         : 'با حذف این گره، همهٔ لینک‌هایش هم حذف می‌شوند و گره‌ها و مناطق وابسته به آن سرویس را از دست می‌دهند.';
-    $('delete-refund').textContent = fmt(refund) + ' تومان (۵۰٪ هزینهٔ ساخت)';
+    $('delete-refund').textContent = fmt(refund) + ' تومان (۵۰٪ کل سرمایه‌گذاری: تجهیز + ماژول‌ها)';
     $('delete-confirm').classList.remove('hidden');
   }
 
@@ -474,6 +477,9 @@
     else {
       playSound('build');
       toast('دستگاه با موفقیت نصب شد. یادتان باشد آن را به شبکه وصل کنید!', 'success');
+      selectedTool = null;
+      setMode('select'); // بعد از ساخت موفق، حالت ساخت خودش غیرفعال می‌شود
+      renderBuildMenu();
       if (res && (res.nodeId != null || res.id != null)) selectNode(res.nodeId != null ? res.nodeId : res.id);
     }
     pendingBuild = null;
@@ -582,7 +588,7 @@
       }
       if (!o.ok) extra += '<br><span class="muted">' + esc(o.reason || '') + '</span>';
       return '<button class="btn" style="display:block;width:100%;margin:6px 0;text-align:right" data-medium="' + esc(o.medium) + '"' + (o.ok ? '' : ' disabled') + '>' +
-        esc(o.name || o.medium) + ' — ظرفیت ' + fmt(o.capacity || 0) + ' Mbps' + (o.ok ? '' : ' ' + ICONS.lock) + extra + '</button>';
+        esc(o.name || o.medium) + ' — ظرفیت ' + fmt(o.capacity || 0) + ' Mbps' + (o.cost != null ? ' — هزینهٔ ساخت: ' + fmt(o.cost) + ' تومان' : '') + (o.ok ? '' : ' ' + ICONS.lock) + extra + '</button>';
     }).join('');
     // پیش‌نمایش پهپاد روی نقشه تا وقتی پنجره باز است
     try { if (window.CityMap && CityMap.setSurveyPreview) CityMap.setSurveyPreview(a, b); } catch (e) { /* ignore */ }
@@ -979,6 +985,12 @@
         });
         html += '</div>';
       }
+      // تعمیر آنی لینک قطع/آسیب‌دیده (بدون حذف و ساخت دوباره)
+      var isDegraded = n.degradedUntil != null && (state.day || 0) < n.degradedUntil;
+      if (n.status === 'cut' || isDegraded) {
+        html += '<div class="warn-box">' + ICONS.warn + (n.status === 'cut' ? ' این لینک قطع شده است.' : ' این لینک در طوفان آسیب دیده و ظرفیتش موقتاً کم شده است.') + '</div>' +
+          '<button class="btn primary" data-link-repair="' + esc(n.id) + '">تعمیر لینک (آنی)</button>';
+      }
       // پشتیبان + قطع (افزایش پهنای باند فقط با لینک موازی و ماژول گره است)
       html += '<div class="fix-btns" style="margin-top:10px">';
       html += '<button class="btn sm" data-link-backup="' + esc(n.id) + '">' + (n.isBackup ? 'تبدیل به لینک اصلی' : 'تبدیل به لینک پشتیبان') + '</button>';
@@ -989,6 +1001,13 @@
         btn.addEventListener('click', function () {
           var r = GameSim.changeLinkMedium(state, btn.getAttribute('data-link'), btn.getAttribute('data-link-medium'));
           toast(r && r.ok === false ? (r.error || 'تغییر انجام نشد.') : 'نوع لینک آنی تغییر کرد.', r && r.ok === false ? 'error' : 'success');
+          refresh();
+        });
+      });
+      box.querySelectorAll('[data-link-repair]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var r = (window.GameSim && GameSim.repairLink) ? GameSim.repairLink(state, btn.getAttribute('data-link-repair')) : { ok: false, error: 'تعمیر در این نسخه موجود نیست.' };
+          toast(r && r.ok === false ? (r.error || 'تعمیر انجام نشد.') : ('لینک آنی تعمیر شد. هزینه: ' + fmt(r.cost || 0) + ' تومان'), r && r.ok === false ? 'error' : 'success');
           refresh();
         });
       });
@@ -1058,10 +1077,25 @@
       var dPref = null;
       try { dPref = (window.GameSim && GameSim.districtPreference) ? GameSim.districtPreference(state, n) : null; } catch (e) { dPref = null; }
       if (dPref) html += '<h5>ترجیح کلی اینترنت در منطقه</h5>' + prefHtml(dPref);
+      // بستهٔ اینترنت منطقه: انتخاب بسته روی تقاضا/رضایت/درآمد اثر دارد
+      if (n.unlocked !== false) {
+        var pkgs = (window.GAME_DATA && GAME_DATA.packages) || [];
+        var curPkg = n.packageId || (pkgs[0] && pkgs[0].id) || '';
+        html += '<h5>بستهٔ اینترنت منطقه</h5><select class="pkg-select" data-district-package="' + esc(n.id) + '" style="width:100%;padding:8px;border-radius:8px">' +
+          pkgs.map(function (pk) { return '<option value="' + esc(pk.id) + '"' + (pk.id === curPkg ? ' selected' : '') + '>' + esc(pk.name || pk.id) + ' — ' + fmt(pk.speed || 0) + ' Mbps — ' + fmt(pk.price || 0) + ' تومان</option>'; }).join('') +
+          '</select><p class="muted">قیمت و سرعت بسته روی رشد مشترک، ریزش و رضایت منطقه اثر مستقیم دارد.</p>';
+      }
       var dIndiv = (state.individuals || []).filter(function (p) { return String(p.districtId) === String(n.id); });
       html += '<h5>مشترکان فردی منطقه</h5>' + individualsHtml(dIndiv, 'مشترک فردی در این منطقه ثبت نشده است.', { key: 'd:' + n.id, showBuilding: true });
       box.innerHTML = html;
       wireIndivLists(box);
+      box.querySelectorAll('[data-district-package]').forEach(function (sel) {
+        sel.addEventListener('change', function () {
+          var r = (window.GameSim && GameSim.setDistrictPackage) ? GameSim.setDistrictPackage(state, sel.getAttribute('data-district-package'), sel.value) : { ok: false, error: 'در این نسخه موجود نیست.' };
+          toast(r && r.ok === false ? (r.error || 'تغییر بسته انجام نشد.') : 'بستهٔ اینترنت منطقه تغییر کرد.', r && r.ok === false ? 'error' : 'success');
+          refresh();
+        });
+      });
       return;
     }
     var connected = n.connected !== false && n.status !== 'unconnected';
@@ -1338,10 +1372,13 @@
       ['درآمد روزانه', fmt(f.incomePerDay != null ? f.incomePerDay : state.incomePerDay)],
       ['هزینه روزانه', fmt(f.expensePerDay != null ? f.expensePerDay : state.expensePerDay)],
       ['سود خالص روزانه', fmt((f.incomePerDay || state.incomePerDay || 0) - (f.expensePerDay || state.expensePerDay || 0))],
-      ['کل درآمد', fmt(f.totalIncome)], ['کل هزینه', fmt(f.totalExpense)],
+      ['کل درآمد', fmt(f.totalIncome != null ? f.totalIncome : state.totalRevenue)], ['کل هزینه', fmt(f.totalExpense != null ? f.totalExpense : state.totalCosts)],
       ['هزینهٔ کارکنان (ماهانه)', fmt((state.staff || []).reduce(function (s, m) { return s + (m.salary || 0); }, 0)) + ' تومان — ' + fmt((state.staff || []).length) + ' نفر'],
-      ['وام', fmt(f.loan || state.loan)], ['مالیات روزانه', fmt(f.taxPerDay)]
+      ['تعمیر و نگهداری شبکه (ماهانه)', fmt(f.maintenanceMonthly)],
+      ['ترانزیت اینترنت (ماهانه)', fmt(f.transitMonthly) + (f.transitMbps != null ? ' — ' + fmt(f.transitMbps) + ' Mbps از دروازه' : '')],
+      ['بدهی (وام)', fmt(f.loan != null ? f.loan : state.debt)], ['مالیات ماهانه (۵٪ درآمد)', fmt(f.taxMonthly != null ? f.taxMonthly : state.lastTax)]
     ];
+    if (state.bankruptcyWarning) rows.push(['هشدار ورشکستگی', 'بدهی از حد امن گذشته است؛ درآمد را بالا ببرید یا هزینه را کم کنید']);
     if (state.rival && state.rival.enabled) {
       var lf = state.lastFlow || {};
       rows.push(['مشترکان شرکت رقیب', fmt(lf.rivalSubscribers || 0)]);
@@ -1734,7 +1771,12 @@
     if (state) state.tutorialStep = TUTORIAL.length;
   }
 
+  function updateSpectatorBtn() {
+    var el = $('spectator-label');
+    if (el) el.textContent = 'حالت تماشاچی: ' + ((state && state.spectatorAI) ? 'روشن (هوش مصنوعی در حال بازی)' : 'خاموش');
+  }
   function refresh() {
+    updateSpectatorBtn();
     // drain newly unlocked achievements
     try {
       if (state && state.newAchievements && state.newAchievements.length) {
@@ -1817,6 +1859,13 @@
     $('delete-no').addEventListener('click', function () { pendingDeleteId = null; $('delete-confirm').classList.add('hidden'); });
     $('medium-cancel').addEventListener('click', function () { $('medium-picker').classList.add('hidden'); try { if (window.CityMap && CityMap.clearSurveyPreview) CityMap.clearSurveyPreview(); } catch (e) { /* ignore */ } setMode('select'); });
     $('btn-finance').addEventListener('click', function () { renderFinance(); openModal('modal-finance'); });
+    if ($('btn-spectator')) $('btn-spectator').addEventListener('click', function () {
+      var on = !(state && state.spectatorAI);
+      if (window.GameSim && GameSim.setSpectatorAI) GameSim.setSpectatorAI(state, on);
+      updateSpectatorBtn();
+      toast(on ? 'حالت تماشاچی روشن شد: هوش مصنوعی شرکت را اداره می‌کند و شما فقط تماشا می‌کنید. هر وقت خواستید از همین منو خاموشش کنید تا کنترل برگردد.' : 'حالت تماشاچی خاموش شد؛ کنترل شرکت دست شماست.', 'success');
+      refresh();
+    });
     if ($('btn-timeline')) $('btn-timeline').addEventListener('click', function () { renderTimeline(); openModal('modal-timeline'); });
     $('btn-staff').addEventListener('click', function () { renderStaff(); openModal('modal-staff'); });
     $('btn-missions').addEventListener('click', function () { renderMissions(); openModal('modal-missions'); });
