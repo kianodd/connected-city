@@ -552,7 +552,8 @@
     _bGridCache = { bs, len: bs.length, cell, map };
     return _bGridCache;
   }
-  function buildingAtPointGrid(state, x, y) {
+  function buildingAtPointGrid(state, x, y, margin) {
+    const m = margin || 0;
     const g = buildingGrid(state);
     const cx = Math.floor(x / g.cell), cy = Math.floor(y / g.cell);
     for (let i = -1; i <= 1; i++) {
@@ -560,7 +561,7 @@
         const arr = g.map.get((cx + i) + ',' + (cy + j));
         if (!arr) continue;
         for (const b of arr) {
-          if (x >= b.x && x <= b.x + (b.w || 26) && y >= b.y && y <= b.y + (b.h || 20)) return b;
+          if (x >= b.x - m && x <= b.x + (b.w || 26) + m && y >= b.y - m && y <= b.y + (b.h || 20) + m) return b;
         }
       }
     }
@@ -1076,7 +1077,9 @@
   }
   function speedFieldAt(prep, x, y) {
     let best = 0;
-    const bAt = buildingAtPointGrid(prep.state, x, y);
+    // حاشیهٔ ۲۲ واحدی دور ساختمان: شبکهٔ نمونه‌برداری هیت‌مپ (گام ۲۰ تا ۴۰) نباید
+    // ساختمان‌های کوچکِ دارای انشعاب سیمی را کاملاً از دست بدهد (مسی/فیبر نامرئی می‌شد)
+    const bAt = buildingAtPointGrid(prep.state, x, y, 22);
     const cx = Math.floor(x / FIELD_CELL), cy = Math.floor(y / FIELD_CELL);
     for (let i = -1; i <= 1; i++) {
       for (let j = -1; j <= 1; j++) {
@@ -1093,17 +1096,15 @@
         }
       }
     }
-    // فیبر: داخل ساختمان فقط از انشعاب خودش؛ بیرون ساختمان گره‌های فیبری نزدیک (مثل speedTestAt)
-    if (bAt) {
-      const f = prep.fiberByBuilding[bAt.id];
-      if (f) {
-        const e = f.src;
-        const d = dist(x, y, e.x, e.y);
-        const distFactor = 1 - 0.5 * clamp(d / Math.max(1, e.radius || 1), 0, 1);
-        let spd = Math.round(e.bottleneck * distFactor * e.cong);
-        if (f.medium === 'copper') spd = Math.min(spd, COPPER_DROP_SPEED);
-        if (spd > best) best = spd;
-      }
+    // سیمی: ساختمانِ دارای انشعاب از انشعاب خودش (مسی با سقف DSL)؛ وگرنه گره‌های فیبری نزدیک (مثل speedTestAt)
+    const fDrop = bAt ? prep.fiberByBuilding[bAt.id] : null;
+    if (fDrop) {
+      const e = fDrop.src;
+      const d = dist(x, y, e.x, e.y);
+      const distFactor = 1 - 0.5 * clamp(d / Math.max(1, e.radius || 1), 0, 1);
+      let spd = Math.round(e.bottleneck * distFactor * e.cong);
+      if (fDrop.medium === 'copper') spd = Math.min(spd, COPPER_DROP_SPEED);
+      if (spd > best) best = spd;
     } else {
       for (let i = -1; i <= 1; i++) {
         for (let j = -1; j <= 1; j++) {
