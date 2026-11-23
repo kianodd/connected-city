@@ -110,6 +110,26 @@
   function isRivalNode(n) { return ownerOf(n) === 'rival'; }
   const CELL_TYPES = ['cell_2g', 'cell_3g', 'cell_4g', 'cell_5g'];
   function isCellTower(n) { return !!n && CELL_TYPES.includes(n.type); }
+  // قانون جفت‌گره برای لینک گره‌به‌گره: گره‌های دسترسی (دکل‌ها، کابینت‌ها، FTTH) فقط به
+  // گره‌های شبکه/بک‌هال وصل می‌شوند (هسته، دروازه، تجمیع، روتر، سوئیچ، تقویت‌کننده) —
+  // دکل به کابینت/FTTH/دکل دیگر سرویس نمی‌دهد و ترافیک عبوری ندارد.
+  const NETWORK_TYPES = ['core_router', 'internet_gateway', 'aggregation', 'router', 'switch', 'repeater'];
+  function pairRuleError(typeA, typeB) {
+    const aAcc = ACCESS_TYPES.includes(typeA), bAcc = ACCESS_TYPES.includes(typeB);
+    if (!aAcc && !bAcc) return null;
+    if (aAcc && NETWORK_TYPES.includes(typeB)) return null;
+    if (bAcc && NETWORK_TYPES.includes(typeA)) return null;
+    if (CELL_TYPES.includes(typeA) || CELL_TYPES.includes(typeB)) {
+      return 'دکل فقط از گره‌های شبکه (هسته، تجمیع، روتر، سوئیچ، تقویت‌کننده) ورودی می‌گیرد و به کابینت و گره‌های دسترسی دیگر سرویس نمی‌دهد.';
+    }
+    return 'گره‌های دسترسی (کابینت و FTTH) فقط به گره‌های شبکه (هسته، تجمیع، روتر، سوئیچ، تقویت‌کننده) وصل می‌شوند.';
+  }
+  function canConnectPair(state, aId, bId) {
+    const a = nodeById(state, aId), b = nodeById(state, bId);
+    if (!a || !b) return { ok: false, error: 'گره مبدأ یا مقصد وجود ندارد.' };
+    const err = pairRuleError(a.type, b.type);
+    return err ? { ok: false, error: err } : { ok: true };
+  }
 
   const OLD_NAME_PREFIXES = [
     ['دکل سلولی 2G آریاتل', 'دکل 2G'], ['دکل سلولی 3G آریاتل', 'دکل 3G'],
@@ -1079,10 +1099,13 @@
   }
 
   // ---------- سیگنال در یک نقطه (ویژگی ۲۳) ----------
+  // میدان سیگنال فقط از دکل‌های سلولی می‌آید (TD-LTE هم روی همان دکل 4G/5G است)؛
+  // گره‌های شبکه (هسته، دروازه، روتر، سوئیچ، تجمیع، تقویت‌کننده) و گره‌های سیمی
+  // (کابینت، FTTH) سیگنال بی‌سیم ندارند و در هیت‌مپ سیگنال اثری نمی‌گذارند.
   function signalAt(state, x, y) {
     let best = null;
     for (const n of (state.nodes || [])) {
-      if (!isAccessNode(n) || !isUsableNode(n)) continue;
+      if (!isCellTower(n) || !isUsableNode(n)) continue;
       const radius = n.radius || 0;
       if (radius <= 0) continue;
       const d = dist(x, y, n.x, n.y);
@@ -1120,7 +1143,7 @@
   function prepareSignalField(state) {
     const nodes = [];
     for (const n of (state.nodes || [])) {
-      if (!isAccessNode(n) || !isUsableNode(n)) continue;
+      if (!isCellTower(n) || !isUsableNode(n)) continue; // فقط دکل سلولی سیگنال دارد
       const radius = n.radius || 0;
       if (radius <= 0) continue;
       nodes.push({
@@ -1596,6 +1619,7 @@
     const y = yearOf(state);
     const a = nodeById(state, aId), b = nodeById(state, bId);
     const d = (a && b) ? dist(a.x, a.y, b.x, b.y) : 0;
+    const pairErr = (a && b) ? pairRuleError(a.type, b.type) : null;
     return ['fiber', 'ptp', 'ethernet', 'copper'].map((m) => {
       const mi = (DATA.linkMedia && DATA.linkMedia[m]) || {};
       const unlockYear = mi.era || TL.startYear;
@@ -1604,6 +1628,7 @@
         cost: Math.round(d * linkCostPerUnit(m)),
         unlockYear, ok: y >= unlockYear, reason: y >= unlockYear ? '' : 'از سال ' + unlockYear,
       };
+      if (pairErr) { opt.ok = false; opt.reason = pairErr; }
       if (opt.ok && a && b && (!mediumSupportedBy(a.type, m) || !mediumSupportedBy(b.type, m))) {
         opt.ok = false; opt.reason = 'یکی از دو گره این رسانه را پشتیبانی نمی‌کند';
       }
@@ -1651,6 +1676,7 @@
   function rivalConnect(state, aId, bId) {
     const a = nodeById(state, aId), b = nodeById(state, bId);
     if (!a || !b) return null;
+    if (pairRuleError(a.type, b.type)) return null; // قانون جفت‌گره برای رقیب هم برقرار است
     const y = yearOf(state);
     const d = dist(a.x, a.y, b.x, b.y);
     // رقیب هم هزینهٔ لینک را می‌پردازد (فاصله × هزینهٔ واحد)؛ رسانه‌ها به ترتیب ترجیح امتحان می‌شوند و اولینِ قابل‌خرید ساخته می‌شود
@@ -1784,13 +1810,10 @@
     if (!a || !b) { log(state, 'اتصال ناموفق: گره مبدأ یا مقصد وجود ندارد.', 'error'); return null; }
     if (fromId === toId) { log(state, 'اتصال گره به خودش ممکن نیست.', 'error'); return null; }
     if (ownerOf(a) !== ownerOf(b)) { log(state, 'نمی‌توان به گره شرکت رقیب وصل شد.', 'error'); return null; }
-    // دکل سلولی فقط برای سرویس به مشترک است: به گره دسترسی دیگری (دکل/FTTH/کابینت) وصل نمی‌شود
-    // تا ترافیک گره‌های دیگر از آن عبور نکند؛ بک‌هال دکل مستقیم به تجمیع/هسته/روتر/سوئیچ است.
-    const ACCESS_NODE_TYPES = ['cell_2g', 'cell_3g', 'cell_4g', 'cell_5g', 'ftth', 'street_cabinet'];
-    if ((isCellTower(a) && ACCESS_NODE_TYPES.includes(b.type)) || (isCellTower(b) && ACCESS_NODE_TYPES.includes(a.type))) {
-      log(state, 'دکل فقط برای سرویس به مشترک است و ترافیک گره‌های دیگر از آن عبور نمی‌کند؛ دکل را مستقیم به تجمیع/هسته وصل کنید.', 'error');
-      return null;
-    }
+    // قانون جفت‌گره: گره دسترسی (دکل/کابینت/FTTH) فقط به گره شبکه وصل می‌شود؛
+    // دکل به کابینت و گره‌های دسترسی دیگر سرویس نمی‌دهد و ترافیک عبوری ندارد.
+    const pairErr = pairRuleError(a.type, b.type);
+    if (pairErr) { log(state, pairErr, 'error'); return null; }
     medium = medium || 'fiber';
     const mediaInfo = (DATA.linkMedia && DATA.linkMedia[medium]) || { capacity: 1000, latency: 5 };
     // روش‌های اتصال هم با خط زمانی باز می‌شوند: مسی/اترنت از ۱۹۹۱، فیبر ۱۹۹۵، نقطه‌به‌نقطه ۱۹۹۶.
@@ -1910,6 +1933,9 @@
         ok: true, reason: '',
       };
       if (opt.current) { opt.ok = false; opt.reason = 'نوع فعلی لینک'; return opt; }
+      // تغییر رسانه قانون جفت‌گره را دور نمی‌زند (لینک نامعتبر ذخیرهٔ قدیمی فقط حذف می‌شود)
+      const pairErr = (a && b) ? pairRuleError(a.type, b.type) : null;
+      if (pairErr) { opt.ok = false; opt.reason = pairErr; return opt; }
       if (!mediumSupportedBy(a && a.type, m) || !mediumSupportedBy(b && b.type, m)) {
         opt.ok = false; opt.reason = 'یکی از دو گره این رسانه را پشتیبانی نمی‌کند'; return opt;
       }
@@ -4552,6 +4578,26 @@
       if (n.status === 'upgrading') { n.status = n._preUpgradeStatus || 'active'; delete n._preUpgradeStatus; n.upgradeWork = 0; }
       if (n.status === 'repairing') { n.status = 'active'; n.repairWork = 0; n.health = n.repairHealth || 85; } // تعمیر آنی است
     }
+    // قانون جفت‌گره: لینک‌های نامعتبر ذخیره‌های قبلی (مثل دکل↔کابینت ساده) حذف و هزینهٔ
+    // ساختشان برگردانده می‌شود؛ مبلغ پرداختی روی لینک ذخیره نمی‌شد، پس بازپرداخت =
+    // فاصله × هزینهٔ واحد رسانه (همان فرمول ساخت لینک). لینک رقیب به نقدینگی رقیب برمی‌گردد.
+    {
+      let removedBad = 0, refundTotal = 0;
+      state.links = (state.links || []).filter((l) => {
+        const la = nodeById(state, l.from), lb = nodeById(state, l.to);
+        if (!la || !lb) return true; // لینک یتیم دست نمی‌خورد (رفتار قبلی)
+        if (!pairRuleError(la.type, lb.type)) return true;
+        const refund = linkCostFor(state, la, lb, l.medium);
+        if (isRivalNode(la)) { if (state.rival) state.rival.cash = (state.rival.cash || 0) + refund; }
+        else { state.cash = (state.cash || 0) + refund; refundTotal += refund; }
+        removedBad++;
+        return false;
+      });
+      if (removedBad > 0) {
+        if (Array.isArray(state.log)) log(state, removedBad + ' لینک نامعتبر (دکل/کابینت به گره غیرشبکه) از ذخیره حذف شد و ' + refundTotal + ' تومان هزینهٔ ساختش برگشت.', 'build');
+        refreshConnectivity(state);
+      }
+    }
     (state.fiberDrops || []).forEach((fd) => { if (fd.status === 'building') { fd.status = 'active'; fd.work = 0; } });
     const capMult = (DATA.growth && DATA.growth.capMultiplier) || {};
     if (!state.scattered) state.scattered = { subscribers: 0, demand: 0, servedDemand: 0, qos: 0, satisfaction: 0, revenue: 0, potentialSubs: 0, buildingCount: 0, coveredCount: 0 };
@@ -4814,6 +4860,8 @@
     startCampaign, stopCampaign, clockTick, demandFactorAtHour, seasonOf,
     // اصلاحات ممیزی ۲۰۲۶-۱۱-۲۳: اقتصاد قیمت/سرعت، هزینهٔ لینک، تعمیر لینک، حالت تماشاچی
     repairLink, demolishRefund, setDistrictPackage, setSpectatorAI, aiTick,
+    // قانون جفت‌گره (۲۰۲۶-۱۱-۲۳): دکل/کابینت فقط به گره شبکه وصل می‌شود
+    pairRuleError, canConnectPair, NETWORK_TYPES,
     linkCostFor, linkCostPerUnit, capBoostMult, monthlyNodeCost, monthlyTransitCost, transitMbps,
     expectedSpeedForDistrict, priceGrowthFactor, priceChurnRate, priceSatFactor, droppedResidents,
     activeEffects, effectDemandMult, coverReach, basePowerWatts,
