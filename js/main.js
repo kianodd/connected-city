@@ -30,11 +30,13 @@
     } catch (e) { console.warn('load failed', e); return null; }
   }
 
-  function newGame() {
+  function newGame(opts) {
+    opts = opts || {};
     var qs = null;
     try { qs = new URLSearchParams(location.search).get('seed'); } catch (e) { qs = null; }
     var seed = (qs != null && qs !== '') ? (parseInt(qs, 10) >>> 0) : Math.floor(Math.random() * 1e9);
-    var s = GameSim.newGame(seed);
+    // شرکت رقیب پیش‌فرض روشن است؛ در پنجرهٔ «بازی جدید» می‌شود خاموشش کرد
+    var s = GameSim.newGame(seed, { rival: opts.rival !== false });
     s.isNewGame = true;
     return s;
   }
@@ -148,12 +150,26 @@
       r.readAsText(f); e.target.value = '';
     });
     $('btn-reset').addEventListener('click', function () {
-      if (!confirm('بازی جدید شروع شود؟ ذخیره فعلی حذف می‌شود.')) return;
+      var m = $('modal-newgame');
+      if (m) { m.classList.remove('hidden'); var bd = $('modal-backdrop'); if (bd) bd.classList.remove('hidden'); }
+    });
+    var ngCancel = $('newgame-cancel');
+    if (ngCancel) ngCancel.addEventListener('click', function () {
+      $('modal-newgame').classList.add('hidden');
+      var bd = $('modal-backdrop'); if (bd) bd.classList.add('hidden');
+    });
+    var ngStart = $('newgame-start');
+    if (ngStart) ngStart.addEventListener('click', function () {
+      var rivalOn = true;
+      var cb = $('newgame-rival');
+      if (cb) rivalOn = !!cb.checked;
+      $('modal-newgame').classList.add('hidden');
+      var bd = $('modal-backdrop'); if (bd) bd.classList.add('hidden');
       localStorage.removeItem(SAVE_KEY);
-      state = newGame();
+      state = newGame({ rival: rivalOn });
       GameUI.setState(state); if (CityMap.setState) CityMap.setState(state);
       setSpeed(0);
-      GameUI.toast('بازی جدید شروع شد.', 'success');
+      GameUI.toast('بازی جدید شروع شد.' + (rivalOn ? ' شرکت رقیب فعال است.' : ''), 'success');
     });
 
     $('zoom-in').addEventListener('click', function () { if (CityMap.zoomBy) CityMap.zoomBy(1.2); });
