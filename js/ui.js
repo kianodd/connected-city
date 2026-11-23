@@ -559,6 +559,9 @@
         return;
       }
       if (connectFirst === id) { toast('یک گره را نمی‌توان به خودش وصل کرد.', 'warn'); return; }
+      // قانون جفت‌گره: مقصد نامعتبر (مثل دکل↔کابینت) همین‌جا با دلیل فارسی رد می‌شود و حالت اتصال می‌ماند
+      var pairChk = (window.GameSim && GameSim.canConnectPair) ? GameSim.canConnectPair(state, connectFirst, id) : null;
+      if (pairChk && pairChk.ok === false) { toast(pairChk.error || 'این اتصال مجاز نیست.', 'error'); return; }
       openMediumPicker(connectFirst, id);
       return;
     }
