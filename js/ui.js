@@ -692,6 +692,8 @@
   function selectNode(id, kind) {
     selectedId = id;
     renderDetail();
+    // پنل جزئیات همیشه از بالا باز می‌شود تا خط اول زیر سربرگ بریده نشود
+    var pdEl = $('panel-detail'); if (pdEl) pdEl.scrollTop = 0;
     // details panel appears on selection on every viewport (desktop: slide-in
     // overlay, mobile: bottom sheet) and hides again on deselect
     if (id != null) openPanel('panel-detail');
@@ -809,23 +811,32 @@
       if (fStatus) {
         var medFa = fStatus.medium === 'copper' ? 'سیم مسی' : 'فیبر';
         var otherFa = fStatus.medium === 'copper' ? 'فیبر' : 'سیم مسی';
+        var curYear = 1991;
+        try { if (window.GameSim && GameSim.yearOf) curYear = GameSim.yearOf(state); } catch (e) { /* ignore */ }
+        var fiberLocked = curYear < 2004; // انشعاب فیبر از دوران FTTH (۲۰۰۴) باز می‌شود
         html += '<h5>اتصال سیمی</h5><div class="fiber-row">';
         if (fStatus.status === 'active') {
           var srcOk = fStatus.sourceConnected !== false;
-          html += (srcOk
+          html += '<div class="fiber-status">' + (srcOk
             ? '<span class="status-ok">متصل به ' + medFa + '</span>'
             : '<span class="status-warn">متصل به ' + medFa + ' — ولی منبع به شبکه وصل نیست؛ سرویس قطع است</span>') +
-            ' <span class="muted">(منبع: ' + esc(fStatus.nodeName || '—') + ')</span>' +
+            ' <span class="muted">(منبع: ' + esc(fStatus.nodeName || '—') + ')</span></div>' +
+            '<div class="fiber-btns">' +
             '<button class="btn sm danger" data-wired-disconnect="' + esc(n.id) + '">قطع اتصال</button>' +
             '<button class="btn sm" disabled title="اول اتصال فعلی را قطع کنید">اتصال به ' + otherFa + '</button>' +
-            '<span class="muted">هر ساختمان فقط به یکی از فیبر یا سیم مسی وصل می‌شود؛ برای تغییر، اول اتصال فعلی را قطع کنید.</span>';
+            '</div>' +
+            '<p class="muted fiber-hint">هر ساختمان فقط به یکی از فیبر یا سیم مسی وصل می‌شود؛ برای تغییر، اول اتصال فعلی را قطع کنید.</p>';
         } else if (fStatus.status === 'building') {
-          html += '<span class="status-warn">در حال اتصال به ' + medFa + '…</span>';
+          html += '<div class="fiber-status"><span class="status-warn">در حال اتصال به ' + medFa + '…</span></div>';
         } else {
-          html += '<span class="status-bad">به شبکه سیمی متصل نیست</span>' +
-            '<button class="btn sm primary" data-wired-connect="fiber" data-building="' + esc(n.id) + '">' + ICONS.cable + ' اتصال به فیبر</button>' +
-            '<button class="btn sm" data-wired-connect="copper" data-building="' + esc(n.id) + '">' + ICONS.cable + ' اتصال به سیم مسی</button>' +
-            '<span class="muted">بعد از زدن دکمه، روی یک کابینت خیابانی یا گره FTTH متصل نزدیک ساختمان ضربه بزنید. فیبر تا شعاع ۱۸۰ واحد (از کابینت) یا ۴۰۰ واحد (از FTTH)؛ سیم مسی (DSL تا حدود ۱۰۰ مگابیت) تا شعاع ۱۲۰ واحد. انشعاب برای شما رایگان است (هزینهٔ نصب با مشترک است) و آنی وصل می‌شود؛ انشعاب فیبر از سال ۲۰۰۴ ممکن است.</span>';
+          html += '<div class="fiber-status"><span class="status-bad">به شبکه سیمی متصل نیست</span></div>' +
+            '<div class="fiber-btns">' +
+            (fiberLocked
+              ? '<button class="btn sm" disabled title="انشعاب فیبر از سال ۲۰۰۴ (دوران FTTH) ممکن است">' + ICONS.cable + ' اتصال به فیبر (از سال ۲۰۰۴)</button>'
+              : '<button class="btn sm primary" data-wired-connect="fiber" data-building="' + esc(n.id) + '">' + ICONS.cable + ' اتصال به فیبر</button>') +
+            '<button class="btn sm' + (fiberLocked ? ' primary' : '') + '" data-wired-connect="copper" data-building="' + esc(n.id) + '">' + ICONS.cable + ' اتصال به سیم مسی</button>' +
+            '</div>' +
+            '<p class="muted fiber-hint">بعد از زدن دکمه، روی یک کابینت خیابانی یا گره FTTH متصل نزدیک ساختمان ضربه بزنید. فیبر تا شعاع ۱۸۰ واحد (از کابینت) یا ۴۰۰ واحد (از FTTH)؛ سیم مسی (DSL تا حدود ۱۰۰ مگابیت) تا شعاع ۱۲۰ واحد. انشعاب برای شما رایگان است (هزینهٔ نصب با مشترک است) و آنی وصل می‌شود؛ انشعاب فیبر از سال ۲۰۰۴ ممکن است.</p>';
         }
         html += '</div>';
       }
