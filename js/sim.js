@@ -939,6 +939,11 @@
   // اشتراک به‌تنهایی (بدون مسیر) هیچ سرویسی نمی‌دهد.
   function buildingNetworkPath(state, b) {
     if (!b) return { hasPath: false, via: null, nodeId: null };
+    // ساختمان منطقهٔ قفل‌شده از بازیکن سرویس نمی‌گیرد (حتی زیر پوشش دکل)
+    if (b.districtId) {
+      const bd = (state.districts || []).find((x) => String(x.id) === String(b.districtId));
+      if (bd && !districtUnlocked(bd)) return { hasPath: false, via: null, nodeId: null };
+    }
     const st = buildingWiredStatus(state, b.id);
     if (st.status === 'active' && st.nodeId) {
       const src = nodeById(state, st.nodeId);
@@ -1977,6 +1982,7 @@
       // منطقهٔ قفل‌شده: هنوز در دسترس شرکت نیست — بدون سرویس، بدون مشترک، بدون درآمد
       // (آمار رضایت/کیفیت کل شهر هم فقط روی مناطق باز حساب می‌شود)
       if (!districtUnlocked(d)) {
+        d.subscribers = 0; // منطقهٔ قفل‌شده هیچ مشترک بازیکنی ندارد
         d.servedDemand = 0; d.qos = 0; d.potentialQos = 0; d.connected = false;
         d.avgLatency = 0; d.jitter = 0; d.perSubMbps = 0; d.revenue = 0; d.complaints = 0;
         d.techDemand = computeTechDemand(d, [], 1, 0, state);
@@ -4066,6 +4072,72 @@
     };
   }
 
+  // اطلاعات اتصال مشترکِ یک ساختمان: فناوری‌های فعال (از تست سرعت همان ساختمان)،
+  // سرعت تحویلی با سقف بستهٔ منطقه و پینگ/جیتر بهترین مسیر. فقط خواندنی است.
+  function subscriberConnectionInfo(state, buildingId) {
+    const b = (state.buildings || []).find((x) => String(x.id) === String(buildingId));
+    if (!b) return { found: false, techs: [], speed: 0, latency: null, jitter: null, bestTech: null, servingNodeId: null, reason: 'no_building' };
+    // ساختمان منطقهٔ قفل‌شده سرویس نمی‌گیرد
+    if (b.districtId) {
+      const bd = (state.districts || []).find((x) => String(x.id) === String(b.districtId));
+      if (bd && !districtUnlocked(bd)) return { found: true, techs: [], speed: 0, latency: null, jitter: null, bestTech: null, servingNodeId: null, reason: 'district_locked' };
+    }
+    const cx = b.x + (b.w || 26) / 2, cy = b.y + (b.h || 20) / 2;
+    const st = speedTestAt(state, cx, cy);
+    const techs = [];
+    if (st.fiber && st.fiber.speed > 0) {
+      const ws = buildingWiredStatus(state, b.id);
+      techs.push({ tech: ws.medium === 'copper' ? 'copper' : 'fiber', speed: st.fiber.speed, latency: st.fiber.latency, jitter: st.fiber.jitter, nodeId: st.fiber.nodeId, nodeName: st.fiber.nodeName });
+    }
+    if (st.cellular && st.cellular.speed > 0) {
+      const n = nodeById(state, st.cellular.nodeId);
+      techs.push({ tech: 'cellular', gen: n ? cellGenOf(n.type) : 0, speed: st.cellular.speed, latency: st.cellular.latency, jitter: st.cellular.jitter, nodeId: st.cellular.nodeId, nodeName: st.cellular.nodeName });
+    }
+    if (st.fwa && st.fwa.speed > 0) {
+      techs.push({ tech: 'fwa', speed: st.fwa.speed, latency: st.fwa.latency, jitter: st.fwa.jitter, nodeId: st.fwa.nodeId, nodeName: st.fwa.nodeName });
+    }
+    const best = techs.reduce((a, t) => (!a || t.speed > a.speed) ? t : a, null);
+    const cust = (state.customers || []).find((c) => String(c.districtId) === String(b.districtId));
+    const pkg = (state.packages || []).find((x) => x.id === (cust ? cust.packageId : 'home'));
+    const pkgSpeed = pkg ? (pkg.speedMbps || 0) : 0;
+    return {
+      found: true, techs,
+      packageName: pkg ? (pkg.name || pkg.id) : null, packageSpeed: pkgSpeed,
+      speed: best ? (pkgSpeed > 0 ? Math.min(best.speed, pkgSpeed) : best.speed) : 0,
+      bestTech: best ? best.tech : null, servingNodeId: best ? best.nodeId : null,
+      latency: best ? best.latency : null, jitter: best ? best.jitter : null,
+      reason: best ? null : ((st.wifi && st.wifi.reason) || 'no_network'),
+    };
+  }
+  // تست تأخیر مشترک تا اینترنت: پینگ مسیر دسترسی تا دروازه + تأخیر پایهٔ فناوری دسترسی
+  function subscriberLatencyTest(state, buildingId) {
+    const info = subscriberConnectionInfo(state, buildingId);
+    if (!info.found) return { ok: false, error: 'ساختمان پیدا نشد.' };
+    if (!info.bestTech || !info.servingNodeId) return { ok: false, error: 'این مشترک به شبکه وصل نیست؛ تست تأخیر ممکن نیست.', reason: info.reason };
+    const gw = (state.nodes || []).find((n) => n.type === 'internet_gateway');
+    if (!gw) return { ok: false, error: 'دروازهٔ اینترنت پیدا نشد.' };
+    const ping = pingBetween(state, info.servingNodeId, gw.id);
+    if (!ping.ok) return { ok: false, error: ping.error || 'مسیر تا دروازه نیست.' };
+    const base = techLatencyBase(info.bestTech === 'copper' ? 'fiber' : info.bestTech, nodeById(state, info.servingNodeId));
+    return {
+      ok: true, ms: Math.round(ping.ms + base), jitter: info.jitter,
+      tech: info.bestTech, nodeId: info.servingNodeId, gatewayId: gw.id, pathNames: ping.pathNames,
+    };
+  }
+
+  // شعاع پوششی منطقه روی نقشه: دست‌کم تا دورترین ساختمان منطقه (+ حاشیهٔ نصف ساختمان)
+  // تا دایرهٔ قفل همهٔ ساختمان‌های منطقه را بپوشاند و هیچ ساختمانی بیرون نماند.
+  function districtOverlayRadius(state, d) {
+    let r = d.radius || 0;
+    for (const b of (state.buildings || [])) {
+      if (String(b.districtId) !== String(d.id)) continue;
+      const cx = b.x + (b.w || 26) / 2, cy = b.y + (b.h || 20) / 2;
+      const dd = dist(d.x, d.y, cx, cy) + Math.max(b.w || 26, b.h || 20) / 2 + 14;
+      if (dd > r) r = dd;
+    }
+    return r;
+  }
+
   // ---------- API ----------
   const GameSim = {
     newGame, buildNode, connect, tracePath, computeFlow, tick, growCity,
@@ -4079,7 +4151,7 @@
     powerWatts, nodePowerDraw, nodePowerCapacity, nodePowerInfo, smallestPowerLevelFor,
     eraDemandMult, surveyPtP, mediumOptions, mediumUnlockYear,
     isRivalNode, ownerOf, rivalTick, RIVAL_PRICE, worldSize,
-    districtUnlocked, districtUnlockCost, unlockDistrict, districtAtPoint, buildingResidents,
+    districtUnlocked, districtUnlockCost, unlockDistrict, districtAtPoint, buildingResidents, districtOverlayRadius,
     commuteCoverage, commuteRoutePoints, commuteRoadPath, nearestWorkDistrict, pointCellularCovered,
     commutePhase, commutePulses, nearestLeisureSpot, COMMUTE_CAP,
     linkLatency, linkAttenuation, linkEffCapacity, ptpDistanceFactor, pingBetween, techJitter, pathLatency,
@@ -4088,6 +4160,7 @@
     disconnectLink, linkDisconnectImpact, linksOfNode,
     changeLinkMedium, toggleLinkBackup, linkChangeOptions, linkCapacityFor, linkBaseCapacity, parallelLinks, segmentEffCapacity,
     subscriberStats, buildingServiceStatus, buildingHasSubscription, buildingNetworkPath, individualTargetFor, CONCURRENCY, INDIVIDUAL_CAP,
+    subscriberConnectionInfo, subscriberLatencyTest,
     tdlteFed, pointIn4GCoverage, nodeServes, nodeServesTech,
     buildingPreference, districtPreference, districtTechSplit,
     prepareSignalField, prepareSpeedField, signalFieldAt, speedFieldAt, sampleFieldRows, interferenceFor,
