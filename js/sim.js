@@ -84,7 +84,8 @@
     return 2;
   }
   function cellGenOf(type) {
-    return { cell_2g: 2, cell_3g: 3, cell_4g: 4, cell_5g: 5 }[type] || 0;
+    // سلول کوچک آنتن دوران 4G است (نسل ۴ برای تأخیر و انتظار دوران حساب می‌شود)
+    return { cell_2g: 2, cell_3g: 3, cell_4g: 4, cell_5g: 5, small_cell: 4 }[type] || 0;
   }
 
   // RNG قطعی (mulberry32) — وضعیت در state.rngState نگه داشته می‌شود
@@ -104,17 +105,17 @@
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   }
 
-  const ACCESS_TYPES = ['cell_2g', 'cell_3g', 'cell_4g', 'cell_5g', 'ftth', 'street_cabinet', 'cabinet_basic'];
+  const ACCESS_TYPES = ['cell_2g', 'cell_3g', 'cell_4g', 'cell_5g', 'small_cell', 'ftth', 'street_cabinet', 'cabinet_basic'];
   // مالک گره: بازیکن یا شرکت رقیب (گره‌های رقیب فقط برای نمایش/رقابت‌اند و قابل ویرایش نیستند)
   function ownerOf(n) { return (n && n.owner === 'rival') ? 'rival' : 'player'; }
   function isRivalNode(n) { return ownerOf(n) === 'rival'; }
-  const CELL_TYPES = ['cell_2g', 'cell_3g', 'cell_4g', 'cell_5g'];
+  const CELL_TYPES = ['cell_2g', 'cell_3g', 'cell_4g', 'cell_5g', 'small_cell'];
   function isCellTower(n) { return !!n && CELL_TYPES.includes(n.type); }
   // قانون جفت‌گره برای لینک گره‌به‌گره:
   // - دکل‌ها (2G/3G/4G/5G) فقط به «سوئیچ» وصل می‌شوند (قانون سخت‌گیرانهٔ کاربر) — نه هسته، نه تجمیع، نه تقویت‌کننده، نه دکل دیگر.
   // - بقیهٔ گره‌های دسترسی (کابینت‌ها، FTTH) به هر گرهٔ شبکه/بک‌هال وصل می‌شوند (هسته، دروازه، تجمیع، سوئیچ، تقویت‌کننده).
   // دکل به کابینت/FTTH/دکل دیگر سرویس نمی‌دهد و ترافیک عبوری ندارد.
-  const NETWORK_TYPES = ['core_router', 'internet_gateway', 'aggregation', 'switch', 'repeater'];
+  const NETWORK_TYPES = ['core_router', 'internet_gateway', 'aggregation', 'switch', 'repeater', 'cdn_cache'];
   function pairRuleError(typeA, typeB) {
     const aCell = CELL_TYPES.includes(typeA), bCell = CELL_TYPES.includes(typeB);
     if (aCell || bCell) {
@@ -414,7 +415,38 @@
     for (const n of (state.nodes || [])) if (n.type === 'internet_gateway' && !isRivalNode(n)) u += (n.usage || 0);
     return u;
   }
-  function monthlyTransitCost(state) { return Math.round(transitMbps(state) * TRANSIT_PER_MBPS); }
+  // ---------- گره کش محلی (CDN) ----------
+  // منطقه‌ای که مرکز آن تا CDN_RANGE واحد از یک گره کشِ متصلِ بازیکن فاصله دارد «کش‌دار» است:
+  // هزینهٔ ترانزیت ترافیکش ۳۰٪ کمتر و تأخیرش حدود ۳۰٪ پایین‌تر است (استریم روان‌تر).
+  // اثر چند گره کش روی یک منطقه جمع نمی‌شود (فقط بودن/نبودن مهم است).
+  const CDN_RANGE = 1000;
+  const CDN_TRANSIT_SAVING = 0.30;
+  const CDN_LATENCY_FACTOR = 0.7;
+  function cdnNodes(state) {
+    return (state.nodes || []).filter((n) => n.type === 'cdn_cache' && isUsableNode(n) && n.connected && !isRivalNode(n));
+  }
+  function cdnServedDistrict(state, d, cdns) {
+    const list = cdns || cdnNodes(state);
+    return list.some((n) => dist(d.x, d.y, n.x, n.y) <= CDN_RANGE);
+  }
+  // مگابیتِ صرفه‌جویی‌شدهٔ ترانزیت: ۳۰٪ ترافیک سرویس‌شدهٔ منطقه‌های کش‌دار از اینترنت کشیده نمی‌شود
+  function cdnTransitSavingMbps(state) {
+    const cdns = cdnNodes(state);
+    if (!cdns.length) return 0;
+    let saved = 0;
+    for (const d of (state.districts || [])) {
+      if (!districtUnlocked(d)) continue;
+      if (cdnServedDistrict(state, d, cdns)) saved += (d.servedDemand || 0) * CDN_TRANSIT_SAVING;
+    }
+    return saved;
+  }
+  // مناطق تحت پوشش یک گره کش مشخص (برای پنل گره)
+  function cdnServedDistricts(state, nodeId) {
+    const node = (state.nodes || []).find((n) => n.id === nodeId);
+    if (!node || node.type !== 'cdn_cache' || !node.connected) return [];
+    return (state.districts || []).filter((d) => dist(node.x, node.y, d.x, d.y) <= CDN_RANGE).map((d) => d.name);
+  }
+  function monthlyTransitCost(state) { return Math.round(Math.max(0, transitMbps(state) - cdnTransitSavingMbps(state)) * TRANSIT_PER_MBPS); }
   // ---------- اثر قیمت بسته بر تقاضا (قیمت مرجع = قیمت پیش‌فرض همان بسته در داده‌ها) ----------
   function packageRefPrice(pkgId) {
     const def = ((DATA && DATA.packageList) || []).find((p) => p.id === pkgId);
@@ -451,6 +483,7 @@
   }
   function techOfNode(type) {
     if (type === 'ftth' || type === 'street_cabinet' || type === 'cabinet_basic') return 'fiber';
+    if (type === 'small_cell') return 'cellular';
     if (type && type.indexOf('cell_') === 0) return 'cellular';
     const eq = getEq(type);
     return (eq && eq.tech) || null;
@@ -1331,7 +1364,7 @@
     results.sort((a, b) => b.expectedSubs - a.expectedSubs);
     return results.slice(0, 5);
   }
-  const CELL_TECH = { cell_2g: '2g', cell_3g: '3g', cell_4g: '4g', cell_5g: '5g' };
+  const CELL_TECH = { cell_2g: '2g', cell_3g: '3g', cell_4g: '4g', cell_5g: '5g', small_cell: '4g' };
 
   function log(state, msg, kind) {
     state.log.push({ day: Math.floor(state.day), msg, kind: kind || 'info' });
@@ -1379,8 +1412,9 @@
   function newGame(seed, opts) {
     opts = opts || {};
     const s = (seed === undefined || seed === null) ? 42 : (seed >>> 0);
-    // نقشهٔ تصادفی با بذر؛ در نبود مولد، نقشهٔ ثابت DATA
-    const gen = (MapGen && MapGen.generate) ? MapGen.generate(s) : null;
+    // نقشهٔ تصادفی با بذر و قالب انتخابی؛ در نبود مولد، نقشهٔ ثابت DATA
+    const preset = (opts.preset && MapGen && MapGen.PRESETS && MapGen.PRESETS[opts.preset]) ? opts.preset : 'river';
+    const gen = (MapGen && MapGen.generate) ? MapGen.generate(s, preset) : null;
     const genDistricts = gen ? gen.districts : (DATA.districts || []);
     const genBuildings = gen ? gen.buildings : (DATA.buildings || []);
     const genInstallPoints = gen ? gen.installPoints : (DATA.installPoints || []);
@@ -1409,7 +1443,7 @@
       problems: [],
       settings: { autoFailover: true },
       failoverActive: false,
-      counters: { node: 0, link: 0, staff: 0, problem: 0, building: genBuildings.length, individual: 0, contract: 0, campaign: 0, built: 0, contractsDone: 0, campaignsRun: 0, profitMonths: 0, fiberDrop: 0 },
+      counters: { node: 0, link: 0, staff: 0, problem: 0, building: genBuildings.length, individual: 0, contract: 0, campaign: 0, built: 0, contractsDone: 0, campaignsRun: 0, profitMonths: 0, fiberDrop: 0, project: 0 },
       // ساعت روز (۰ تا ۲۴) و آب‌وهوای جاری
       hour: 10,
       pendingDays: 0,
@@ -1447,6 +1481,8 @@
       worldH: (DATA.world && DATA.world.height) || 10800,
       installPoints: genInstallPoints,
       mapSeed: s,
+      mapPreset: preset,
+      cityProjects: [],
       map: gen ? { river: gen.river, bridges: gen.bridges, roads: gen.roads, parks: gen.parks } : null,
       // ساختمان‌های پراکندهٔ خارج از مناطق: تقاضا/مشترک تجمیعی (هر جای نقشه به‌جز رودخانه)
       scattered: { subscribers: 0, demand: 0, servedDemand: 0, qos: 0, satisfaction: 0, revenue: 0, potentialSubs: 0, buildingCount: 0, coveredCount: 0 },
@@ -1458,12 +1494,13 @@
     state.districts = genDistricts.map((d) => ({
       id: d.id, name: d.name, type: d.type, x: d.x, y: d.y, radius: d.radius, baseRadius: d.radius,
       buildingCap: Math.max(1, Math.round(genBuildings.filter((b) => b.districtId === d.id).length * (capMult[d.type] || 1.5))),
-      population: d.population, demandBase: d.demandBase, usageMult: 1,
+      population: d.population, basePopulation: d.population, popTrend: 0, demandBase: d.demandBase, usageMult: 1,
       priceSensitivity: d.priceSensitivity, potentialRevenue: d.potentialRevenue,
       unlocked: d.id === 'center' || d.id === 'north',
       demand: 0, servedDemand: 0, subscribers: 0, rivalSubscribers: 0,
       qos: 0, potentialQos: 0, satisfaction: 0, revenue: 0, complaints: 0, connected: false,
       avgLatency: 0, jitter: 0, perSubMbps: 0, commuteCoverage: null, eraFactor: 1, _qosAcc: 0, _qosDays: 0,
+      cdnServed: false, onlineBiz: 0, onlineBizF: 0, projectDemandBoost: 0, projectsDone: 0,
     }));
     state.year = yearOf(state);
     state.eraYear = (eraOf(state) || {}).year || TL.startYear;
@@ -2225,6 +2262,129 @@
     }
     return m;
   }
+
+  // ---------- پروژه‌های عمرانی شهرداری ----------
+  // شهرداری هر از گاهی پروژه‌ای (مترو، پل، مجتمع تجاری…) در یک منطقه شروع می‌کند:
+  // حین ساخت تقاضای منطقه کمی افت می‌کند و بعد از اتمام، جمعیت و تقاضا برای همیشه بیشتر می‌شود.
+  const PROJECT_MAX_ACTIVE = 3;
+  const PROJECT_START_PROB = 0.008; // احتمال شروع پروژه در هر روز (وقتی ظرفیت خالی هست)
+  const PROJECT_CONSTRUCTION_FACTOR = 0.92; // افت موقت تقاضا حین ساخت
+  const PROJECT_BOOST_CAP = 0.6; // سقف مجموع بوست تقاضای پروژه‌های تمام‌شده برای هر منطقه
+  function projectDemandFactor(state, d) {
+    let f = 1 + (d.projectDemandBoost || 0);
+    for (const p of (state.cityProjects || [])) {
+      if (p.districtId === d.id && p.phase === 'building') f *= PROJECT_CONSTRUCTION_FACTOR;
+    }
+    return f;
+  }
+  function activeProjectFor(state, districtId) {
+    return (state.cityProjects || []).find((p) => p.districtId === districtId && p.phase === 'building') || null;
+  }
+  function tickCityProjects(state, dtDays, events) {
+    if (!Array.isArray(state.cityProjects)) state.cityProjects = [];
+    const day = Math.floor(state.day);
+    // اتمام پروژه‌ها: جمعیت و تقاضای منطقه برای همیشه بیشتر می‌شود
+    for (const p of state.cityProjects) {
+      if (p.phase !== 'building' || day < p.endDay) continue;
+      p.phase = 'done';
+      const d = (state.districts || []).find((x) => x.id === p.districtId);
+      const def = (DATA.cityProjects || []).find((x) => x.id === p.typeId);
+      if (d && def) {
+        d.population = Math.round((d.population || 0) * (1 + (def.popBoost || 0)));
+        d.projectDemandBoost = Math.min(PROJECT_BOOST_CAP, (d.projectDemandBoost || 0) + (def.demandBoost || 0));
+        d.projectsDone = (d.projectsDone || 0) + 1;
+      }
+      const msg = 'پروژهٔ «' + p.name + '» در منطقهٔ «' + (d ? d.name : '') + '» به پایان رسید؛ جمعیت و تقاضای منطقه بیشتر شد.';
+      log(state, msg, 'event');
+      if (events) events.push({ id: 'project_done_' + p.id, name: 'پایان پروژهٔ عمرانی', type: 'city', description: msg, detail: '', day });
+    }
+    // شروع پروژهٔ جدید (حداکثر PROJECT_MAX_ACTIVE هم‌زمان؛ هر منطقه حداکثر یک پروژهٔ فعال)
+    const active = state.cityProjects.filter((p) => p.phase === 'building').length;
+    if (active < PROJECT_MAX_ACTIVE && rand2(state) < PROJECT_START_PROB * dtDays) {
+      const defs = DATA.cityProjects || [];
+      const busy = new Set(state.cityProjects.filter((p) => p.phase === 'building').map((p) => p.districtId));
+      const candidates = (state.districts || []).filter((d) => !busy.has(d.id));
+      if (defs.length && candidates.length) {
+        const def = defs[Math.floor(rand2(state) * defs.length)];
+        const d = candidates[Math.floor(rand2(state) * candidates.length)];
+        const p = {
+          id: 'pr' + (++state.counters.project), typeId: def.id, name: def.name,
+          districtId: d.id, startDay: day, endDay: day + def.buildDays, phase: 'building',
+        };
+        state.cityProjects.push(p);
+        const msg = 'شهرداری پروژهٔ «' + def.name + '» را در منطقهٔ «' + d.name + '» شروع کرد (حدود ' + def.buildDays + ' روز). حین ساخت تقاضا کمی افت می‌کند و بعد از اتمام، جمعیت و تقاضای منطقه بیشتر می‌شود.';
+        log(state, msg, 'event');
+        if (events) events.push({ id: 'project_start_' + p.id, name: 'پروژهٔ عمرانی جدید', type: 'city', description: msg, detail: '', day });
+      }
+    }
+    // پاک‌سازی پروژه‌های تمام‌شدهٔ قدیمی (شمارش و بوست روی خود منطقه می‌ماند)
+    if (state.cityProjects.length > 12) state.cityProjects = state.cityProjects.filter((p) => p.phase === 'building');
+  }
+
+  // ---------- مهاجرت جمعیت بین مناطق ----------
+  // ماهانه: مردم به‌تدریج از مناطق بدسرویس/گران به مناطق خوب‌سرویس/ارزان می‌روند
+  // (حداکثر ۱٪ جمعیت هر منطقه در ماه). مجموع جمعیت شهر ثابت می‌ماند (مهاجرت داخلی)؛
+  // مناطق قفل‌شده در مهاجرت شرکت نمی‌کنند. جذابیت = رضایت و کیفیت بالقوه (قیمت داخل رضایت هست).
+  // ظرفیت سکونت هر منطقه محدود است: مهاجرت جمعیت را از بازهٔ ۶۰٪ تا ۱۳۰٪ جمعیت پایه بیرون نمی‌برد.
+  const MIGRATION_MAX_RATE = 0.01;
+  function districtAttractiveness(d) {
+    return 0.7 * (d.satisfaction || 0) + 0.3 * (d.potentialQos || 0) * 100;
+  }
+  function runMigration(state) {
+    const ds = (state.districts || []).filter((d) => districtUnlocked(d));
+    if (ds.length < 2) return;
+    const totalPop = ds.reduce((s, d) => s + (d.population || 0), 0);
+    if (totalPop <= 0) return;
+    const mean = ds.reduce((s, d) => s + districtAttractiveness(d) * (d.population || 0), 0) / totalPop;
+    let residual = 0;
+    for (const d of ds) {
+      const pop = d.population || 0;
+      let delta = Math.round(clamp((districtAttractiveness(d) - mean) / 150, -1, 1) * MIGRATION_MAX_RATE * pop);
+      // ظرفیت سکونت: ورود فقط تا ۱۳۰٪ جمعیت پایه، خروج فقط تا ۶۰٪ جمعیت پایه
+      const base = d.basePopulation || pop;
+      if (delta > 0) delta = Math.max(0, Math.min(delta, Math.round(base * 1.3) - pop));
+      else if (delta < 0) delta = Math.min(0, Math.max(delta, Math.round(base * 0.6) - pop));
+      d.popTrend = delta;
+      residual += delta;
+    }
+    // حفظ مجموع جمعیت: باقی‌ماندهٔ گردکردن از بزرگ‌ترین منطقه کم/زیاد شود
+    if (residual !== 0) {
+      const biggest = ds.reduce((a, b) => ((b.population || 0) > (a.population || 0) ? b : a), ds[0]);
+      biggest.popTrend = (biggest.popTrend || 0) - residual;
+    }
+    for (const d of ds) {
+      const delta = d.popTrend || 0;
+      if (!delta) continue;
+      d.population = Math.max(100, (d.population || 0) + delta);
+      // مشترکان از سقف بازار منطقه (۳۵٪ جمعیت) بیشتر نشوند
+      const maxSubs = Math.floor(d.population * 0.35);
+      if ((d.subscribers || 0) > maxSubs) d.subscribers = maxSubs;
+      if ((d.rivalSubscribers || 0) > Math.floor(maxSubs * 0.5)) d.rivalSubscribers = Math.floor(maxSubs * 0.5);
+    }
+  }
+
+  // ---------- کسب‌وکارهای آنلاین محلی ----------
+  // در منطقه‌ای که سرویس خوب است (کیفیت ≥۶۰٪ و رضایت ≥۵۰) فروشگاه‌های اینترنتی و
+  // استارتاپ‌ها به‌تدریج شکل می‌گیرند (تا سقف متناسب با جمعیت و نوع منطقه)؛ با بدشدن
+  // سرویس (کیفیت <۳۰٪) کم می‌شوند. هر کسب‌وکار تقاضا را ۰٫۵٪ (سقف +۵۰٪) و درآمد را
+  // ۰٫۳٪ (سقف +۳۰٪، سهم بیشتر بسته‌های تجاری) بالا می‌برد.
+  function onlineBizCap(d) {
+    const per = ['commercial', 'government', 'tourism', 'academic', 'medical', 'landmark', 'transport'].includes(d.type) ? 400 : 800;
+    return Math.max(0, Math.floor((d.population || 0) / per));
+  }
+  function updateOnlineBiz(state, d) {
+    const cap = onlineBizCap(d);
+    let f = d.onlineBizF != null ? d.onlineBizF : (d.onlineBiz || 0);
+    if ((d.qos || 0) >= 0.6 && (d.satisfaction || 0) >= 50 && cap > 0) {
+      f = Math.min(cap, f + Math.max(0.05, cap * 0.02)); // رشد تدریجی تا سقف
+    } else if ((d.qos || 0) < 0.3) {
+      f = Math.max(0, f * 0.97); // افت با بدشدن سرویس
+    }
+    d.onlineBizF = f;
+    d.onlineBiz = Math.floor(f);
+  }
+  function onlineBizDemandFactor(d) { return 1 + Math.min(0.5, (d.onlineBiz || 0) * 0.005); }
+  function onlineBizRevenueFactor(d) { return 1 + Math.min(0.3, (d.onlineBiz || 0) * 0.003); }
   // برد پوشش منطقه برای تست «سرور پوشش‌دهنده»: بر پایهٔ شعاع ثابت منطقه (baseRadius)،
   // نه شعاع نمایشیِ پویا که با رشد/ریزش مشترک کوچک و بزرگ می‌شود.
   function coverReach(d) { return ((d && (d.baseRadius || d.radius)) || 0) * 0.6; }
@@ -2305,6 +2465,7 @@
 
     let totalRevenue = 0, qosSum = 0, servedDistricts = 0;
     let joinsToday = 0, leavesToday = 0;
+    const cdnList = cdnNodes(state); // گره‌های کش متصل (برای اثر کش روی منطقه‌ها)
 
     for (const d of ordered) {
       // منطقهٔ قفل‌شده: هنوز در دسترس شرکت نیست — بدون سرویس، بدون مشترک، بدون درآمد
@@ -2312,6 +2473,7 @@
       if (!districtUnlocked(d)) {
         d.subscribers = 0; // منطقهٔ قفل‌شده هیچ مشترک بازیکنی ندارد
         d.servedDemand = 0; d.qos = 0; d.potentialQos = 0; d.connected = false;
+        d.cdnServed = false;
         d.avgLatency = 0; d.jitter = 0; d.perSubMbps = 0; d.revenue = 0; d.complaints = 0;
         d.techDemand = computeTechDemand(d, [], 1, 0, state);
         const custL = (state.customers || []).find((c) => c.districtId === d.id);
@@ -2321,7 +2483,7 @@
       // تقاضا فقط از مشترکان می‌آید: مشترک × سرعت بسته × ضریب هم‌زمانی × ضریب زمانی
       // (بدون مشترک، تقاضا و ترافیک صفر است؛ جمعیت فقط بازار قابل‌دسترس است)
       const pkg = districtPackage(state, d);
-      const perSub = perSubTraffic(state, d, demandTimeFactor) * effectDemandMult(state, d);
+      const perSub = perSubTraffic(state, d, demandTimeFactor) * effectDemandMult(state, d) * projectDemandFactor(state, d) * onlineBizDemandFactor(d);
       d.demand = d.subscribers * perSub;
       // گره‌های دسترسی متصلِ پوشش‌دهنده (مرکز منطقه باید داخل گوهٔ آنتن باشد؛ برد بر پایهٔ شعاع ثابت منطقه)
       const servers = state.nodes.filter((n) =>
@@ -2330,6 +2492,7 @@
       const cust = (state.customers || []).find((c) => c.districtId === d.id);
       if (!servers.length) {
         d.servedDemand = 0; d.qos = 0; d.potentialQos = 0; d.connected = false;
+        d.cdnServed = false;
         d.avgLatency = 0; d.perSubMbps = 0;
         if (!noDaily && d.subscribers > 0) { d._qosAcc = (d._qosAcc || 0) + d.qos; d._qosDays = (d._qosDays || 0) + 1; }
         d.techDemand = computeTechDemand(d, [], 1, 0, state);
@@ -2451,11 +2614,17 @@
       const firstTech = techOfNode(firstSrv.type);
       d.avgLatency = Math.round(pathLatency(state, firstSrv.id) * 2 + techLatencyBase(firstTech, firstSrv));
       d.jitter = techJitter(firstTech, congestionFactor);
+      // گره کش محلی: منطقهٔ کش‌دار تأخیر کمتر و استریم روان‌تری دارد
+      d.cdnServed = cdnServedDistrict(state, d, cdnList);
+      if (d.cdnServed) d.avgLatency = Math.max(2, Math.round(d.avgLatency * CDN_LATENCY_FACTOR));
       // سرعت تحویلیِ مشترک فعال ≈ کیفیت تجربه‌شده × سرعت مورد انتظار، با سقف سرعت بسته
       d.perSubMbps = d.subscribers > 0 ? Math.round(Math.min(pkgSpeed, d.qos * expectedSpeed) * 10) / 10 : pkgSpeed;
       let kindFactor = 1;
       if (pkg && pkg.kind === 'gaming') kindFactor = clamp(80 / Math.max(1, d.avgLatency + d.jitter), 0.3, 1.1);
-      else if (pkg && pkg.kind === 'streaming') kindFactor = clamp(d.perSubMbps / (pkgSpeed * 0.5), 0.4, 1.1);
+      else if (pkg && pkg.kind === 'streaming') {
+        kindFactor = clamp(d.perSubMbps / (pkgSpeed * 0.5), 0.4, 1.1);
+        if (d.cdnServed) kindFactor = Math.min(1.1, kindFactor * 1.2); // کش محلی استریم را روان‌تر می‌کند
+      }
 
       // ضریب دوران: مردم فناوری دوران خودشان را می‌خواهند؛ ماندن روی نسل قدیمی رضایت را کم می‌کند
       const expectedGen = eraExpectedCellGen(state);
@@ -2473,10 +2642,13 @@
       const satRate = target >= d.satisfaction ? fx.satRecoveryRate : fx.satDecayRate;
       if (!noDaily) d.satisfaction = clamp(d.satisfaction + (target - d.satisfaction) * satRate, 0, 100);
       d.complaints = d.qos < 0.4 && d.subscribers > 0 ? Math.ceil(d.subscribers * 0.05) : 0;
+      // کسب‌وکارهای آنلاین محلی: در منطقهٔ خوب‌سرویس‌گرفته شکل می‌گیرند و با بدشدن سرویس کم می‌شوند
+      if (!noDaily) updateOnlineBiz(state, d);
 
       // درآمد ماهانه: مشترک × قیمت بسته × ضریب رضایت (کف درآمد پایین است تا سرویس بد واقعاً جریمه شود)
+      // کسب‌وکارهای آنلاین سهم بسته‌های تجاری را بالا می‌برند (ضریب درآمد محدود)
       const price = pkg ? pkg.price : 120;
-      d.revenue = Math.round(d.subscribers * price * (0.15 + 0.85 * (d.satisfaction / 100)));
+      d.revenue = Math.round(d.subscribers * price * (0.15 + 0.85 * (d.satisfaction / 100)) * onlineBizRevenueFactor(d));
       totalRevenue += d.revenue;
     }
 
@@ -2631,6 +2803,7 @@
       incomePerDay: state.incomePerDay, expensePerDay: state.expensePerDay,
       monthlyRevenue: totalRevenue, monthlyCosts,
       transitMonthly: monthlyTransitCost(state), transitMbps: Math.round(transitMbps(state)),
+      transitSavedMonthly: Math.round(cdnTransitSavingMbps(state) * TRANSIT_PER_MBPS),
       maintenanceMonthly: maintMonthly,
       loan: state.debt || 0, taxMonthly: state.lastTax || 0,
       totalIncome: state.totalRevenue || 0, totalExpense: state.totalCosts || 0,
@@ -2677,7 +2850,13 @@
     if (!b) return 0;
     const base = Math.round(((b.w || 26) * (b.h || 20)) / 130) + Math.max(0, (b.height || 1) - 1) * 3;
     const rnd = prefRnd(prefHash(String(b.id) + '|res|' + (state.mapSeed || 0)));
-    return Math.max(1, base + Math.floor(rnd() * 3));
+    let res = Math.max(1, base + Math.floor(rnd() * 3));
+    // تغییر جمعیت منطقه (مهاجرت و پروژه‌های عمرانی) در ساکنان ساختمان‌ها هم دیده شود
+    if (b.districtId) {
+      const d = (state.districts || []).find((x) => String(x.id) === String(b.districtId));
+      if (d && d.basePopulation > 0) res = Math.max(1, Math.round(res * (d.population || 0) / d.basePopulation));
+    }
+    return res;
   }
 
   // ---------- رفت‌وآمد روزانه (خانه ↔ کار) ----------
@@ -3684,6 +3863,13 @@
     keep.radius = Math.round(Math.sqrt(Math.pow(keep.radius || 0, 2) + Math.pow(drop.radius || 0, 2))); // حفظ مساحت
     keep.baseRadius = Math.round(Math.sqrt(Math.pow(keep.baseRadius || keep.radius, 2) + Math.pow(drop.baseRadius || drop.radius, 2)));
     keep.population = totalPop;
+    keep.basePopulation = (keep.basePopulation || keepPop) + (drop.basePopulation || dropPop);
+    keep.popTrend = (keep.popTrend || 0) + (drop.popTrend || 0);
+    keep.onlineBiz = (keep.onlineBiz || 0) + (drop.onlineBiz || 0);
+    keep.onlineBizF = (keep.onlineBizF || 0) + (drop.onlineBizF || 0);
+    keep.projectDemandBoost = Math.min(PROJECT_BOOST_CAP, ((keep.projectDemandBoost || 0) * keepPop + (drop.projectDemandBoost || 0) * dropPop) / Math.max(1, totalPop));
+    keep.projectsDone = (keep.projectsDone || 0) + (drop.projectsDone || 0);
+    for (const p of (state.cityProjects || [])) if (p.districtId === drop.id) p.districtId = keep.id;
     keep.usageMult = ((keep.usageMult || 1) * keepPop + (drop.usageMult || 1) * dropPop) / Math.max(1, totalPop);
     keep.subscribers = (keep.subscribers || 0) + (drop.subscribers || 0);
     keep.rivalSubscribers = (keep.rivalSubscribers || 0) + (drop.rivalSubscribers || 0);
@@ -4106,6 +4292,8 @@
 
     // رویدادها + failover خودکار
     const events = rollEvents(state, dtDays);
+    // پروژه‌های عمرانی شهرداری (شروع/اتمام با اعلام در لاگ و رویداد)
+    tickCityProjects(state, dtDays, events);
     if (state.links.some((l) => l.status === 'cut')) failover(state);
 
     // شرکت رقیب شبکه‌اش را گسترش می‌دهد (اگر فعال باشد)
@@ -4155,6 +4343,8 @@
       costs += tax;
 
       for (const d of (state.districts || [])) { d._qosAcc = 0; d._qosDays = 0; }
+      // مهاجرت ماهانهٔ جمعیت بین مناطق (به سمت مناطق خوب‌سرویس/ارزان‌تر)
+      runMigration(state);
 
       // بهرهٔ بدهی: ۵٪ ماهانه روی بدهی قبلی
       if ((state.debt || 0) > 0) {
@@ -4553,12 +4743,14 @@
     if (!Array.isArray(state.campaigns)) state.campaigns = [];
     if (!Array.isArray(state.history)) state.history = [];
     if (!Array.isArray(state.activeEffects)) state.activeEffects = [];
+    if (!Array.isArray(state.cityProjects)) state.cityProjects = [];
+    if (state.mapPreset == null) state.mapPreset = 'river';
     if (!state._eventCooldowns) state._eventCooldowns = {};
     if (state.spectatorAI == null) state.spectatorAI = false;
     if (state.lastTax == null) state.lastTax = 0;
     if (state.penetration == null) state.penetration = 0;
     // گره‌های «کابل» ذخیره‌های قبلی سر جایشان می‌مانند و کار می‌کنند؛ فقط ساخت جدیدشان ممکن نیست
-    for (const key of ['individual', 'contract', 'campaign', 'built', 'contractsDone', 'campaignsRun', 'profitMonths']) {
+    for (const key of ['individual', 'contract', 'campaign', 'built', 'contractsDone', 'campaignsRun', 'profitMonths', 'project']) {
       if (state.counters[key] == null) state.counters[key] = 0;
     }
     // مهاجرت حذف اینترنت ماهواره‌ای (ذخیره‌های قبلی): گره‌های ماهواره‌ای در حلقهٔ گره‌ها
@@ -4696,6 +4888,14 @@
       if (d._qosDays == null) d._qosDays = 0;
       if (d.avgLatency == null) d.avgLatency = 0;
       if (d.perSubMbps == null) d.perSubMbps = 0;
+      // فیلدهای جدید: مهاجرت، کسب‌وکار آنلاین، پروژه‌های عمرانی، کش محلی
+      if (d.basePopulation == null) d.basePopulation = d.population || 0;
+      if (d.popTrend == null) d.popTrend = 0;
+      if (d.onlineBiz == null) d.onlineBiz = 0;
+      if (d.onlineBizF == null) d.onlineBizF = d.onlineBiz || 0;
+      if (d.projectDemandBoost == null) d.projectDemandBoost = 0;
+      if (d.projectsDone == null) d.projectsDone = 0;
+      if (d.cdnServed == null) d.cdnServed = false;
       if (!d.buildingCap) {
         const initial = (DATA.buildings || []).filter((b) => b.districtId === d.id).length;
         d.buildingCap = Math.max(1, Math.round(initial * (capMult[d.type] || 1.5)));
@@ -4939,6 +5139,11 @@
     linkCostFor, linkCostPerUnit, capBoostMult, monthlyNodeCost, monthlyTransitCost, transitMbps,
     expectedSpeedForDistrict, priceGrowthFactor, priceChurnRate, priceSatFactor, droppedResidents,
     activeEffects, effectDemandMult, coverReach, basePowerWatts,
+    // سلول کوچک، گره کش، پروژه‌های عمرانی، مهاجرت، کسب‌وکار آنلاین (۲۰۲۶-۱۱-۲۳)
+    cdnNodes, cdnServedDistrict, cdnTransitSavingMbps, cdnServedDistricts, CDN_RANGE,
+    projectDemandFactor, activeProjectFor, tickCityProjects,
+    districtAttractiveness, runMigration,
+    onlineBizCap, updateOnlineBiz, onlineBizDemandFactor, onlineBizRevenueFactor,
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = GameSim;
