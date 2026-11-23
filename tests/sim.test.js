@@ -1721,7 +1721,7 @@ let s1, cell1, link1;
 // ---------- 61: مشخصهٔ اتصال‌ها (connects) و سازگاری با اعتبارسنجی ----------
 {
   const list = DATA.equipmentList || Object.values(DATA.equipment || {});
-  check('61a همهٔ تجهیزات مشخصهٔ اتصال غیرخالی دارند', list.length === 17 && list.every((e) => Array.isArray(e.connects) && e.connects.length > 0),
+  check('61a همهٔ تجهیزات مشخصهٔ اتصال غیرخالی دارند', list.length === 19 && list.every((e) => Array.isArray(e.connects) && e.connects.length > 0),
     'items=' + list.length);
   const s = newGameAll(42); s.cash = 9999999;
   unlockAllEras(s); unlockAllEras(s);
@@ -3837,6 +3837,189 @@ let s1, cell1, link1;
   check('115d تماشاچی+رقیب ۱۵۰ روز: صفر لینک دکل نامعتبر، درآمد زودهنگام و رشد مشترک',
     badTowerLinks.length === 0 && firstIncomeDay > 0 && firstIncomeDay <= 10 && subs4 > 100 && (s4.debt || 0) < 200000,
     'bad=' + badTowerLinks.length + ' incomeDay=' + firstIncomeDay + ' subs=' + subs4 + ' debt=' + Math.round(s4.debt || 0));
+}
+
+// ---------- 116: سلول کوچک (مورد ۱۱) ----------
+{
+  // 116a دوران: در ۱۹۹۱ ساخته نمی‌شود (از ۲۰۰۹)
+  const s0 = GameSim.newGame(42); s0.cash = 999999;
+  const d0 = s0.districts.find(x => x.id === 'center');
+  const early = GameSim.buildNode(s0, 'small_cell', d0.x, d0.y);
+  check('116a سلول کوچک قبل از دورانش (۲۰۰۹) ساخته نمی‌شود', early == null, 'node=' + (early && early.id));
+
+  const s = withLTE(newGameAll(42));
+  const d = s.districts.find(x => x.id === 'center');
+  const sc = GameSim.buildNode(s, 'small_cell', d.x, d.y);
+  check('116b سلول کوچک در دورانش ساخته می‌شود', !!sc, 'sc=' + (sc && sc.id));
+  if (sc) {
+    finishBuild(s, sc);
+    // 116c بک‌هال فقط به سوئیچ (قانون سخت دکل‌ها)
+    const core = coreOf(s);
+    const badLink = GameSim.connect(s, sc.id, core.id, 'fiber');
+    const goodLink = connectTower(s, sc.id, core.id, 'fiber');
+    check('116c بک‌هال سلول کوچک فقط به سوئیچ وصل می‌شود (نه مستقیم به هسته)', badLink == null && !!goodLink,
+      'bad=' + !!badLink + ' good=' + !!goodLink);
+    // 116d سرویس در شعاع + حضور در هیت‌مپ سیگنال
+    for (let i = 0; i < 8; i++) { GameSim.tick(s, 1); keepAlive(s); }
+    const sig = GameSim.signalAt(s, sc.x, sc.y);
+    const sigFar = GameSim.signalAt(s, sc.x + 400, sc.y);
+    check('116d سلول کوچک در شعاعش سرویس می‌دهد و در هیت‌مپ سیگنال هست (بیرون شعاع نه)',
+      (d.servedDemand || 0) > 0 && sig.signal > 0 && sigFar.signal === 0,
+      'served=' + Math.round(d.servedDemand || 0) + ' sig=' + sig.signal + ' far=' + sigFar.signal);
+    // 116e ماژول TD-LTE روی سلول کوچک نصب نمی‌شود
+    const r = GameSim.installModule(s, sc.id, 'tdlte');
+    check('116e ماژول TD-LTE روی سلول کوچک نصب نمی‌شود', !r.ok, 'r=' + JSON.stringify(r));
+  }
+}
+
+// ---------- 117: گره کش محلی (مورد ۱۳) ----------
+{
+  const s = withLTE(newGameAll(42));
+  const d = s.districts.find(x => x.id === 'center');
+  const t = GameSim.buildNode(s, 'cell_4g', d.x, d.y);
+  finishBuild(s, t); connectTower(s, t.id, coreOf(s).id, 'fiber');
+  for (let i = 0; i < 10; i++) { GameSim.tick(s, 1); keepAlive(s); }
+  const latBefore = d.avgLatency || 0;
+  const transitBefore = GameSim.monthlyTransitCost(s);
+  check('117a پیش‌شرط: منطقه سرویس می‌گیرد و ترافیک ترانزیت دارد', (d.servedDemand || 0) > 0 && GameSim.transitMbps(s) > 0,
+    'served=' + Math.round(d.servedDemand || 0) + ' transit=' + Math.round(GameSim.transitMbps(s)));
+  const cdn = GameSim.buildNode(s, 'cdn_cache', d.x + 60, d.y + 60);
+  finishBuild(s, cdn); connectAny(s, cdn.id, coreOf(s).id);
+  for (let i = 0; i < 3; i++) { GameSim.tick(s, 1); keepAlive(s); }
+  const saving = GameSim.cdnTransitSavingMbps(s);
+  const transitAfter = GameSim.monthlyTransitCost(s);
+  check('117b گره کش هزینهٔ ترانزیت منطقهٔ تحت پوشش را کم می‌کند', d.cdnServed === true && saving > 0 && transitAfter < transitBefore,
+    'cdnServed=' + d.cdnServed + ' saving=' + Math.round(saving) + ' before=' + transitBefore + ' after=' + transitAfter);
+  check('117c تأخیر منطقهٔ تحت پوشش کش کمتر می‌شود', (d.avgLatency || 0) < latBefore,
+    'latBefore=' + latBefore.toFixed(1) + ' latAfter=' + (d.avgLatency || 0).toFixed(1));
+  const names = GameSim.cdnServedDistricts(s, cdn.id);
+  const farD = s.districts.find(x => Math.hypot(x.x - cdn.x, x.y - cdn.y) > 3000);
+  check('117d پنل گره کش مناطق تحت پوشش را نشان می‌دهد و منطقهٔ دور پوشش ندارد',
+    names.includes(d.name) && farD && farD.cdnServed !== true,
+    'names=' + names.length + ' far=' + (farD && farD.id) + ' farServed=' + (farD && farD.cdnServed));
+}
+
+// ---------- 118: پروژه‌های عمرانی شهرداری (مورد ۲۱) ----------
+{
+  const s = GameSim.newGame(42);
+  const d = s.districts.find(x => x.id === 'center');
+  const pop0 = d.population;
+  s.cityProjects.push({ id: 'prT', typeId: 'metro', name: 'ایستگاه مترو', districtId: d.id, startDay: 1, endDay: 5, phase: 'building' });
+  const fBuild = GameSim.projectDemandFactor(s, d);
+  check('118a حین ساخت پروژه تقاضای منطقه موقتاً افت می‌کند (×۰٫۹۲)', Math.abs(fBuild - 0.92) < 1e-9, 'f=' + fBuild);
+  s.day = 5;
+  GameSim.tickCityProjects(s, 1, []);
+  const fDone = GameSim.projectDemandFactor(s, d);
+  const p = s.cityProjects.find(x => x.id === 'prT');
+  check('118b بعد از اتمام پروژه جمعیت (+۱۲٪) و تقاضا (+۱۵٪) منطقه برای همیشه بیشتر می‌شود',
+    p.phase === 'done' && d.population === Math.round(pop0 * 1.12) && Math.abs(fDone - 1.15) < 1e-9 && d.projectsDone === 1,
+    'phase=' + p.phase + ' pop=' + d.population + '/' + pop0 + ' f=' + fDone);
+  check('118c اتمام پروژه در لاگ رویداد اعلام می‌شود', s.log.some(e => e.kind === 'event' && /ایستگاه مترو/.test(e.msg || '')),
+    'log=' + s.log.length);
+  // 118d شروع خودکار: در ۶۰۰ روز دست‌کم یک پروژه شروع می‌شود و هم‌زمان‌ها از ۳ بیشتر نمی‌شوند
+  const s2 = GameSim.newGame(42);
+  let maxActive = 0;
+  for (let day = 1; day <= 600; day++) {
+    s2.day = day;
+    GameSim.tickCityProjects(s2, 1, []);
+    maxActive = Math.max(maxActive, s2.cityProjects.filter(x => x.phase === 'building').length);
+  }
+  check('118d پروژه‌ها خودکار شروع می‌شوند و حداکثر ۳ پروژه هم‌زمان فعال است',
+    s2.counters.project >= 1 && maxActive <= 3,
+    'started=' + s2.counters.project + ' maxActive=' + maxActive);
+}
+
+// ---------- 119: مهاجرت جمعیت (مورد ۲۲) ----------
+{
+  const s = GameSim.newGame(42); // فقط مرکز و حاشیهٔ شمالی بازند
+  const c = s.districts.find(x => x.id === 'center');
+  const n = s.districts.find(x => x.id === 'north');
+  const locked = s.districts.find(x => x.unlocked === false);
+  c.satisfaction = 90; c.potentialQos = 1;
+  n.satisfaction = 10; n.potentialQos = 0.1;
+  const c0 = c.population, n0 = n.population, l0 = locked.population;
+  GameSim.runMigration(s);
+  check('119a مهاجرت جمعیت را به منطقهٔ خوب‌سرویس می‌برد و مجموع را حفظ می‌کند',
+    c.population > c0 && n.population < n0 && (c.population + n.population) === (c0 + n0),
+    'c=' + c0 + '→' + c.population + ' n=' + n0 + '→' + n.population);
+  check('119b مناطق قفل‌شده در مهاجرت شرکت نمی‌کنند', locked.population === l0 && !locked.popTrend,
+    'locked=' + l0 + '→' + locked.population);
+  check('119c روند جمعیت برای پنل منطقه ثبت می‌شود', c.popTrend > 0 && n.popTrend < 0,
+    'cTrend=' + c.popTrend + ' nTrend=' + n.popTrend);
+  // 119d مهاجرت در حساب ماهانهٔ تیک اجرا می‌شود
+  const s2 = GameSim.newGame(42); s2.cash = 999999;
+  const c2 = s2.districts.find(x => x.id === 'center');
+  const t2 = GameSim.buildNode(s2, 'cell_2g', c2.x, c2.y);
+  finishBuild(s2, t2); connectTower(s2, t2.id, coreOf(s2).id, 'copper');
+  for (let i = 0; i < 35; i++) { GameSim.tick(s2, 1); keepAlive(s2); }
+  check('119d مهاجرت ماهانه داخل تیک اجرا و روند ثبت می‌شود', s2.districts.some(x => x.popTrend != null && x.popTrend !== 0),
+    'trends=' + s2.districts.filter(x => x.popTrend).map(x => x.id + ':' + x.popTrend).join(','));
+}
+
+// ---------- 120: کسب‌وکارهای آنلاین محلی (مورد ۲۳) ----------
+{
+  const s = newGameAll(42);
+  const d = s.districts.find(x => x.id === 'center');
+  d.qos = 0.8; d.satisfaction = 70;
+  for (let i = 0; i < 60; i++) GameSim.updateOnlineBiz(s, d);
+  const cap = GameSim.onlineBizCap(d);
+  check('120a در منطقهٔ خوب‌سرویس کسب‌وکارهای آنلاین شکل می‌گیرند (تا سقف)',
+    d.onlineBiz > 0 && d.onlineBiz <= cap && GameSim.onlineBizDemandFactor(d) > 1 && GameSim.onlineBizRevenueFactor(d) > 1,
+    'biz=' + d.onlineBiz + ' cap=' + cap);
+  const bizBefore = d.onlineBiz;
+  d.qos = 0.1;
+  for (let i = 0; i < 30; i++) GameSim.updateOnlineBiz(s, d);
+  check('120b با بدشدن سرویس کسب‌وکارهای آنلاین کم می‌شوند', d.onlineBiz < bizBefore,
+    'before=' + bizBefore + ' after=' + d.onlineBiz);
+  const res = { type: 'residential', population: 8000 }, com = { type: 'commercial', population: 8000 };
+  check('120c سقف کسب‌وکار در مناطق تجاری بیشتر از مسکونی است و اثرها سقف دارند',
+    GameSim.onlineBizCap(com) > GameSim.onlineBizCap(res) &&
+    GameSim.onlineBizDemandFactor({ onlineBiz: 9999 }) <= 1.5 && GameSim.onlineBizRevenueFactor({ onlineBiz: 9999 }) <= 1.3,
+    'comCap=' + GameSim.onlineBizCap(com) + ' resCap=' + GameSim.onlineBizCap(res));
+}
+
+// ---------- 121: نقشه‌ها و بذرهای متنوع (مورد ۴۳) ----------
+{
+  const MapGen = require('../js/mapgen.js');
+  const riverMean = (m) => m.river.reduce((a, p) => a + p.x, 0) / m.river.length;
+  const mRiver = MapGen.generate(7, 'river');
+  const mCoast = MapGen.generate(7, 'coast');
+  const mCentral = MapGen.generate(7, 'central');
+  check('121a قالب‌های مختلف نقشه‌های واقعاً متفاوت می‌سازند (مسیر رودخانه)',
+    Math.abs(riverMean(mRiver) - riverMean(mCoast)) > 1000 && Math.abs(riverMean(mRiver) - riverMean(mCentral)) > 500,
+    'river=' + Math.round(riverMean(mRiver)) + ' coast=' + Math.round(riverMean(mCoast)) + ' central=' + Math.round(riverMean(mCentral)));
+  const m1 = MapGen.generate(7, 'central'), m2 = MapGen.generate(7, 'central');
+  check('121b همان قالب+بذر همیشه همان نقشه را می‌سازد (قطعی)',
+    JSON.stringify(m1) === JSON.stringify(m2), '');
+  const mDef = MapGen.generate(42), mRiver42 = MapGen.generate(42, 'river');
+  check('121c قالب پیش‌فرض همان نقشهٔ قبلی است (بذرهای قدیمی عوض نمی‌شوند)',
+    JSON.stringify(mDef) === JSON.stringify(mRiver42), '');
+  const g1 = GameSim.newGame(7, { preset: 'desert' });
+  const g2 = GameSim.newGame(7, { preset: 'ناموجود' });
+  const g3 = GameSim.newGame(7);
+  check('121d بازی جدید قالب را نگه می‌دارد و قالب نامعتبر به پیش‌فرض برمی‌گردد',
+    g1.mapPreset === 'desert' && g2.mapPreset === 'river' && g3.mapPreset === 'river',
+    'g1=' + g1.mapPreset + ' g2=' + g2.mapPreset + ' g3=' + g3.mapPreset);
+}
+
+// ---------- 122: ذخیرهٔ قدیمی با فیلدهای جدید ----------
+{
+  const s = GameSim.newGame(42);
+  for (let i = 0; i < 5; i++) GameSim.tick(s, 1);
+  const raw = JSON.parse(GameSim.saveGame(s));
+  delete raw.cityProjects; delete raw.mapPreset; delete raw.counters.project;
+  for (const d of raw.districts) {
+    delete d.basePopulation; delete d.popTrend; delete d.onlineBiz; delete d.onlineBizF;
+    delete d.projectDemandBoost; delete d.projectsDone; delete d.cdnServed;
+  }
+  const loaded = GameSim.loadGame(JSON.stringify(raw));
+  let ok = true;
+  try { for (let i = 0; i < 35; i++) GameSim.tick(loaded, 1); } catch (e) { ok = false; }
+  const d = loaded.districts.find(x => x.id === 'center');
+  check('122 ذخیرهٔ قدیمی (بدون فیلدهای جدید) بارگذاری و تیک می‌خورد و فیلدها پیش‌فرض می‌گیرند',
+    ok && Array.isArray(loaded.cityProjects) && loaded.mapPreset === 'river' && d.basePopulation > 0 &&
+    d.onlineBiz != null && d.projectDemandBoost != null && loaded.counters.project != null,
+    'ok=' + ok + ' preset=' + loaded.mapPreset + ' basePop=' + d.basePopulation);
 }
 
 console.log('\nنتیجه: ' + pass + ' پاس، ' + fail + ' رد');
