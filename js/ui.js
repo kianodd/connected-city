@@ -1763,12 +1763,45 @@
   function renderAlerts() {
     var probs = (state && state.problems) || [];
     $('alerts-body').innerHTML = probs.length ? probs.map(function (p) {
-      return '<div class="alert-item"><strong>' + ICONS.warn + ' ' + esc(p.title || 'مشکل') + '</strong><br>' + esc(p.message || '') +
-        (p.fixOptions && p.fixOptions.length ? '<br><span class="muted">راه‌حل: ' + esc(p.fixOptions.map(function (f) { return f.label || ''; }).filter(Boolean).join('، ')) + '</span>' : '') +
+      var hasBn = p.bottlenecks && p.bottlenecks.length;
+      var bnHtml = hasBn ? '<div class="bn-list">' + p.bottlenecks.map(function (b) {
+        var target = b.kind === 'link' ? 'data-bn-link="' + esc(b.linkId) + '"' : 'data-bn-node="' + esc(b.nodeId) + '"';
+        return '<button class="bn-item" ' + target + '>' +
+          '<span class="bn-name">' + esc(b.name || '') + (b.where ? ' — ' + esc(b.where) : '') + '</span>' +
+          '<span class="bn-util">مصرف ' + faDigits(b.utilPct) + '٪ ظرفیت</span>' +
+          '<span class="bn-fix">' + esc(b.fixText || '') + '</span></button>';
+      }).join('') + (p.bottleneckMore ? '<div class="muted">و ' + faDigits(p.bottleneckMore) + ' گلوگاه دیگر</div>' : '') + '</div>' : '';
+      return '<div class="alert-item"><strong>' + ICONS.warn + ' ' + esc(p.title || 'مشکل') + '</strong><br>' + esc(p.message || '') + bnHtml +
+        (!hasBn && p.fixOptions && p.fixOptions.length ? '<br><span class="muted">راه‌حل: ' + esc(p.fixOptions.map(function (f) { return f.label || ''; }).filter(Boolean).join('، ')) + '</span>' : '') +
         (p.nodeId != null ? '<br><button class="btn sm" data-goto="' + esc(p.nodeId) + '">مشاهده گره</button>' : '') + '</div>';
     }).join('') : '<p class="muted">هشداری وجود ندارد. شبکه سالم است. ' + ICONS.check + '</p>';
     $('alerts-body').querySelectorAll('[data-goto]').forEach(function (b) {
       b.addEventListener('click', function () { selectNode(b.getAttribute('data-goto')); $('alerts-drawer').classList.add('hidden'); });
+    });
+    // ضربه روی گلوگاه: دوربین روی همان گره/لینک می‌رود و پنلش باز می‌شود (جای اقدام رفع همان‌جاست)
+    $('alerts-body').querySelectorAll('[data-bn-node]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var id = b.getAttribute('data-bn-node');
+        var n = (state.nodes || []).find(function (x) { return String(x.id) === String(id); });
+        if (n && window.CityMap && CityMap.panTo) { CityMap.panTo(n.x, n.y); if (CityMap.zoomTo) CityMap.zoomTo(0.8); }
+        if (window.CityMap && CityMap.setSelected) CityMap.setSelected('node', id);
+        selectNode(id);
+        $('alerts-drawer').classList.add('hidden');
+      });
+    });
+    $('alerts-body').querySelectorAll('[data-bn-link]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var id = b.getAttribute('data-bn-link');
+        var l = (state.links || []).find(function (x) { return String(x.id) === String(id); });
+        if (l && window.CityMap && CityMap.panTo) {
+          var a = (state.nodes || []).find(function (x) { return String(x.id) === String(l.from); });
+          var c = (state.nodes || []).find(function (x) { return String(x.id) === String(l.to); });
+          if (a && c) { CityMap.panTo((a.x + c.x) / 2, (a.y + c.y) / 2); if (CityMap.zoomTo) CityMap.zoomTo(0.8); }
+        }
+        if (window.CityMap && CityMap.setSelected) CityMap.setSelected('link', id);
+        selectNode(id, 'link');
+        $('alerts-drawer').classList.add('hidden');
+      });
     });
   }
 
