@@ -2313,17 +2313,114 @@
     }
     return best;
   }
-  function commuteRoutePoints(a, b, n) {
-    // مسیر Lشکل (اول افقی بعد عمودی) — همان مسیر پالس‌های نقشه
-    const pts = [];
-    const steps = Math.max(2, n || 8);
-    for (let i = 0; i <= steps; i++) {
-      const t = i / steps;
-      pts.push(t < 0.5
-        ? { x: a.x + (b.x - a.x) * (t * 2), y: a.y }
-        : { x: b.x, y: a.y + (b.y - a.y) * ((t - 0.5) * 2) });
+  // ---------- مسیر خیابانی رفت‌وآمد: از ساختمان تا ساختمان، روی شبکهٔ خیابان‌ها ----------
+  const _commutePathCache = new WeakMap(); // state -> Map('aId|bId' -> waypoints)
+  const _districtBuildingsCache = new WeakMap(); // state -> {count, byDistrict}
+  function buildingCenterOf(b) {
+    return { x: b.x + (b.w || 26) / 2, y: b.y + (b.h || 20) / 2 };
+  }
+  function riverXAtYSim(river, y) {
+    if (!river || !river.length) return -1e9;
+    for (let i = 0; i < river.length - 1; i++) {
+      const a = river[i], b = river[i + 1];
+      if (y >= a.y && y <= b.y) {
+        const t = (b.y - a.y) ? (y - a.y) / (b.y - a.y) : 0;
+        return a.x + (b.x - a.x) * t;
+      }
+    }
+    return y < river[0].y ? river[0].x : river[river.length - 1].x;
+  }
+  function nearestRoadLine(lines, v) {
+    let lo = 0, hi = lines.length - 1;
+    if (v <= lines[0]) return lines[0];
+    if (v >= lines[hi]) return lines[hi];
+    while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (lines[mid] <= v) lo = mid; else hi = mid; }
+    return (v - lines[lo] <= lines[hi] - v) ? lines[lo] : lines[hi];
+  }
+  // مسیر منهتنی روی خیابان‌ها از نقطهٔ a تا b: نقاط میانی همه روی خطوط خیابان‌اند
+  // و عبور از رودخانه فقط از روی پل‌ها انجام می‌شود (خیابان‌ها در ساحل قطع می‌شوند).
+  function commuteRoadPath(state, a, b) {
+    const A = { x: a.x, y: a.y }, B = { x: b.x, y: b.y };
+    const m = state && state.map, roads = m && m.roads;
+    if (!roads || !roads.v || !roads.h || !roads.v.length || !roads.h.length) {
+      return [A, { x: B.x, y: A.y }, B]; // ذخیرهٔ قدیمی بدون دادهٔ خیابان: مسیر L ساده
+    }
+    const river = m.river || null, bridges = m.bridges || [];
+    const BAND = 50;
+    const rx = (y) => riverXAtYSim(river, y);
+    const clearV = (x, y1, y2) => {
+      const cand = roads.v.slice().sort((p, q) => Math.abs(p - x) - Math.abs(q - x)).slice(0, 6);
+      for (const vx of cand) {
+        let ok = true;
+        for (const yy of [y1, y2, (y1 + y2) / 2]) if (Math.abs(vx - rx(yy)) < BAND) { ok = false; break; }
+        if (ok) return vx;
+      }
+      return nearestRoadLine(roads.v, x);
+    };
+    const ay = nearestRoadLine(roads.h, A.y), by = nearestRoadLine(roads.h, B.y);
+    const ax0 = nearestRoadLine(roads.v, A.x), bx0 = nearestRoadLine(roads.v, B.x);
+    const crossRiver = river && bridges.length && ((ax0 < rx(ay)) !== (bx0 < rx(by)));
+    let bY = null;
+    if (crossRiver) {
+      const midY = (ay + by) / 2; let bd = Infinity;
+      for (const y of bridges) { const dd = Math.abs(y - midY); if (dd < bd) { bd = dd; bY = y; } }
+    }
+    const ax = clearV(A.x, Math.min(A.y, ay, bY == null ? by : bY), Math.max(A.y, ay, bY == null ? by : bY));
+    const bx = clearV(B.x, Math.min(B.y, by, bY == null ? by : bY), Math.max(B.y, by, bY == null ? by : bY));
+    const pts = [A, { x: ax, y: A.y }, { x: ax, y: ay }];
+    if (bY != null) pts.push({ x: ax, y: bY }, { x: bx, y: bY }, { x: bx, y: by });
+    else pts.push({ x: ax, y: by }, { x: bx, y: by });
+    pts.push({ x: bx, y: B.y }, B);
+    return pts.filter((p, i) => i === 0 || p.x !== pts[i - 1].x || p.y !== pts[i - 1].y);
+  }
+  function pathPointAt(pts, t) {
+    let total = 0; const lens = [];
+    for (let i = 1; i < pts.length; i++) { const L = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y); lens.push(L); total += L; }
+    if (total <= 0) return { x: pts[0].x, y: pts[0].y };
+    let d = clamp(t, 0, 1) * total;
+    for (let i = 0; i < lens.length; i++) {
+      if (d <= lens[i] || i === lens.length - 1) {
+        const f = lens[i] > 0 ? d / lens[i] : 0;
+        return { x: pts[i].x + (pts[i + 1].x - pts[i].x) * f, y: pts[i].y + (pts[i + 1].y - pts[i].y) * f };
+      }
+      d -= lens[i];
+    }
+    return { x: pts[pts.length - 1].x, y: pts[pts.length - 1].y };
+  }
+  function commuteRoutePoints(state, a, b, n) {
+    // نمونه‌برداری یکنواخت روی مسیر خیابانی (برای پوشش مسیر و تست)
+    const pts = commuteRoadPath(state, a, b);
+    const steps = Math.max(2, n || 8), out = [];
+    for (let i = 0; i <= steps; i++) out.push(pathPointAt(pts, i / steps));
+    return out;
+  }
+  function cachedCommutePath(state, aB, bB) {
+    let cache = _commutePathCache.get(state);
+    if (!cache) { cache = new Map(); _commutePathCache.set(state, cache); }
+    const key = aB.id + '|' + bB.id;
+    let pts = cache.get(key);
+    if (!pts) {
+      pts = commuteRoadPath(state, buildingCenterOf(aB), buildingCenterOf(bB));
+      if (cache.size > 4000) cache.clear();
+      cache.set(key, pts);
     }
     return pts;
+  }
+  function districtBuildingLists(state) {
+    const bs = state.buildings || [];
+    const c = _districtBuildingsCache.get(state);
+    if (c && c.count === bs.length) return c.byDistrict;
+    const byDistrict = new Map();
+    for (const b of bs) {
+      if (!b.districtId) continue;
+      let e = byDistrict.get(b.districtId);
+      if (!e) { e = { res: [], work: [], leisure: [] }; byDistrict.set(b.districtId, e); }
+      if (b.type === 'residential') e.res.push(b);
+      else if (b.type === 'commercial') { e.work.push(b); e.leisure.push(b); }
+      else if (b.type === 'office' || b.type === 'industrial') e.work.push(b);
+    }
+    _districtBuildingsCache.set(state, { count: bs.length, byDistrict });
+    return byDistrict;
   }
   function pointCellularCovered(state, x, y) {
     for (const n of (state.nodes || [])) {
@@ -2336,7 +2433,12 @@
     if (!d || d.type !== 'residential') return null;
     const work = nearestWorkDistrict(state, d);
     if (!work) return null;
-    const pts = commuteRoutePoints(d, work, 8);
+    // پوشش روی همان مسیر خیابانیِ ساختمان‌به‌ساختمان نمونه‌برداری می‌شود
+    const lists = districtBuildingLists(state);
+    const hb = ((lists.get(d.id) || {}).res || [])[0];
+    const wb = ((lists.get(work.id) || {}).work || [])[0];
+    const A = hb ? buildingCenterOf(hb) : d, B = wb ? buildingCenterOf(wb) : work;
+    const pts = commuteRoutePoints(state, A, B, 8);
     let covered = 0;
     for (const p of pts) if (pointCellularCovered(state, p.x, p.y)) covered++;
     return { coverage: covered / pts.length, workDistrict: work };
@@ -2383,10 +2485,14 @@
     }
     return best;
   }
-  function lPoint(a, b, t) { // نقطهٔ tام مسیر Lشکل (اول افقی بعد عمودی)
-    return t < 0.5
-      ? { x: a.x + (b.x - a.x) * (t * 2), y: a.y }
-      : { x: b.x, y: a.y + (b.y - a.y) * ((t - 0.5) * 2) };
+  function nearestLeisureDistrict(state, d) { // نزدیک‌ترین منطقهٔ تجاری (مقصد تفریحی: ساختمان‌های تجاری آن)
+    let best = null, bd = Infinity;
+    for (const w of (state.districts || [])) {
+      if (w.id === d.id || w.type !== 'commercial') continue;
+      const dd = dist(d.x, d.y, w.x, w.y);
+      if (dd < bd) { bd = dd; best = w; }
+    }
+    return best;
   }
   // پالس‌های فعال رفت‌وآمد در ساعت داده‌شده (پیش‌فرض: ساعت بازی).
   // هر پالس: مبدأ/مقصد تصادفیِ فاز، زمان شروع و سرعت تصادفی، و پوشش موبایل در نقطهٔ خودش.
@@ -2397,13 +2503,16 @@
     if (!ph || ph.fraction <= 0) return out;
     const phaseT = (h - ph.start) / Math.max(0.0001, ph.end - ph.start);
     const ds = (state.districts || []).filter(d => ['residential', 'dense', 'villa', 'slum', 'sparse', 'village'].includes(d.type) && d.unlocked !== false);
+    const lists = districtBuildingLists(state);
+    const isWorkPhase = (ph.dir === 'toWork' || ph.dir === 'toHome');
     let idx = 0;
     for (const d of ds) {
-      const dest = (ph.dir === 'toWork' || ph.dir === 'toHome')
-        ? nearestWorkDistrict(state, d) : nearestLeisureSpot(state, d);
-      if (dest) {
+      const destD = isWorkPhase ? nearestWorkDistrict(state, d) : nearestLeisureDistrict(state, d);
+      const homes = (lists.get(d.id) || {}).res || [];
+      const dests = destD ? (((lists.get(destD.id) || {})[isWorkPhase ? 'work' : 'leisure']) || []) : [];
+      // پالس‌ها فقط بین ساختمان‌های واقعی حرکت می‌کنند (نه مرکز منطقه یا فضای خالی)
+      if (destD && homes.length && dests.length) {
         const forward = (ph.dir === 'toWork' || ph.dir === 'toLeisure');
-        const A = forward ? d : dest, B = forward ? dest : d;
         for (let j = 0; j < 4; j++) {
           if (out.length >= COMMUTE_CAP) return out;
           if (commuteHash(idx, j, ph.start) >= ph.fraction) continue; // این نفر در این فاز در خانه می‌ماند
@@ -2411,8 +2520,12 @@
           const dur = 0.35 + commuteHash(idx, j + 57, ph.start) * 0.45; // سرعت تصادفی
           const t = (phaseT - offset) / dur;
           if (t < 0 || t > 1) continue;
-          const p = lPoint(A, B, t);
-          out.push({ x: p.x, y: p.y, phase: ph.id, dir: ph.dir, t, homeId: d.id, covered: pointCellularCovered(state, p.x, p.y) });
+          const hb = homes[Math.floor(commuteHash(idx, j + 101, ph.start) * homes.length) % homes.length];
+          const db = dests[Math.floor(commuteHash(idx, j + 131, ph.start) * dests.length) % dests.length];
+          const A = forward ? hb : db, B = forward ? db : hb;
+          // حرکت روی خیابان‌ها (مسیر کش‌شدهٔ ساختمان‌به‌ساختمان)
+          const p = pathPointAt(cachedCommutePath(state, A, B), t);
+          out.push({ x: p.x, y: p.y, phase: ph.id, dir: ph.dir, t, homeId: d.id, fromId: A.id, toId: B.id, covered: pointCellularCovered(state, p.x, p.y) });
         }
       }
       idx++;
@@ -3967,7 +4080,7 @@
     eraDemandMult, surveyPtP, mediumOptions, mediumUnlockYear,
     isRivalNode, ownerOf, rivalTick, RIVAL_PRICE, worldSize,
     districtUnlocked, districtUnlockCost, unlockDistrict, districtAtPoint, buildingResidents,
-    commuteCoverage, commuteRoutePoints, nearestWorkDistrict, pointCellularCovered,
+    commuteCoverage, commuteRoutePoints, commuteRoadPath, nearestWorkDistrict, pointCellularCovered,
     commutePhase, commutePulses, nearestLeisureSpot, COMMUTE_CAP,
     linkLatency, linkAttenuation, linkEffCapacity, ptpDistanceFactor, pingBetween, techJitter, pathLatency,
     refreshConnectivity, connectBuildingFiber, disconnectBuildingFiber, buildingFiberStatus, fiberDropFor,
