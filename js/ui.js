@@ -838,7 +838,12 @@
       var la = (state.nodes || []).find(function (x) { return String(x.id) === String(n.from); });
       var lb = (state.nodes || []).find(function (x) { return String(x.id) === String(n.to); });
       var medName = ((window.GAME_DATA && GAME_DATA.linkMedia && GAME_DATA.linkMedia[n.medium]) || {}).name || n.medium || 'ارتباطی';
-      var linkLevel = n.level || 1;
+      // لینک‌های موازی بین همین دو گره: ظرفیتشان با هم جمع می‌شود و ترافیک خودکار تقسیم می‌شود
+      var parallels = (state.links || []).filter(function (l) {
+        return (String(l.from) === String(n.from) && String(l.to) === String(n.to)) ||
+               (String(l.from) === String(n.to) && String(l.to) === String(n.from));
+      });
+      var parallelCap = parallels.reduce(function (s, l) { return s + (l.capacity || 0); }, 0);
       var linkMs = null, linkAtt = null;
       try {
         if (window.GameSim && GameSim.linkLatency) linkMs = Math.round(GameSim.linkLatency(n, la, lb) * 2 * 10) / 10;
@@ -848,8 +853,8 @@
         '<dt>نوع اتصال</dt><dd>' + esc(medName) + (n.isBackup ? ' (پشتیبان)' : '') + '</dd>' +
         '<dt>از</dt><dd>' + esc((la && la.name) || '—') + '</dd>' +
         '<dt>به</dt><dd>' + esc((lb && lb.name) || '—') + '</dd>' +
-        '<dt>سطح لینک</dt><dd>' + fmt(linkLevel) + ' از ' + fmt((window.GameSim && GameSim.LINK_MAX_LEVEL) || 5) + '</dd>' +
         '<dt>ظرفیت</dt><dd>' + fmt(n.capacity || 0) + ' Mbps</dd>' +
+        (parallels.length > 1 ? '<dt>لینک‌های موازی</dt><dd>' + fmt(parallels.length) + ' لینک — ظرفیت مجموع ' + fmt(parallelCap) + ' Mbps (تقسیم خودکار ترافیک)</dd>' : '') +
         '<dt>مصرف فعلی</dt><dd>' + fmt(Math.round(n.usage || 0)) + ' Mbps</dd>' +
         (linkMs != null ? '<dt>تأخیر (پینگ)</dt><dd>' + faDigits(String(linkMs)) + ' میلی‌ثانیه</dd>' : '') +
         (linkAtt != null && linkAtt < 1 ? '<dt>افت سیگنال</dt><dd>ظرفیت مؤثر ' + fmt(Math.round(linkAtt * 100)) + '٪ (مسیر بلند)</dd>' : '') +
@@ -859,7 +864,7 @@
         html += '<div class="warn-box">' + ICONS.warn + ' این مسیر بلند است و سیگنال از دست می‌دهد؛ یک «تقویت‌کننده سیگنال» در میانهٔ مسیر نصب کنید.</div>';
       }
       if (n.status === 'congested') {
-        html += '<div class="warn-box">' + ICONS.warn + ' این لینک اشباع شده است؛ ظرفیتش را ارتقا دهید یا لینک موازی بسازید.</div>';
+        html += '<div class="warn-box">' + ICONS.warn + ' این لینک اشباع شده است؛ یک لینک موازی بین همین دو گره بسازید یا روی گره‌های دو سر «ماژول افزایش ظرفیت» نصب کنید.</div>';
       }
       // تغییر نوع لینک
       var chOpts = [];
@@ -873,15 +878,8 @@
         });
         html += '</div>';
       }
-      // ارتقای ظرفیت + پشتیبان + قطع
-      var maxLevel = (window.GameSim && GameSim.LINK_MAX_LEVEL) || 5;
+      // پشتیبان + قطع (افزایش پهنای باند فقط با لینک موازی و ماژول گره است)
       html += '<div class="fix-btns" style="margin-top:10px">';
-      if (linkLevel < maxLevel && window.GameSim && GameSim.linkCapacityFor) {
-        var nextCap = GameSim.linkCapacityFor(n.medium, linkLevel + 1);
-        html += '<button class="btn sm primary" data-link-upgrade="' + esc(n.id) + '">ارتقای ظرفیت به ' + fmt(nextCap) + ' Mbps (آنی)</button>';
-      } else if (linkLevel >= maxLevel) {
-        html += '<span class="muted">لینک در حداکثر سطح است.</span>';
-      }
       html += '<button class="btn sm" data-link-backup="' + esc(n.id) + '">' + (n.isBackup ? 'تبدیل به لینک اصلی' : 'تبدیل به لینک پشتیبان') + '</button>';
       html += disconnectBtnHtml(n.id) + '</div>';
       box.innerHTML = html;
@@ -890,13 +888,6 @@
         btn.addEventListener('click', function () {
           var r = GameSim.changeLinkMedium(state, btn.getAttribute('data-link'), btn.getAttribute('data-link-medium'));
           toast(r && r.ok === false ? (r.error || 'تغییر انجام نشد.') : 'نوع لینک آنی تغییر کرد.', r && r.ok === false ? 'error' : 'success');
-          refresh();
-        });
-      });
-      box.querySelectorAll('[data-link-upgrade]').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-          var r = GameSim.upgradeLink(state, btn.getAttribute('data-link-upgrade'));
-          toast(r && r.ok === false ? (r.error || 'ارتقا انجام نشد.') : 'ظرفیت لینک آنی ارتقا یافت.', r && r.ok === false ? 'error' : 'success');
           refresh();
         });
       });
