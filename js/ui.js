@@ -134,7 +134,7 @@
       yearEl.textContent = y != null ? faDigits(String(y)) : '—';
     }
     $('ui-day').textContent = fmt(state.day || 1);
-    var sat = state.satisfaction != null ? Math.round(state.satisfaction) + '٪' : '—';
+    var sat = state.satisfaction != null ? faDigits(String(Math.round(state.satisfaction))) + '٪' : '—';
     $('ui-satisfaction').textContent = sat;
     // clock HH:MM from state.hour
     var clockEl = $('ui-clock');
@@ -1059,6 +1059,7 @@
             html += '<p>نصب‌شده: ' + modInfo.installed.map(function (m) { return esc(modNames[m] || m); }).join('، ') + '</p>';
           }
           modInfo.options.forEach(function (o) {
+            if (o.id === 'tdlte' && n.type !== 'cell_4g' && n.type !== 'cell_5g') return; // TD-LTE فقط روی دکل 4G/5G دیده می‌شود
             html += '<div class="module-row"><div><strong>' + esc(o.name) + '</strong>' +
               '<div class="muted">' + esc(o.desc) + '</div>' +
               '<div class="muted">هزینه: ' + fmt(o.cost) + ' تومان — ماهانه: ' + fmt(o.monthlyCost) + (o.installed ? ' — نصب‌شده: ' + fmt(o.installed) : '') + '</div></div>' +
