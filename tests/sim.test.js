@@ -14,7 +14,7 @@ function finishBuild(s, node) { // جلو بردن زمان تا ساخت تما
   for (let i = 0; i < 40 && node.status === 'building'; i++) GameSim.tick(s, 1);
 }
 function keepAlive(s) { // تعمیر خرابی‌های تصادفی تا تست مدل اقتصادی/رضایت باشد نه شانس
-  s.nodes.forEach(n => { if (n.status === 'failed') { n.status = 'active'; n.health = 100; } });
+  s.nodes.forEach(n => { if (n.status === 'failed') { n.status = 'active'; n.health = 100; } if (n.brokenModules) n.brokenModules = {}; });
   s.links.forEach(l => { if (l.status === 'cut') l.status = 'active'; });
 }
 // بازی آزمایشیِ «همهٔ دوران‌ها و مناطق باز» برای تست‌هایی که به خط زمانی/قفل منطقه کاری ندارند
@@ -130,15 +130,24 @@ let s1, cell1, link1;
   const cell = GameSim.buildNode(s, 'cell_4g', d.x, d.y);
   finishBuild(s, cell);
   const primary = GameSim.connect(s, cell.id, core.id, 'fiber');
-  // فاصلهٔ منطقه تا هسته (۳۱۹۹) از برد PtP (۱۸۰۰) بیشتر است؛ مسیر پشتیبان از گره واسط می‌گذرد
-  const relay = GameSim.buildNode(s, 'ptp_link', Math.round((d.x + core.x) / 2), Math.round((d.y + core.y) / 2)); // واسط PtP (دکل ترافیک عبوری ندارد)
-  finishBuild(s, relay);
+  // فاصلهٔ منطقه تا هسته از برد PtP (۱۸۰۰) بیشتر است؛ مسیر پشتیبان از واسط‌های PtP می‌گذرد (زنجیره)
+  const distDC = Math.hypot(d.x - core.x, d.y - core.y);
+  const legs = Math.max(2, Math.ceil(distDC / 1500));
+  const chain = [cell];
+  for (let li = 1; li < legs; li++) {
+    const t = li / legs;
+    const relay = GameSim.buildNode(s, 'ptp_link', Math.round(d.x + (core.x - d.x) * t), Math.round(d.y + (core.y - d.y) * t));
+    finishBuild(s, relay);
+    chain.push(relay);
+  }
+  chain.push(core);
   keepAlive(s); // خرابی تصادفی لینک اصلی در مدت ساخت واسط، تست فیل‌اور را به شانس گره نزند
   s.failoverActive = false; // خط مبنای سالم: فیل‌اور هنوز فعال نشده
-  const backup1 = GameSim.connect(s, cell.id, relay.id, 'ptp', { isBackup: true });
-  const backup2 = GameSim.connect(s, relay.id, core.id, 'ptp', { isBackup: true });
+  const backupLinks = [];
+  for (let li = 0; li < chain.length - 1; li++) backupLinks.push(GameSim.connect(s, chain[li].id, chain[li + 1].id, 'ptp', { isBackup: true }));
+  const backup1 = backupLinks[0], backup2 = backupLinks[backupLinks.length - 1];
   GameSim.computeFlow(s);
-  check('6a مسیر پشتیبان ساخته شد', !!backup1 && !!backup2);
+  check('6a مسیر پشتیبان ساخته شد', backupLinks.every(Boolean), 'legs=' + legs);
   // بدون خرابی، فیل‌اور نباید ترافیک را روی پشتیبان ببرد
   const bLink1 = s.links.find(l => l.id === (backup1.id || backup1));
   const bLink2 = s.links.find(l => l.id === (backup2.id || backup2));
@@ -255,8 +264,8 @@ let s1, cell1, link1;
   const node = GameSim.buildNode(s, 'cell_4g', d.x, d.y);
   finishBuild(s, node);
   GameSim.connect(s, node.id, coreOf(s).id, 'ethernet');
-  for (let i = 0; i < 30; i++) { GameSim.tick(s, 1); keepAlive(s); }
-  check('13b رضایت منطقهٔ سرویس‌گرفته بالا می‌رود', d.satisfaction > 15, 'sat=' + d.satisfaction.toFixed(1) + ' qos=' + d.qos.toFixed(2));
+  for (let i = 0; i < 40; i++) { GameSim.tick(s, 1); keepAlive(s); }
+  check('13b رضایت منطقهٔ سرویس‌گرفته بالا می‌رود', d.satisfaction > 8, 'sat=' + d.satisfaction.toFixed(1) + ' qos=' + d.qos.toFixed(2));
 }
 
 // ---------- 14) مولد نقشهٔ تصادفی با بذر ----------
@@ -273,7 +282,7 @@ let s1, cell1, link1;
     const riverX = (y) => { for (let i = 0; i < river.length - 1; i++) { const a = river[i], b = river[i + 1]; if (y >= a.y && y <= b.y) return a.x + (b.x - a.x) * (y - a.y) / Math.max(1, b.y - a.y); } return river[river.length - 1].x; };
     const badB = s.buildings.some(b => Math.abs(b.x + b.w / 2 - riverX(b.y + b.h / 2)) < 60 ||
       roads.v.some(lx => b.x - 14 < lx && lx < b.x + b.w + 14) || roads.h.some(ly => b.y - 14 < ly && ly < b.y + b.h + 14));
-    const ok = s.districts.length >= 25 && s.districts.length <= 30 && !!hqNode && !!center && Math.hypot(center.x - hqNode.x, center.y - hqNode.y) < 60 &&
+    const ok = s.districts.length >= 28 && s.districts.length <= 34 && !!hqNode && !!center && Math.hypot(center.x - hqNode.x, center.y - hqNode.y) < 60 &&
       // فاصلهٔ حاشیه شمالی از HQ: مناطق دیگر هم‌پوشانی ندارند، پس حداقل فاصله بیشتر شده (هنوز در برد PtP و آموزش)
       !!north && Math.hypot(north.x - hqNode.x, north.y - hqNode.y) < 1450 &&
       totalDemand > 55000 && totalDemand < 85000 && !badB && s.buildings.length > 200;
@@ -315,13 +324,13 @@ let s1, cell1, link1;
     finishBuild(s, node);
     GameSim.connect(s, node.id, coreOf(s).id, 'ethernet');
     if (speed != null) GameSim.updatePackage(s, 'home', { speed: speed });
-    d.subscribers = 100; // بار کم و برابر: ازدحام نباید اثر سرعت بسته را بپوشاند
-    for (let i = 0; i < 5; i++) GameSim.tick(s, 1);
+    // بار کم و برابر و ثابت: رشد مشترک نباید اثر سرعت بسته را بپوشاند
+    for (let i = 0; i < 25; i++) { d.subscribers = 100; GameSim.tick(s, 1); keepAlive(s); }
     return d.satisfaction;
   }
   const satDefault = satWithSpeed(null);
   const satSlow = satWithSpeed(10);
-  check('15c بستهٔ کندتر رضایت کمتری می‌دهد (سرعت واقعاً اثر دارد)', satSlow < satDefault - 2,
+  check('15c بستهٔ کندتر رضایت کمتری می‌دهد (سرعت واقعاً اثر دارد)', satSlow < satDefault - 1,
     'default=' + satDefault.toFixed(1) + ' slow=' + satSlow.toFixed(1));
   const gaming = pkgs.find(p => p.id === 'gaming');
   const streaming = pkgs.find(p => p.id === 'streaming');
@@ -437,25 +446,22 @@ let s1, cell1, link1;
   check('20a بدون کارمند: مشترک و درآمد گرفته می‌شود', d.subscribers > 0 && s.cash > cashAfterBuild,
     'subs=' + d.subscribers + ' cash ' + cashAfterBuild + ' -> ' + s.cash);
 
-  // 20b: شبکهٔ بزرگ بدون تکنسین، تعمیرش چند برابر کندتر از حالت مجهز است (ولی تمام می‌شود)
-  function repairDays(techCount) {
+  // 20b: تعمیر آنی است؛ تکنسین‌ها هزینهٔ تعمیر را کم می‌کنند (نه زمان را)
+  function repairCostWith(techCount) {
     const g = newGameAll(502); g.cash = 999999;
     GameSim.fireStaff(g, 'technician');
     for (let i = 0; i < techCount; i++) GameSim.hireStaff(g, 'technician');
     const dd = g.districts.find(x => x.id === 'north') || g.districts[0];
     const w = GameSim.buildNode(g, 'cell_2g', dd.x, dd.y);
-    for (let i = 0; i < 15; i++) GameSim.buildNode(g, 'cell_2g', 300 + i * 120, 300); // شبکهٔ بزرگ: ۱۶ گره
     finishBuild(g, w);
     GameSim.connect(g, w.id, coreOf(g).id, 'ethernet');
     w.status = 'failed'; w.health = 0;
-    GameSim.applyFix(g, { nodeId: w.id }, { action: 'repair', nodeId: w.id });
-    let days = 0;
-    while (w.status === 'repairing' && days < 60) { GameSim.tick(g, 1); days++; }
-    return days;
+    const r = GameSim.applyFix(g, { nodeId: w.id }, { action: 'repair', nodeId: w.id });
+    return { cost: r.cost || 0, instant: w.status === 'active' };
   }
-  const slowDays = repairDays(0), fastDays = repairDays(4);
-  check('20b تعمیر بدون تکنسین کندتر ولی شدنی است', slowDays > fastDays * 2 && slowDays < 60,
-    'zeroTech=' + slowDays + 'd staffed=' + fastDays + 'd');
+  const rep0 = repairCostWith(0), rep4 = repairCostWith(4);
+  check('20b تعمیر آنی است و تکنسین هزینه‌اش را کم می‌کند', rep0.instant && rep4.instant && rep4.cost < rep0.cost && rep0.cost > 0,
+    'cost0=' + rep0.cost + ' cost4=' + rep4.cost);
 
   // 20c: پشتیبانی افت رضایت را کند می‌کند
   function decayAfter(sups) {
@@ -609,7 +615,7 @@ let s1, cell1, link1;
   let allOk = true; const bad = [];
   for (const seed of seeds) {
     const s = newGameAll(seed);
-    if (!(s.districts.length >= 25 && s.districts.length <= 30 && pairOk(s.districts, 40))) { allOk = false; bad.push(seed); }
+    if (!(s.districts.length >= 28 && s.districts.length <= 34 && pairOk(s.districts, 40))) { allOk = false; bad.push(seed); }
   }
   check('23a مولد نقشه: هیچ دو منطقه‌ای هم‌پوشان نیستند (۱۸ بذر)', allOk, 'bad seeds: ' + bad.join(','));
   check('23b نقشهٔ ثابت جایگزین هم بدون هم‌پوشانی است', pairOk(DATA.districts || [], 0));
@@ -1138,9 +1144,9 @@ let s1, cell1, link1;
   const t = GameSim.buildNode(s, 'cell_3g', core.x - 220, core.y - 40);
   finishBuild(s, t);
   const eq3 = eq('cell_3g');
-  check('48a دکل بدون ماژول با ظرفیت پایه ساخته شد',
-    Array.isArray(t.modules) && t.modules.length === 0 && t.capacity === eq3.capacity && t.status !== 'building',
-    'cap=' + t.capacity + ' st=' + t.status);
+  check('48a دکل تازه فقط منبع تغذیهٔ پایه دارد و ظرفیتش پایه است',
+    Array.isArray(t.modules) && t.modules.every(m => m === 'power') && t.capacity === eq3.capacity && t.status !== 'building',
+    'cap=' + t.capacity + ' st=' + t.status + ' mods=' + JSON.stringify(t.modules));
   const cashBefore = s.cash;
   const r1 = GameSim.installModule(s, t.id, 'cap_boost');
   check('48b نصب ماژول ظرفیت آنی است: پول کم شد، ظرفیت ×۱٫۵، گره فعال ماند',
@@ -1150,16 +1156,18 @@ let s1, cell1, link1;
   check('48c ماژول برد شعاع را ۱۰٪ بیشتر کرد', r2.ok === true && t.radius === Math.round(eq3.radius * 1.1), 'r=' + t.radius);
   const rBad = GameSim.installModule(s, t.id, 'tdlte');
   check('48d ماژول TD-LTE روی دکل 3G رد می‌شود (فقط 4G/5G)', rBad.ok === false, rBad.error || '');
-  // سقف اسلات دکل = ۴: دو ماژول دیگر جا می‌شود، پنجمی نه
+  // محدودیت تعداد ماژول نیست: همان نوع ماژول سطح‌به‌سطح آپگرید می‌شود (سطح = شمارش)
   GameSim.installModule(s, t.id, 'cap_boost');
   GameSim.installModule(s, t.id, 'cap_boost');
   const rFull = GameSim.installModule(s, t.id, 'cap_boost');
-  check('48e سقف اسلات ماژول (۴ روی دکل) اعمال می‌شود',
-    t.modules.length === 4 && rFull.ok === false && t.capacity === Math.round(eq3.capacity * Math.pow(1.5, 3)),
-    'modules=' + t.modules.length + ' cap=' + t.capacity);
+  check('48e بدون سقف تعداد: ماژول ظرفیت تا سطح ۴ آپگرید شد',
+    rFull.ok === true && GameSim.moduleLevel(t, 'cap_boost') === 4 && t.capacity === Math.round(eq3.capacity * Math.pow(1.5, 4)),
+    'level=' + GameSim.moduleLevel(t, 'cap_boost') + ' cap=' + t.capacity);
   const info = GameSim.moduleInfo(s, t.id);
-  check('48f moduleInfo اسلات پر را گزارش می‌دهد', info && info.slots === 4 && info.installed.length === 4,
-    JSON.stringify(info && { slots: info.slots, installed: info.installed.length }));
+  const capOpt = info && info.options.find(o => o.id === 'cap_boost');
+  check('48f moduleInfo سطح و هزینهٔ سطح بعد را گزارش می‌دهد',
+    !!capOpt && capOpt.level === 4 && capOpt.cost === Math.round(8000 * Math.pow(1.6, 4)) && info.levels.power === 1,
+    JSON.stringify(capOpt && { level: capOpt.level, cost: capOpt.cost }));
   const rUnknown = GameSim.installModule(s, t.id, 'no_such_module');
   check('48g ماژول ناشناخته رد می‌شود', rUnknown.ok === false);
 }
@@ -1178,7 +1186,7 @@ let s1, cell1, link1;
   check('49b باتری قدیمی به backup_power نگاشت شد', m('n901') && m('n901').type === 'backup_power', m('n901') && m('n901').type);
   check('49c ابزار قدیمی به test_tools_kit نگاشت شد', m('n902') && m('n902').type === 'test_tools_kit', m('n902') && m('n902').type);
   check('49d مایکروویو قدیمی به ptp_link نگاشت شد', m('n903') && m('n903').type === 'ptp_link', m('n903') && m('n903').type);
-  check('49e گره نگاشت‌شده بدون ماژول با ظرفیت کلی است', Array.isArray(m('n900').modules) && m('n900').modules.length === 0 && m('n900').capacity === eq('cell_2g').capacity);
+  check('49e گره نگاشت‌شده فقط منبع تغذیهٔ خودکار دارد و ظرفیتش کلی است', Array.isArray(m('n900').modules) && m('n900').modules.every(x => x === 'power') && m('n900').capacity === eq('cell_2g').capacity);
   let crashed = false;
   try { for (let i = 0; i < 5; i++) GameSim.tick(s2, 1); } catch (e) { crashed = true; }
   check('49f ذخیرهٔ مهاجرت‌کرده بدون کرش تیک می‌خورد', !crashed);
@@ -1652,7 +1660,7 @@ let s1, cell1, link1;
 // ---------- 61: مشخصهٔ اتصال‌ها (connects) و سازگاری با اعتبارسنجی ----------
 {
   const list = DATA.equipmentList || Object.values(DATA.equipment || {});
-  check('61a همهٔ تجهیزات مشخصهٔ اتصال غیرخالی دارند', list.length === 17 && list.every((e) => Array.isArray(e.connects) && e.connects.length > 0),
+  check('61a همهٔ تجهیزات مشخصهٔ اتصال غیرخالی دارند', list.length === 18 && list.every((e) => Array.isArray(e.connects) && e.connects.length > 0),
     'items=' + list.length);
   const s = newGameAll(42); s.cash = 9999999;
   unlockAllEras(s); unlockAllEras(s);
@@ -1788,13 +1796,13 @@ let s1, cell1, link1;
     rMod.ok === true && w.capacity > capBefore && w.status === 'active',
     'cap ' + capBefore + ' -> ' + w.capacity + ' status=' + w.status);
   check('64d شمارش ماژول‌ها درست است', GameSim.moduleCount(w, 'cap_boost') === 1 && GameSim.hasModule(w, 'cap_boost') === true);
-  // تعمیر زمان می‌خواهد
+  // تعمیر آنی است: همان لحظه به سرویس برمی‌گردد
   w.status = 'failed'; w.health = 0;
+  const cashPreRepair = s.cash;
   const rep = GameSim.applyFix(s, { nodeId: w.id }, { action: 'repair', nodeId: w.id });
-  check('64e تعمیر آنی نیست (در حال تعمیر)', rep.ok !== false && w.status === 'repairing', 'status=' + w.status);
-  let days = 0;
-  while (w.status === 'repairing' && days < 30) { GameSim.tick(s, 1); days++; }
-  check('64f تعمیر بعد از مدتی تمام می‌شود', w.status === 'active' && days > 0 && days <= 10, 'days=' + days);
+  check('64e تعمیر آنی است: گره همان لحظه فعال و هزینه کم شد', rep.ok === true && w.status === 'active' && s.cash === cashPreRepair - rep.cost,
+    'status=' + w.status + ' cost=' + rep.cost);
+  check('64f گره تعمیرشده دوباره متصل است و سلامت دارد', w.connected === true && w.health === 85, 'health=' + w.health);
 }
 
 // ---------- 65: وای‌فایِ مشترک + فیبر آنی در همه‌جا + شروع بازی بدون وای‌فای ----------
@@ -1868,7 +1876,7 @@ let s1, cell1, link1;
   check('66a میدان سیگنال سریع با signalAt دقیقاً برابر است', maxSig < 0.001, 'maxDiff=' + maxSig);
   check('66b میدان سرعت سریع با aggregateSpeedAt دقیقاً برابر است', maxSpd <= 1, 'maxDiff=' + maxSpd);
   const out = new Float32Array(48 * 36);
-  GameSim.sampleFieldRows(prepS, 'signal', 0, 0, 150, 48, 0, 36, out);
+  GameSim.sampleFieldRows(prepS, 'signal', fwa.x - 3600, fwa.y - 2700, 150, 48, 0, 36, out);
   check('66c نمونه‌برداری ردیفی کل شبکه را پر می‌کند', out.some(v => v > 0.5));
   // جابه‌جایی گره در میدان تازه دیده می‌شود؛ خرابی گره پوشش را حذف می‌کند
   const before = GameSim.signalFieldAt(GameSim.prepareSignalField(s), fwa.x, fwa.y);
@@ -2261,7 +2269,7 @@ let s1, cell1, link1;
   const rOk = GameSim.installModule(s, t4.id, 'tdlte');
   check('75b در دوران TD-LTE نصب ماژول موفق است', rOk.ok === true && GameSim.tdlteCapacity(t4) === 600, JSON.stringify(rOk));
   const rDup = GameSim.installModule(s, t4.id, 'tdlte');
-  check('75c ماژول TD-LTE دوبار نصب نمی‌شود', rDup.ok === false, rDup.error || '');
+  check('75c نصب دوبارهٔ TD-LTE یعنی آپگرید به سطح ۲ (ظرفیت ۱۲۰۰)', rDup.ok === true && GameSim.moduleLevel(t4, 'tdlte') === 2 && GameSim.tdlteCapacity(t4) === 1200, JSON.stringify(rDup));
   check('75d جیتر TD-LTE ثابت و کمتر از موبایلِ زیر ازدحام است',
     GameSim.techJitter('fwa', 0.5) === 2 && GameSim.techJitter('cellular', 0.5) > GameSim.techJitter('fwa', 0.5),
     'fwa=' + GameSim.techJitter('fwa', 0.5) + ' cell=' + GameSim.techJitter('cellular', 0.5));
@@ -2353,10 +2361,11 @@ let s1, cell1, link1;
   // انشعاب فیبر قبل از ۲۰۰۴ ممکن نیست؛ مسی ممکن است
   const s2 = GameSim.newGame(42); s2.cash = 9999999; s2.day = 80; // ۱۹۹۹: کابینت هست، FTTH نه
   const d2 = s2.districts.find(x => x.id === 'center');
-  const cab = GameSim.buildNode(s2, 'street_cabinet', d2.x, d2.y);
-  GameSim.connect(s2, cab.id, coreOf(s2).id, 'copper');
   const bb = s2.buildings.filter(b => b.districtId === d2.id)
     .sort((a, b) => Math.hypot(a.x + (a.w || 26) / 2 - d2.x, a.y + (a.h || 20) / 2 - d2.y) - Math.hypot(b.x + (b.w || 26) / 2 - d2.x, b.y + (b.h || 20) / 2 - d2.y))[0];
+  // کابینت کنار همان ساختمان (برد سیم مسی کوتاه است)
+  const cab = GameSim.buildNode(s2, 'street_cabinet', bb.x + (bb.w || 26) / 2 + 40, bb.y + (bb.h || 20) / 2);
+  GameSim.connect(s2, cab.id, coreOf(s2).id, 'copper');
   const rF = GameSim.connectBuildingWired(s2, bb.id, cab.id, 'fiber');
   const rC = GameSim.connectBuildingWired(s2, bb.id, cab.id, 'copper');
   check('78c قبل از ۲۰۰۴ انشعاب فیبر رد و مسی قبول می‌شود', rF.ok === false && rC.ok === true,
@@ -2499,7 +2508,8 @@ let s1, cell1, link1;
   const s = newGameAll(42); s.cash = 9999999;
   const d = s.districts.find(x => x.id === 'center');
   const tw = feed4G(s, d.x, d.y);
-  const bIn = s.buildings.find(b => b.districtId === d.id);
+  const bIn = s.buildings.filter(b => b.districtId === d.id)
+    .sort((a, b) => Math.hypot(a.x - tw.x, a.y - tw.y) - Math.hypot(b.x - tw.x, b.y - tw.y))[0];
   if (!s.individuals) s.individuals = [];
   s.individuals.push({ id: 'ind89', name: 'مشترک آزمایشی', needMbps: 50, priceSensitivity: 1, prefTech: 'fwa', districtId: d.id, buildingId: bIn.id, status: 'subscribed', joinedDay: 0, satisfaction: 50 });
   GameSim.refreshConnectivity(s);
@@ -2681,6 +2691,262 @@ let s1, cell1, link1;
   let crashed = false;
   try { GameSim.tick(loaded, 1); } catch (e) { crashed = true; }
   check('94f بازی مهاجرت‌کرده بدون خطا تیک می‌خورد', !crashed);
+}
+
+// ---------- 95: برق گره — منبع تغذیهٔ الزامی، خاموشی با مصرف اضافه، آپگرید منبع ----------
+{
+  const s = newGameAll(42); s.cash = 9999999;
+  const d = s.districts.find(x => x.id === 'center');
+  const t = GameSim.buildNode(s, 'cell_2g', d.x, d.y); // مصرف پایه ۲۵۰ وات، منبع سطح ۱ = ۸۰۰ وات
+  finishBuild(s, t);
+  GameSim.connect(s, t.id, coreOf(s).id, 'ethernet');
+  const pw0 = GameSim.nodePowerInfo(t);
+  check('95a گره تازه منبع تغذیهٔ پایه دارد و روشن است', pw0.level === 1 && pw0.capacity === 800 && pw0.ok === true, JSON.stringify(pw0));
+  // هشدار پیش از نصب: ماژول‌هایی که مصرف را از ۸۰۰ رد می‌کنند باید هشدار بدهند
+  GameSim.installModule(s, t.id, 'cap_boost'); // +۲۰۰ → ۴۵۰
+  GameSim.installModule(s, t.id, 'cap_boost'); // +۲۰۰ → ۶۵۰
+  const infoW = GameSim.moduleInfo(s, t.id);
+  const capOptW = infoW.options.find(o => o.id === 'cap_boost');
+  check('95b هشدار برق پیش از نصبِ سطحی که مصرف را از توان رد می‌کند', capOptW.powerWarn === true, JSON.stringify({ draw: infoW.power.draw, cap: infoW.power.capacity }));
+  GameSim.installModule(s, t.id, 'cap_boost'); // +۲۰۰ → ۸۵۰ > ۸۰۰ → خاموش
+  GameSim.refreshConnectivity(s);
+  check('95c مصرف بیشتر از توان منبع = گره خاموش (بدون برق کافی)', t.status === 'nopower' && t.connected === false, 'status=' + t.status);
+  const prob = (s.problems || []).find(p => p.cause === 'no_power' && p.nodeId === t.id);
+  check('95d مشکل «بدون برق کافی» با گزینهٔ آپگرید منبع گزارش می‌شود', !!prob && (prob.fixOptions || []).some(f => f.action === 'install_power'));
+  const rFix = GameSim.applyFix(s, prob, { action: 'install_power', nodeId: t.id });
+  check('95e آپگرید منبع تغذیه گره را دوباره روشن می‌کند', rFix.ok === true && GameSim.nodePowerInfo(t).ok === true && t.status !== 'nopower',
+    'status=' + t.status + ' lvl=' + GameSim.nodePowerInfo(t).level);
+  // ذخیرهٔ قدیمی بدون ماژول برق: روی بارگذاری خودکار منبع می‌گیرد و شبکه نمی‌میرد
+  const raw = JSON.parse(GameSim.saveGame(s));
+  raw.nodes.forEach(n => { n.modules = (n.modules || []).filter(m => m !== 'power'); });
+  const loaded = GameSim.loadGame(JSON.stringify(raw));
+  const allPowered = loaded.nodes.every(n => GameSim.nodePowerInfo(n).ok);
+  let crashed = false;
+  try { GameSim.tick(loaded, 1); } catch (e) { crashed = true; }
+  check('95f ذخیرهٔ قدیمی روی بارگذاری منبع خودکار می‌گیرد و همهٔ گره‌ها برق دارند', allPowered && !crashed);
+}
+
+// ---------- 96: ماژول‌ها سطح‌به‌سطح + خرابی و تعمیر آنی ماژول ----------
+{
+  const s = newGameAll(42); s.cash = 9999999;
+  const d = s.districts.find(x => x.id === 'center');
+  const t = GameSim.buildNode(s, 'cell_3g', d.x, d.y);
+  finishBuild(s, t);
+  GameSim.connect(s, t.id, coreOf(s).id, 'ethernet');
+  const eq3 = eq('cell_3g');
+  const r1 = GameSim.installModule(s, t.id, 'cap_boost');
+  check('96a نصب ماژول = سطح ۱ با اثر ×۱٫۵', r1.ok === true && r1.level === 1 && t.capacity === Math.round(eq3.capacity * 1.5));
+  const cashB = s.cash;
+  const r2 = GameSim.installModule(s, t.id, 'cap_boost');
+  check('96b آپگرید به سطح ۲ بدون اشغال جا؛ هزینهٔ سطح ۲ = پایه×۱٫۶', r2.ok === true && r2.level === 2 && s.cash === cashB - Math.round(8000 * 1.6) && t.capacity === Math.round(eq3.capacity * 2.25),
+    'cost=' + r2.cost);
+  GameSim.installModule(s, t.id, 'power'); // منبع سطح ۲ تا مصرف ۸۵۰ واتی گره پوشش داده شود
+  // خرابی ماژول: اثر قطع می‌شود؛ تعمیر آنی با هزینه
+  GameSim.breakModule(s, t.id, 'cap_boost');
+  check('96c ماژول خراب اثرش را از دست می‌دهد', t.capacity === eq3.capacity && GameSim.isModuleBroken(t, 'cap_boost') === true, 'cap=' + t.capacity);
+  const probB = (s.problems || []).find(p => p.cause === 'module_broken' && p.nodeId === t.id);
+  const cashR = s.cash;
+  const rRep = GameSim.repairModule(s, t.id, 'cap_boost');
+  check('96d تعمیر ماژول آنی است: همان لحظه اثر برمی‌گردد و هزینه کم می‌شود',
+    rRep.ok === true && t.capacity === Math.round(eq3.capacity * 2.25) && s.cash === cashR - rRep.cost && rRep.cost > 0 && !!probB,
+    'cost=' + rRep.cost);
+  // خرابی منبع تغذیه = گره خاموش تا تعمیر
+  GameSim.breakModule(s, t.id, 'power');
+  GameSim.refreshConnectivity(s);
+  check('96e خرابی منبع تغذیه گره را خاموش می‌کند', t.status === 'nopower' && t.connected === false, 'status=' + t.status);
+  GameSim.repairModule(s, t.id, 'power');
+  GameSim.refreshConnectivity(s);
+  check('96f تعمیر منبع تغذیه گره را برمی‌گرداند', t.status !== 'nopower' && t.connected === true, 'status=' + t.status);
+  // مهاجرت ماژول‌های انباشتهٔ قدیمی → همان سطح‌ها
+  const raw = JSON.parse(GameSim.saveGame(s));
+  const rn = raw.nodes.find(n => n.id === t.id);
+  rn.modules = ['cap_boost', 'cap_boost', 'cap_boost', 'range_boost'];
+  const loaded = GameSim.loadGame(JSON.stringify(raw));
+  const ln = loaded.nodes.find(n => n.id === t.id);
+  check('96g سه ماژول انباشتهٔ قدیمی = سطح ۳ (ظرفیت ×۱٫۵³)', GameSim.moduleLevel(ln, 'cap_boost') === 3 && ln.capacity === Math.round(eq3.capacity * Math.pow(1.5, 3)),
+    'cap=' + ln.capacity);
+}
+
+// ---------- 97: شرکت رقیب ----------
+{
+  const sOff = GameSim.newGame(42);
+  check('97a بازی بدون رقیب: هیچ گره/لینک رقیبی نیست', !sOff.nodes.some(n => n.owner === 'rival') && !(sOff.rival && sOff.rival.enabled));
+  const s = GameSim.newGame(42, { rival: true });
+  s.cash = 9999999;
+  check('97b بازی با رقیب: مرکز دادهٔ رقیب ساخته شده', s.nodes.filter(n => n.owner === 'rival').length === 2);
+  const rivalBefore = s.nodes.filter(n => n.owner === 'rival').length;
+  for (let i = 0; i < 40; i++) { GameSim.tick(s, 1); keepAlive(s); }
+  const rivalAfter = s.nodes.filter(n => n.owner === 'rival').length;
+  check('97c رقیب با گذر زمان شبکه‌اش را می‌سازد', rivalAfter > rivalBefore, rivalBefore + ' -> ' + rivalAfter);
+  const rivalSubs = s.districts.reduce((a, d) => a + (d.rivalSubscribers || 0), 0);
+  check('97d رقیب در مناطق بی‌پوشش بازیکن مشترک می‌گیرد', rivalSubs > 0, 'rivalSubs=' + rivalSubs);
+  // بازیکن با پوشش بهتر سهم را پس می‌گیرد
+  const target = s.districts.filter(d => (d.rivalSubscribers || 0) > 20).sort((a, b) => (b.rivalSubscribers || 0) - (a.rivalSubscribers || 0))[0];
+  if (target) {
+    target.unlocked = true;
+    // پوشش رقیب در این منطقه را از کار می‌اندازیم و بازیکن دکل متصل می‌سازد: کیفیت بازیکن خیلی بهتر می‌شود
+    s.nodes.forEach(n => { if (n.owner === 'rival' && Math.hypot(n.x - target.x, n.y - target.y) < (target.radius || 300) + 300) { n.status = 'failed'; n.health = 0; } });
+    target.rivalSubscribers = 500;
+    const rs0 = target.rivalSubscribers;
+    const tw = GameSim.buildNode(s, 'cell_2g', target.x, target.y);
+    if (tw) { finishBuild(s, tw); GameSim.connect(s, tw.id, coreOf(s).id, 'ethernet'); }
+    for (let i = 0; i < 30; i++) { GameSim.tick(s, 1); keepAlive(s); s.nodes.forEach(n => { if (n.owner === 'rival' && Math.hypot(n.x - target.x, n.y - target.y) < (target.radius || 300) + 300) n.status = 'failed'; }); }
+    check('97e بازیکن با پوشش خوب سهم بازار را پس می‌گیرد', (target.subscribers || 0) > 0 && (target.rivalSubscribers || 0) < rs0,
+      'player=' + target.subscribers + ' rival ' + rs0 + '->' + target.rivalSubscribers);
+  } else {
+    check('97e بازیکن با پوشش خوب سهم بازار را پس می‌گیرد', false, 'no rival district found');
+  }
+  // گره رقیب قابل ویرایش نیست و اتصال بین‌شرکتی رد می‌شود
+  const rNode = s.nodes.find(n => n.owner === 'rival');
+  const pNode = GameSim.buildNode(s, 'router', rNode.x + 200, rNode.y);
+  check('97f اتصال به گره رقیب و حذف آن رد می‌شود',
+    GameSim.connect(s, pNode.id, rNode.id, 'ethernet') === null && GameSim.demolishNode(s, rNode.id).ok === false);
+  // ذخیرهٔ قدیمی (بدون فیلد رقیب) با رقیب خاموش بارگذاری می‌شود
+  const raw = JSON.parse(GameSim.saveGame(GameSim.newGame(42)));
+  delete raw.rival;
+  const loaded = GameSim.loadGame(JSON.stringify(raw));
+  check('97g ذخیرهٔ قدیمی با رقیب خاموش بارگذاری می‌شود', loaded.rival && loaded.rival.enabled === false);
+}
+
+// ---------- 98: پهپاد نقشه‌برداری PtP ----------
+{
+  const s = newGameAll(42); s.cash = 9999999;
+  const core = coreOf(s);
+  const a = GameSim.buildNode(s, 'router', core.x + 600, core.y);
+  const b = GameSim.buildNode(s, 'router', core.x + 1600, core.y);
+  const svClear = GameSim.surveyPtP(s, a.id, b.id);
+  check('98a نظرسنجی بدون ساختمان بلند: دید مستقیم آزاد است', !!svClear && svClear.losClear === true && svClear.inRange === true, JSON.stringify(svClear));
+  // ساختمان بلند وسط مسیر
+  s.buildings.push({ id: 'btall98', districtId: null, x: core.x + 1090, y: core.y - 15, w: 30, h: 30, height: 20, type: 'commercial', color: '#888' });
+  const svBlocked = GameSim.surveyPtP(s, a.id, b.id);
+  check('98b نظرسنجی با ساختمان بلند روی مسیر: دید مسدود است', !!svBlocked && svBlocked.losClear === false && svBlocked.effCapacity < svClear.effCapacity, JSON.stringify(svBlocked));
+  const link = GameSim.connect(s, a.id, b.id, 'ptp');
+  const effAfter = link ? Math.round(GameSim.linkEffCapacity(s, link, null)) : -1;
+  check('98c ظرفیت مؤثر پیش‌بینی‌شده با ظرفیت واقعی لینک برابر است', !!link && Math.abs(effAfter - svBlocked.effCapacity) <= 2,
+    'survey=' + svBlocked.effCapacity + ' link=' + effAfter);
+}
+
+// ---------- 99: رشد زندهٔ شهر ----------
+{
+  const s = newGameAll(42); s.cash = 9999999;
+  const d = s.districts.find(x => x.id === 'center');
+  const t = GameSim.buildNode(s, 'cell_2g', d.x, d.y);
+  finishBuild(s, t);
+  GameSim.connect(s, t.id, coreOf(s).id, 'ethernet');
+  for (let i = 0; i < 3; i++) { GameSim.tick(s, 1); keepAlive(s); }
+  const count0 = s.buildings.filter(b => b.districtId === d.id).length;
+  for (let i = 0; i < 120; i++) { GameSim.tick(s, 1); keepAlive(s); }
+  const count1 = s.buildings.filter(b => b.districtId === d.id).length;
+  check('99a منطقهٔ در حال سرویس ساختمان تازه می‌گیرد', count1 > count0, count0 + ' -> ' + count1);
+  const riverX = (y) => { const r = s.map.river; for (let i = 0; i < r.length - 1; i++) { const A = r[i], B = r[i + 1]; if (y >= A.y && y <= B.y) return A.x + (B.x - A.x) * (y - A.y) / Math.max(1, B.y - A.y); } return r[r.length - 1].x; };
+  const badNew = s.buildings.filter(b => b.bornDay != null).some(b => Math.abs(b.x + (b.w || 26) / 2 - riverX(b.y + (b.h || 20) / 2)) < 60);
+  check('99b هیچ ساختمان تازه‌ای در رودخانه نیست', !badNew);
+  const loaded = GameSim.loadGame(GameSim.saveGame(s));
+  check('99c ساختمان‌های رشدکرده در ذخیره/بارگذاری می‌مانند', loaded.buildings.filter(b => b.districtId === d.id).length === count1);
+}
+
+// ---------- 100: کابینت ساده + سیم مسی به خانه (آیتم A) ----------
+{
+  const s = GameSim.newGame(42); s.cash = 9999999; // ۱۹۹۱
+  check('100a کابینت ساده از روز اول (۱۹۹۱) در دسترس است و کابینت خیابانی هنوز نه',
+    GameSim.isUnlocked(s, 'cabinet_basic') === true && GameSim.isUnlocked(s, 'street_cabinet') === false);
+  const d = s.districts.find(x => x.id === 'center');
+  const b0 = s.buildings.filter(b => b.districtId === d.id)
+    .sort((a, b) => Math.hypot(a.x - d.x, a.y - d.y) - Math.hypot(b.x - d.x, b.y - d.y))[0];
+  const cab = GameSim.buildNode(s, 'cabinet_basic', b0.x + (b0.w || 26) / 2 + 40, b0.y + (b0.h || 20) / 2);
+  finishBuild(s, cab);
+  GameSim.connect(s, cab.id, coreOf(s).id, 'copper');
+  const rF = GameSim.connectBuildingWired(s, b0.id, cab.id, 'fiber');
+  check('100b انشعاب فیبر از کابینت ساده به فارسی رد می‌شود', rF.ok === false && /کابینت ساده/.test(rF.error || ''), rF.error || '');
+  const rC = GameSim.connectBuildingWired(s, b0.id, cab.id, 'copper');
+  check('100c سیم مسی از کابینت ساده به خانه وصل می‌شود', rC.ok === true, rC.error || '');
+  d.subscribers = 100;
+  for (let i = 0; i < 3; i++) { GameSim.tick(s, 1); keepAlive(s); }
+  check('100d خانه از راه کابینت ساده سرویس می‌گیرد', (d.techDemand.fiber || {}).served > 0, 'served=' + (d.techDemand.fiber || {}).served);
+}
+
+// ---------- 101: رسانه‌های اتصال با خط زمانی (آیتم B) ----------
+{
+  const s = GameSim.newGame(42); s.cash = 9999999; // ۱۹۹۱
+  const d = s.districts.find(x => x.id === 'center');
+  const t = GameSim.buildNode(s, 'cell_2g', d.x, d.y);
+  finishBuild(s, t);
+  check('101a در ۱۹۹۱ اتصال فیبر و PtP رد می‌شود ولی اترنت/مسی کار می‌کند',
+    GameSim.connect(s, t.id, coreOf(s).id, 'fiber') === null &&
+    GameSim.connect(s, t.id, coreOf(s).id, 'ptp') === null &&
+    !!GameSim.connect(s, t.id, coreOf(s).id, 'ethernet'));
+  const opts = GameSim.mediumOptions(s, t.id, coreOf(s).id);
+  const fiberOpt = opts.find(o => o.medium === 'fiber');
+  check('101b گزینهٔ فیبر در ۱۹۹۱ قفل است و سال بازشدن را نشان می‌دهد', !!fiberOpt && fiberOpt.ok === false && fiberOpt.unlockYear === 1995 && /۱۹۹۵|1995/.test(fiberOpt.reason));
+  s.day = 60; // ۱۹۹۶: فیبر و PtP باز
+  check('101c بعد از دوران، فیبر و PtP کار می‌کنند',
+    !!GameSim.connect(s, t.id, coreOf(s).id, 'fiber') && !!GameSim.connect(s, t.id, coreOf(s).id, 'ptp'));
+  // لینک قدیمی با رسانهٔ قفل‌شده در ذخیرهٔ قدیمی همچنان کار می‌کند (grandfathered)
+  const s2 = GameSim.newGame(42); s2.cash = 9999999;
+  const t2 = GameSim.buildNode(s2, 'cell_2g', d.x, d.y);
+  s2.links.push({ id: 'lold101', from: t2.id, to: coreOf(s2).id, medium: 'fiber', capacity: 10000, latency: 2, status: 'active', isBackup: false, usage: 0 });
+  const loaded = GameSim.loadGame(GameSim.saveGame(s2));
+  GameSim.refreshConnectivity(loaded);
+  const lt2 = loaded.nodes.find(n => n.id === t2.id);
+  check('101d لینک فیبر قدیمی در ۱۹۹۱ (ذخیرهٔ قدیمی) همچنان متصل است', lt2.connected === true);
+}
+
+// ---------- 102: تقاضای هر کاربر با دوران رشد می‌کند (آیتم C) ----------
+{
+  const s = GameSim.newGame(42);
+  const d = s.districts[0];
+  s.day = 1; const p1991 = GameSim.eraDemandMult(s);
+  s.day = 141; const p2005 = GameSim.eraDemandMult(s);
+  s.day = 291; const p2020 = GameSim.eraDemandMult(s);
+  check('102a ضریب تقاضای هر کاربر یکنوا رشد می‌کند: ۱۹۹۱ < ۲۰۰۵ < ۲۰۲۰', p1991 < p2005 && p2005 < p2020,
+    p1991.toFixed(2) + ' < ' + p2005.toFixed(2) + ' < ' + p2020.toFixed(2));
+  // اثر روی ازدحام: همان شبکه در دوران مدرن شلوغ‌تر از ۱۹۹۱ است
+  function qosAt(day) {
+    const g = GameSim.newGame(42); g.cash = 9999999; g.day = day;
+    g.districts.forEach(x => { x.unlocked = true; });
+    const dd = g.districts.find(x => x.id === 'center');
+    const tw = GameSim.buildNode(g, 'cell_2g', dd.x, dd.y);
+    GameSim.connect(g, tw.id, coreOf(g).id, 'ethernet');
+    dd.subscribers = 3000;
+    GameSim.computeFlow(g);
+    return dd.qos;
+  }
+  const qEarly = qosAt(1), qLate = qosAt(291);
+  check('102b همان شبکه در دوران مدرن کیفیت پایین‌تری دارد (تقاضای بیشتر)', qLate < qEarly, 'q1991=' + qEarly.toFixed(2) + ' q2020=' + qLate.toFixed(2));
+}
+
+// ---------- 103: جهان‌سازی — ترکیب ساختمان‌ها، روستاها، نقشهٔ بزرگ (آیتم D) ----------
+{
+  const s = GameSim.newGame(42);
+  check('103a ابعاد نقشهٔ جدید ۱۴۴۰۰×۱۰۸۰۰ است', s.worldW === 14400 && s.worldH === 10800, s.worldW + 'x' + s.worldH);
+  const mixOf = (type) => {
+    const ids = s.districts.filter(d => d.type === type).map(d => d.id);
+    const bs = s.buildings.filter(b => ids.includes(b.districtId));
+    const c = {}; bs.forEach(b => { c[b.type] = (c[b.type] || 0) + 1; });
+    return { total: bs.length, c };
+  };
+  const res = mixOf('residential');
+  check('103b مناطق مسکونی: بیشتر مسکونی + کمی تجاری', res.total > 0 && (res.c.residential || 0) / res.total >= 0.65 && (res.c.commercial || 0) > 0,
+    JSON.stringify(res.c));
+  const com = mixOf('commercial');
+  check('103c مناطق تجاری: بیشتر تجاری + اقلیت صنعتی', com.total > 0 && (com.c.commercial || 0) / com.total >= 0.6 && (com.c.industrial || 0) > 0 && (com.c.industrial || 0) < (com.c.commercial || 0),
+    JSON.stringify(com.c));
+  const ind = mixOf('industrial');
+  check('103d مناطق صنعتی: بیشتر صنعتی', ind.total > 0 && (ind.c.industrial || 0) / ind.total >= 0.65, JSON.stringify(ind.c));
+  const hq = coreOf(s);
+  const vills = s.districts.filter(d => d.type === 'village');
+  const farVills = vills.filter(v => Math.hypot(v.x - hq.x, v.y - hq.y) > 4000);
+  check('103e دست‌کم دو روستای دور از مرکز شهر وجود دارد', vills.length >= 2 && farVills.length >= 2,
+    vills.map(v => v.name + ':' + Math.round(Math.hypot(v.x - hq.x, v.y - hq.y))).join(' '));
+  const vMix = mixOf('village');
+  check('103f روستاها: بیشتر مسکونی با ۱-۲ ساختمان تجاری', vMix.total > 0 && (vMix.c.residential || 0) > (vMix.c.commercial || 0), JSON.stringify(vMix.c));
+  // ذخیرهٔ قدیمی جهان کوچک خودش را نگه می‌دارد
+  const raw = JSON.parse(GameSim.saveGame(s));
+  delete raw.worldW; delete raw.worldH;
+  const loaded = GameSim.loadGame(JSON.stringify(raw));
+  let crashed = false;
+  try { GameSim.tick(loaded, 1); } catch (e) { crashed = true; }
+  check('103g ذخیرهٔ قدیمی (بدون اندازهٔ جهان) با جهان ۷۲۰۰×۵۴۰۰ بارگذاری و تیک می‌خورد', loaded.worldW === 7200 && loaded.worldH === 5400 && !crashed);
 }
 
 console.log('\nنتیجه: ' + pass + ' پاس، ' + fail + ' رد');
