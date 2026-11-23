@@ -167,6 +167,12 @@ button{font-family:inherit}
 .problem-box{background:#3a1414;border:1px solid var(--danger);border-radius:8px;padding:8px;margin:8px 0;font-size:13px}
 .kv{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;font-size:13px;margin:8px 0}
 .kv dt{color:var(--muted)} .kv dd{margin:0}
+/* building wired-connection section: status row, buttons row, hint paragraph */
+.fiber-row{display:flex;flex-direction:column;gap:8px}
+.fiber-status{line-height:1.7}
+.fiber-btns{display:flex;gap:8px;flex-wrap:wrap}
+.fiber-btns .btn{flex:1 1 140px;min-height:40px}
+.fiber-hint{margin:0;line-height:1.8}
 .cap-bar{background:var(--surface2);height:10px;border-radius:6px;overflow:hidden;margin:4px 0 10px}
 .cap-fill{background:var(--accent2);height:100%;transition:width .3s}
 .cap-fill.hot{background:var(--danger)} .cap-fill.warm{background:var(--warn)}
