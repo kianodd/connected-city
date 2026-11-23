@@ -3055,5 +3055,86 @@ let s1, cell1, link1;
   check('106e مسیر بین دو سوی رودخانه فقط از روی پل رد می‌شود', bridgeOk, crossInfo);
 }
 
+// ---------- 107: فناوری اتصال و تست سرعت/تأخیر مشترک ----------
+{
+  const s = newGameAll(42); s.cash = 9999999;
+  const d = s.districts.find(x => x.id === 'center');
+  const b0 = s.buildings.filter(b => b.districtId === d.id)
+    .sort((a, b) => Math.hypot(a.x - d.x, a.y - d.y) - Math.hypot(b.x - d.x, b.y - d.y))[0];
+  const cab = GameSim.buildNode(s, 'street_cabinet', b0.x + (b0.w || 26) / 2 + 40, b0.y + (b0.h || 20) / 2);
+  finishBuild(s, cab);
+  GameSim.connect(s, cab.id, coreOf(s).id, 'fiber');
+  GameSim.connectBuildingWired(s, b0.id, cab.id, 'fiber');
+  const infoF = GameSim.subscriberConnectionInfo(s, b0.id);
+  check('107a ساختمان دارای انشعاب فیبر: فناوری «فیبر» و سرعت مثبت با سقف بسته',
+    infoF.techs.some(t => t.tech === 'fiber') && infoF.speed > 0 && infoF.speed <= infoF.packageSpeed,
+    'techs=' + infoF.techs.map(t => t.tech).join(',') + ' speed=' + infoF.speed + ' pkg=' + infoF.packageSpeed);
+  const b1 = s.buildings.filter(b => b.districtId === d.id && b.id !== b0.id)
+    .sort((a, b) => Math.hypot(a.x - d.x, a.y - d.y) - Math.hypot(b.x - d.x, b.y - d.y))[0];
+  const t4g = GameSim.buildNode(s, 'cell_4g', b1.x + (b1.w || 26) / 2 + 60, b1.y + (b1.h || 20) / 2);
+  finishBuild(s, t4g);
+  GameSim.connect(s, t4g.id, coreOf(s).id, 'fiber');
+  GameSim.installModule(s, t4g.id, 'tdlte');
+  const infoW = GameSim.subscriberConnectionInfo(s, b1.id);
+  check('107b ساختمان زیر پوشش 4G با ماژول TD-LTE: سلولار نسل ۴ و TD-LTE هر دو در فهرست‌اند',
+    infoW.techs.some(t => t.tech === 'cellular' && t.gen === 4) && infoW.techs.some(t => t.tech === 'fwa'),
+    'techs=' + infoW.techs.map(t => t.tech + (t.gen || '')).join(','));
+  const s2 = newGameAll(42);
+  const bFar = s2.buildings.filter(b => Math.hypot(b.x - coreOf(s2).x, b.y - coreOf(s2).y) > 3000)[0];
+  s2.individuals.push({ id: 'px107', name: 'تست', buildingId: bFar.id, districtId: bFar.districtId, status: 'subscribed', needMbps: 10, satisfaction: 50 });
+  const infoP = GameSim.subscriberConnectionInfo(s2, bFar.id);
+  check('107c مشترک بدون مسیر شبکه: سرعت صفر و دلیل فارسی‌پذیر (no_network)',
+    infoP.speed === 0 && infoP.techs.length === 0 && infoP.reason === 'no_network',
+    'speed=' + infoP.speed + ' reason=' + infoP.reason);
+  const lt = GameSim.subscriberLatencyTest(s, b0.id);
+  const ping = GameSim.pingBetween(s, lt.nodeId, lt.gatewayId);
+  const base = { fiber: 5, copper: 5, cellular: 30, fwa: 25 }[lt.tech];
+  check('107d تست تأخیر: میلی‌ثانیهٔ محدود و برابر پینگ ابزار پینگ + تأخیر پایهٔ فناوری',
+    lt.ok && isFinite(lt.ms) && lt.ms > 0 && ping.ok && Math.abs(lt.ms - (ping.ms + base)) <= 1,
+    'ms=' + lt.ms + ' ping=' + (ping && ping.ms) + ' base=' + base + ' tech=' + lt.tech);
+}
+
+// ---------- 108: مناطق قفل‌شده — بدون سرویس/مشترک/درآمد + دایرهٔ قفل کامل ----------
+{
+  const s = GameSim.newGame(42); s.cash = 99999999; s.day = 281; // همهٔ دوران‌ها باز، مناطق هنوز قفل
+  const d = s.districts.find(x => x.unlocked === false && x.id !== 'center');
+  const un = GameSim.unlockDistrict(s, d.id);
+  const tw = GameSim.buildNode(s, 'cell_2g', d.x, d.y);
+  finishBuild(s, tw);
+  GameSim.connect(s, tw.id, coreOf(s).id, 'fiber');
+  for (let i = 0; i < 30; i++) { GameSim.tick(s, 1); keepAlive(s); }
+  const subsBefore = d.subscribers || 0;
+  d.unlocked = false; // قفل دوباره: سرویس باید کامل قطع شود
+  for (let i = 0; i < 3; i++) { GameSim.tick(s, 1); keepAlive(s); }
+  const servedSum = ['fiber', 'cellular', 'fwa'].reduce((a, t) => a + (((d.techDemand || {})[t] || {}).served || 0), 0);
+  check('108a منطقهٔ قفل‌شده زیر پوشش دکل: مشترک/سرویس/درآمد صفر',
+    un.ok && subsBefore > 0 && (d.subscribers || 0) === 0 && (d.servedDemand || 0) === 0 && (d.revenue || 0) === 0 && servedSum === 0,
+    'before=' + subsBefore + ' subs=' + d.subscribers + ' served=' + d.servedDemand + ' rev=' + d.revenue + ' techServed=' + servedSum);
+  const bIn = s.buildings.find(b => b.districtId === d.id);
+  check('108b ساختمان منطقهٔ قفل‌شده مسیر شبکه و اطلاعات اتصال ندارد',
+    bIn && GameSim.buildingNetworkPath(s, bIn).hasPath === false &&
+    GameSim.subscriberConnectionInfo(s, bIn.id).reason === 'district_locked',
+    'b=' + (bIn && bIn.id));
+  const un2 = GameSim.unlockDistrict(s, d.id);
+  for (let i = 0; i < 30; i++) { GameSim.tick(s, 1); keepAlive(s); }
+  check('108c با بازشدن دوبارهٔ منطقه سرویس و مشترک برمی‌گردد',
+    un2.ok && (d.subscribers || 0) > 0, 'subs=' + d.subscribers);
+  let radiusOk = true, worst = '';
+  for (const seed of [42, 7]) {
+    const sg = GameSim.newGame(seed);
+    for (const dd of sg.districts) {
+      let maxDist = 0;
+      for (const b of sg.buildings) {
+        if (String(b.districtId) !== String(dd.id)) continue;
+        const cx = b.x + (b.w || 26) / 2, cy = b.y + (b.h || 20) / 2;
+        maxDist = Math.max(maxDist, Math.hypot(cx - dd.x, cy - dd.y) + Math.max(b.w || 26, b.h || 20) / 2);
+      }
+      const r = GameSim.districtOverlayRadius(sg, dd);
+      if (r < maxDist - 0.001) { radiusOk = false; worst = 'seed=' + seed + ' d=' + dd.id + ' r=' + Math.round(r) + ' need=' + Math.round(maxDist); }
+    }
+  }
+  check('108d شعاع دایرهٔ قفل همهٔ ساختمان‌های هر منطقه را می‌پوشاند', radiusOk, worst);
+}
+
 console.log('\nنتیجه: ' + pass + ' پاس، ' + fail + ' رد');
 process.exit(fail ? 1 : 0);
