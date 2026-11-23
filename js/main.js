@@ -34,9 +34,13 @@
     opts = opts || {};
     var qs = null;
     try { qs = new URLSearchParams(location.search).get('seed'); } catch (e) { qs = null; }
-    var seed = (qs != null && qs !== '') ? (parseInt(qs, 10) >>> 0) : Math.floor(Math.random() * 1e9);
+    // بذر: ورودی پنجرهٔ بازی جدید > پارامتر نشانی > تصادفی
+    var seed = null;
+    if (opts.seed != null && opts.seed !== '') seed = parseInt(opts.seed, 10) >>> 0;
+    else if (qs != null && qs !== '') seed = parseInt(qs, 10) >>> 0;
+    else seed = Math.floor(Math.random() * 1e9);
     // شرکت رقیب پیش‌فرض روشن است؛ در پنجرهٔ «بازی جدید» می‌شود خاموشش کرد
-    var s = GameSim.newGame(seed, { rival: opts.rival !== false });
+    var s = GameSim.newGame(seed, { rival: opts.rival !== false, preset: opts.preset || 'river' });
     s.isNewGame = true;
     return s;
   }
@@ -163,13 +167,18 @@
       var rivalOn = true;
       var cb = $('newgame-rival');
       if (cb) rivalOn = !!cb.checked;
+      var presetEl = $('newgame-preset');
+      var seedEl = $('newgame-seed');
+      var preset = presetEl ? presetEl.value : 'river';
+      var seedVal = seedEl ? String(seedEl.value || '').trim() : '';
       $('modal-newgame').classList.add('hidden');
       var bd = $('modal-backdrop'); if (bd) bd.classList.add('hidden');
       localStorage.removeItem(SAVE_KEY);
-      state = newGame({ rival: rivalOn });
+      state = newGame({ rival: rivalOn, preset: preset, seed: seedVal === '' ? null : seedVal });
       GameUI.setState(state); if (CityMap.setState) CityMap.setState(state);
       setSpeed(0);
-      GameUI.toast('بازی جدید شروع شد.' + (rivalOn ? ' شرکت رقیب فعال است.' : ''), 'success');
+      var presetName = presetEl && presetEl.options[presetEl.selectedIndex] ? presetEl.options[presetEl.selectedIndex].text.split(' — ')[0] : '';
+      GameUI.toast('بازی جدید شروع شد.' + (presetName ? ' نقشه: ' + presetName + ' (بذر ' + Number(state.mapSeed).toLocaleString('fa-IR') + ').' : '') + (rivalOn ? ' شرکت رقیب فعال است.' : ''), 'success');
     });
 
     $('zoom-in').addEventListener('click', function () { if (CityMap.zoomBy) CityMap.zoomBy(1.2); });
