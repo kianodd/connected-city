@@ -45,6 +45,7 @@
     if (t.indexOf('cell') >= 0 || t.indexOf('bs') >= 0 || t.indexOf('mast') >= 0 || t.indexOf('tower') >= 0 || t.indexOf('bts') >= 0 || t.indexOf('antenna') >= 0) return 'cell';
     if (t.indexOf('fwa') >= 0 || t.indexOf('fixed') >= 0) return 'fwa';
     if (t.indexOf('wifi') >= 0 || t.indexOf('wi-fi') >= 0 || t.indexOf('ap') >= 0 || t.indexOf('hotspot') >= 0) return 'wifi';
+    if (t.indexOf('cdn') >= 0 || t.indexOf('cache') >= 0) return 'cdn';
     if (t.indexOf('core') >= 0) return 'core';
     if (t.indexOf('router') >= 0) return 'router';
     if (t.indexOf('switch') >= 0 || t.indexOf('agg') >= 0) return 'switch';
@@ -551,6 +552,7 @@
     if (layers.problems) drawProblemBadges(); // مثلث هشدار روی گره/لینک مشکل‌دار
     drawHighlights();
     drawConstruction(); // ساختمان‌های تازه‌ساخته (کمتر از ۳ روز) با حاشیهٔ کهربایی
+    drawCityProjects(); // نشان پروژه‌های عمرانی شهرداری روی مناطق در حال ساخت
     drawSurveyPreview(); // خط‌چین + پهپاد در حال پرواز روی مسیر PtP
     if (layers.revenue) drawRevenue();
     drawSuggestions();
@@ -560,6 +562,57 @@
 
     if (layers.weather) drawWeather();
     drawHud();
+  }
+
+  /* پروژه‌های عمرانی شهرداری: نشان جرثقیل کهربایی روی مرکز منطقهٔ در حال ساخت */
+  function drawCityProjects() {
+    var projs = (state && state.cityProjects) || [];
+    if (!projs.length) return;
+    var day = (state && state.day) || 0;
+    ctx.save();
+    for (var i = 0; i < projs.length; i++) {
+      var p = projs[i];
+      if (p.phase !== 'building') continue;
+      var d = (state.districts || []).find(function (x) { return x.id === p.districtId; });
+      if (!d || !inRect(d.x, d.y, cullRect)) continue;
+      var r = Math.max(26, 22 / Math.sqrt(cam.z));
+      var pulse = 0.5 + 0.3 * Math.sin(animT * 3);
+      ctx.beginPath();
+      ctx.arc(d.x, d.y, r * 1.6, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(245,158,11,' + pulse.toFixed(2) + ')';
+      ctx.lineWidth = 2.5 / Math.sqrt(cam.z);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(d.x, d.y, r, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(245,158,11,0.92)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(120,53,15,0.9)';
+      ctx.lineWidth = 1.5 / Math.sqrt(cam.z);
+      ctx.stroke();
+      // جرثقیل: دکل + بازو + قلاب (برداری، بدون ایموجی)
+      var u = r * 0.62;
+      ctx.strokeStyle = '#fff7ed';
+      ctx.lineWidth = Math.max(1.2, r * 0.09);
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(d.x - u * 0.45, d.y + u * 0.7); ctx.lineTo(d.x - u * 0.45, d.y - u * 0.75); // دکل
+      ctx.moveTo(d.x - u * 0.45, d.y - u * 0.75); ctx.lineTo(d.x + u * 0.8, d.y - u * 0.75); // بازو
+      ctx.moveTo(d.x + u * 0.55, d.y - u * 0.75); ctx.lineTo(d.x + u * 0.55, d.y - u * 0.1); // کابل
+      ctx.moveTo(d.x - u * 0.45, d.y - u * 0.75); ctx.lineTo(d.x + u * 0.55, d.y - u * 0.1); // مهاربند
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(d.x + u * 0.55, d.y, Math.max(1.4, r * 0.11), 0, Math.PI * 2);
+      ctx.fillStyle = '#fff7ed';
+      ctx.fill();
+      // روزهای باقی‌مانده
+      var left = Math.max(0, p.endDay - Math.floor(day));
+      ctx.font = '600 ' + Math.max(13, 15 / Math.sqrt(cam.z)) + 'px Vazirmatn, Tahoma, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillStyle = 'rgba(120,53,15,0.95)';
+      ctx.fillText(String(left) + ' روز', d.x, d.y + r + 4);
+    }
+    ctx.restore();
   }
 
   /* ساختمان‌های در حال ساخت/تازه: حاشیهٔ کهربایی خط‌چین تپنده تا ۳ روز بعد از تولد */
@@ -1497,7 +1550,7 @@
   var NODE_COLORS = {
     cell: '#38bdf8', fwa: '#34d399', wifi: '#c084fc',
     core: '#facc15', router: '#60a5fa', switch: '#2dd4bf', ptp: '#a78bfa',
-    customer: '#fda4af', gateway: '#fbbf24', generic: '#cbd5e1'
+    customer: '#fda4af', gateway: '#fbbf24', generic: '#cbd5e1', cdn: '#fb923c'
   };
   /* small vector mark inside a node body, per kind (no emoji/text glyphs) */
   function drawNodeMark(k, x, y, r) {
@@ -1541,6 +1594,14 @@
       ctx.rect(x - g - u * 0.18, y - g - u * 0.18, g, g); ctx.rect(x + u * 0.18, y - g - u * 0.18, g, g);
       ctx.rect(x - g - u * 0.18, y + u * 0.18, g, g); ctx.rect(x + u * 0.18, y + u * 0.18, g, g);
       ctx.stroke();
+    } else if (k === 'cdn') { // stacked discs (cache/database)
+      ctx.ellipse(x, y - u * 0.55, u * 0.8, u * 0.3, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x - u * 0.8, y - u * 0.55); ctx.lineTo(x - u * 0.8, y + u * 0.45);
+      ctx.moveTo(x + u * 0.8, y - u * 0.55); ctx.lineTo(x + u * 0.8, y + u * 0.45);
+      ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(x, y + u * 0.45, u * 0.8, u * 0.3, 0, 0, Math.PI); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(x, y - u * 0.05, u * 0.8, u * 0.3, 0, 0, Math.PI); ctx.stroke();
     } else if (k === 'customer') { // house
       ctx.moveTo(x - u * 0.8, y - u * 0.1); ctx.lineTo(x, y - u * 0.85); ctx.lineTo(x + u * 0.8, y - u * 0.1);
       ctx.moveTo(x - u * 0.55, y - u * 0.1); ctx.lineTo(x - u * 0.55, y + u * 0.75); ctx.lineTo(x + u * 0.55, y + u * 0.75); ctx.lineTo(x + u * 0.55, y - u * 0.1);
