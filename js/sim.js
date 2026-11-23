@@ -110,19 +110,23 @@
   function isRivalNode(n) { return ownerOf(n) === 'rival'; }
   const CELL_TYPES = ['cell_2g', 'cell_3g', 'cell_4g', 'cell_5g'];
   function isCellTower(n) { return !!n && CELL_TYPES.includes(n.type); }
-  // قانون جفت‌گره برای لینک گره‌به‌گره: گره‌های دسترسی (دکل‌ها، کابینت‌ها، FTTH) فقط به
-  // گره‌های شبکه/بک‌هال وصل می‌شوند (هسته، دروازه، تجمیع، روتر، سوئیچ، تقویت‌کننده) —
+  // قانون جفت‌گره برای لینک گره‌به‌گره:
+  // - دکل‌ها (2G/3G/4G/5G) فقط به «سوئیچ» وصل می‌شوند (قانون سخت‌گیرانهٔ کاربر) — نه هسته، نه تجمیع، نه تقویت‌کننده، نه دکل دیگر.
+  // - بقیهٔ گره‌های دسترسی (کابینت‌ها، FTTH) به هر گرهٔ شبکه/بک‌هال وصل می‌شوند (هسته، دروازه، تجمیع، سوئیچ، تقویت‌کننده).
   // دکل به کابینت/FTTH/دکل دیگر سرویس نمی‌دهد و ترافیک عبوری ندارد.
-  const NETWORK_TYPES = ['core_router', 'internet_gateway', 'aggregation', 'router', 'switch', 'repeater'];
+  const NETWORK_TYPES = ['core_router', 'internet_gateway', 'aggregation', 'switch', 'repeater'];
   function pairRuleError(typeA, typeB) {
+    const aCell = CELL_TYPES.includes(typeA), bCell = CELL_TYPES.includes(typeB);
+    if (aCell || bCell) {
+      const other = aCell ? typeB : typeA;
+      if (other === 'switch') return null;
+      return 'دکل فقط به سوئیچ وصل می‌شود؛ اول یک سوئیچ بسازید و دکل را به آن وصل کنید.';
+    }
     const aAcc = ACCESS_TYPES.includes(typeA), bAcc = ACCESS_TYPES.includes(typeB);
     if (!aAcc && !bAcc) return null;
     if (aAcc && NETWORK_TYPES.includes(typeB)) return null;
     if (bAcc && NETWORK_TYPES.includes(typeA)) return null;
-    if (CELL_TYPES.includes(typeA) || CELL_TYPES.includes(typeB)) {
-      return 'دکل فقط از گره‌های شبکه (هسته، تجمیع، روتر، سوئیچ، تقویت‌کننده) ورودی می‌گیرد و به کابینت و گره‌های دسترسی دیگر سرویس نمی‌دهد.';
-    }
-    return 'گره‌های دسترسی (کابینت و FTTH) فقط به گره‌های شبکه (هسته، تجمیع، روتر، سوئیچ، تقویت‌کننده) وصل می‌شوند.';
+    return 'گره‌های دسترسی (کابینت و FTTH) فقط به گره‌های شبکه (هسته، تجمیع، سوئیچ، تقویت‌کننده) وصل می‌شوند.';
   }
   function canConnectPair(state, aId, bId) {
     const a = nodeById(state, aId), b = nodeById(state, bId);
@@ -136,7 +140,7 @@
     ['دکل سلولی 4G آریاتل', 'دکل 4G'], ['دکل سلولی 5G سیمرغ‌لینک', 'دکل 5G'],
     ['آنتن TD-LTE پارس‌نت', 'دکل 4G'], ['آنتن TD-LTE', 'دکل 4G'],
     ['کابل فیبر نوری پارس‌نت', 'کابل فیبر نوری'], ['کابل مسی آریاتل', 'کابل مسی'],
-    ['روتر لبه پارس‌نت', 'روتر لبه'], ['سوئیچ دسترسی پارس‌نت', 'سوئیچ'],
+    ['روتر لبه پارس‌نت', 'سوئیچ'], ['روتر لبه', 'سوئیچ'], ['سوئیچ دسترسی پارس‌نت', 'سوئیچ'],
     ['لینک نقطه‌به‌نقطه سیمرغ‌لینک', 'لینک نقطه‌به‌نقطه'],
     ['روتر هسته سیمرغ‌لینک', 'روتر هسته'], ['دروازه اینترنت پارس‌نت', 'دروازه اینترنت'],
     ['گره تجمیع پارس‌نت', 'گره تجمیع'], ['کابینت خیابانی پارس‌نت', 'کابینت خیابانی'],
@@ -681,8 +685,10 @@
   // ---------- مدل تأخیر (پینگ) ----------
   // تأخیر هر لینک = پایهٔ رسانه + فاصله × نرخ هر واحد؛ هر گرهٔ میانی هم پردازش اضافه می‌کند.
   // (فیبر در دنیای واقعی ~۵ میکروثانیه بر کیلومتر است؛ این‌جا برای قابل‌حس‌بودن در بازی مقیاس شده.)
-  const LINK_LATENCY_PER_UNIT = { fiber: 0.004, copper: 0.012, ethernet: 0.003, ptp: 0.002 };
-  const NODE_PROCESSING_MS = 1; // پردازش هر گرهٔ میانی (روتر/تجمیع/هسته)
+  // ترتیب پینگ (خواست کاربر): فیبر خیلی کم < اترنت < نقطه‌به‌نقطه (با فاصله رشد می‌کند) < مسی؛
+  // و در حلقهٔ دسترسی: فیبر < سیم مسی < سلولار (هر نسل: 2G بیشترین تا 5G کمترینِ سلولارها، ولی همه بالای سیمی).
+  const LINK_LATENCY_PER_UNIT = { fiber: 0.002, copper: 0.012, ethernet: 0.003, ptp: 0.012 };
+  const NODE_PROCESSING_MS = 1; // پردازش هر گرهٔ میانی (سوئیچ/تجمیع/هسته)
   function linkLatency(l, a, b) {
     const mediumBase = (DATA.linkMedia && DATA.linkMedia[l.medium] && DATA.linkMedia[l.medium].latency) || 2;
     const base = Math.max(mediumBase, l.latency || 0); // تأخیر پایهٔ لینک (قابل تحمیل در آزمون‌ها)
@@ -690,8 +696,10 @@
     const d = (a && b) ? dist(a.x, a.y, b.x, b.y) : 0;
     return base + d * per;
   }
-  const TECH_LATENCY_BASE = { fiber: 5, cellular: 30, fwa: 25, wifi: 10 };
+  const TECH_LATENCY_BASE = { fiber: 3, copper: 10, cellular: 30, fwa: 25, wifi: 10 };
+  const CELL_LATENCY_BASE = { 2: 45, 3: 38, 4: 30, 5: 22 }; // پینگ پایهٔ هر نسل سلولار (همه بالای سیمی/فیبر)
   function techLatencyBase(tech, node) {
+    if (tech === 'cellular') return CELL_LATENCY_BASE[cellGenOf(node && node.type)] || TECH_LATENCY_BASE.cellular;
     return TECH_LATENCY_BASE[tech] || 20;
   }
   // نوسان تأخیر (جیتر): موبایل زیر ازدحام نوسان دارد؛ TD-LTE ثابت و پایدار است
@@ -1032,7 +1040,9 @@
         // سرعت هر کاربر: ظرفیت سایت بین کاربران فعال همان گره تقسیم می‌شود و از سرعت بسته بیشتر نمی‌شود
         const activeUsers = Math.max(1, (n.usage || 0) / Math.max(1, 50 * eraDemandMult(state)));
         let perUser = Math.round(speed / activeUsers);
-        const latency = Math.round((latencySum + Math.max(0, hops - 1) * NODE_PROCESSING_MS) * 2 + techLatencyBase(t, n));
+        // حلقهٔ دسترسی سیمی: انشعاب مسی پینگ بیشتری از فیبر دارد (ولی کمتر از سلولار)
+        const accessTech = (t === 'fiber' && dropMedium === 'copper') ? 'copper' : t;
+        const latency = Math.round((latencySum + Math.max(0, hops - 1) * NODE_PROCESSING_MS) * 2 + techLatencyBase(accessTech, n));
         const jitter = techJitter(t, congFactor);
         if (!best || speed > best.speed) best = { speed, perUser, nodeId: n.id, nodeName: n.name, attFactor, congFactor, distFactor, latency, jitter };
       }
@@ -1491,7 +1501,7 @@
     // استخدام با بزرگ‌شدن شبکه لازم می‌شود (به‌خواست کاربر، ۲۰۲۶-۱۱-۲۲)
     state.links.push({
       id: 'l' + (++state.counters.link), from: core.id, to: gw.id,
-      medium: 'fiber', capacity: 10000, latency: 2,
+      medium: 'fiber', capacity: 10000, latency: 1,
       status: 'active', isBackup: false, usage: 0,
     });
 
@@ -1507,7 +1517,7 @@
       const rc = rivalBuildNode(state, 'core_router', farD.x, farD.y, true);
       const rg = rivalBuildNode(state, 'internet_gateway', farD.x + 140, farD.y, true);
       if (rc && rg) {
-        state.links.push({ id: 'l' + (++state.counters.link), from: rc.id, to: rg.id, medium: 'fiber', capacity: 10000, latency: 2, status: 'active', isBackup: false, usage: 0 });
+        state.links.push({ id: 'l' + (++state.counters.link), from: rc.id, to: rg.id, medium: 'fiber', capacity: 10000, latency: 1, status: 'active', isBackup: false, usage: 0 });
       }
       log(state, 'یک شرکت رقیب هم در شهر شروع به کار کرده است؛ مرکز داده‌اش در «' + (farD ? farD.name : 'دوردست') + '» است.', 'info');
     }
@@ -1721,13 +1731,14 @@
       const la = nodeById(state, l.from);
       if (la && isRivalNode(la) && R.cash >= 800) { R.cash -= 800; l.status = 'active'; }
     }
-    // اتصال دوبارهٔ دکل‌های رقیبِ متصل‌نشده (اگر قبلاً پول لینک نرسیده بود)
+    // اتصال دوبارهٔ دکل‌های رقیبِ متصل‌نشده (اگر قبلاً پول لینک نرسیده بود)؛ دکل رقیب هم فقط به سوئیچ وصل می‌شود
     for (const n of (state.nodes || [])) {
       if (!isRivalNode(n) || !isAccessNode(n) || n.connected || n.status !== 'active') continue;
+      const tower = isCellTower(n);
       let up2 = null, up2d = Infinity;
       for (const m of (state.nodes || [])) {
         if (!isRivalNode(m) || m.id === n.id) continue;
-        if (!(m.type === 'core_router' || m.type === 'aggregation' || m.type === 'router' || m.type === 'switch')) continue;
+        if (tower ? m.type !== 'switch' : !(m.type === 'core_router' || m.type === 'aggregation' || m.type === 'switch')) continue;
         const dd = dist(n.x, n.y, m.x, m.y);
         if (dd < up2d) { up2d = dd; up2 = m; }
       }
@@ -1776,13 +1787,13 @@
     let up = null, upDist = Infinity;
     for (const n of (state.nodes || [])) {
       if (!isRivalNode(n)) continue;
-      if (!(n.type === 'core_router' || n.type === 'aggregation' || n.type === 'router' || n.type === 'switch')) continue;
+      if (!(n.type === 'core_router' || n.type === 'aggregation' || n.type === 'switch')) continue;
       const dd = dist(tx, ty, n.x, n.y);
       if (dd < upDist) { upDist = dd; up = n; }
     }
     if (!up) return;
-    // اگر خیلی دور است، اول یک گره واسط وسط راه می‌سازد (روتر قبل از ۲۰۰۰، تجمیع بعد از آن)
-    const relayId = y >= 2000 ? 'aggregation' : 'router';
+    // اگر خیلی دور است، اول یک گره واسط وسط راه می‌سازد (سوئیچ قبل از ۲۰۰۰، تجمیع بعد از آن)
+    const relayId = y >= 2000 ? 'aggregation' : 'switch';
     if (upDist > 2400 && R.cash >= ((getEq(relayId) || {}).cost || 10000) + eq.cost) {
       const agg = rivalBuildNode(state, relayId, (tx + up.x) / 2, (ty + up.y) / 2, false);
       if (agg) {
@@ -1796,7 +1807,22 @@
     const node = rivalBuildNode(state, eqId, tx, ty, false);
     if (!node) return;
     if (unlockFee > 0) { R.cash -= unlockFee; best._rivalPaid = true; }
-    rivalConnect(state, node.id, up.id);
+    if (isCellTower(node)) {
+      // دکل رقیب فقط به سوئیچ وصل می‌شود: نزدیک‌ترین سوئیچ رقیب، وگرنه یکی کنار دکل می‌سازد
+      let sw = null, swDist = Infinity;
+      for (const n of (state.nodes || [])) {
+        if (!isRivalNode(n) || n.type !== 'switch') continue;
+        const dd = dist(node.x, node.y, n.x, n.y);
+        if (dd < swDist) { swDist = dd; sw = n; }
+      }
+      if (!sw || swDist > 2400) {
+        const nsw = rivalBuildNode(state, 'switch', node.x + 120, node.y, false);
+        if (nsw) { rivalConnect(state, nsw.id, up.id); sw = nsw; }
+      }
+      if (sw) rivalConnect(state, node.id, sw.id);
+    } else {
+      rivalConnect(state, node.id, up.id);
+    }
     R.lastBuildDay = state.day;
     log(state, 'شرکت رقیب یک «' + eq.name + '» در «' + best.name + '» ساخت.', 'info');
     refreshConnectivity(state);
@@ -3160,9 +3186,15 @@
         const a = nodeById(state, l.from), b = nodeById(state, l.to);
         const att = (a && b) ? linkAttenuation(state, l, a, b) : 1;
         if (att < 0.8) {
-          add('signal_loss', { linkId: l.id, message: 'مسیر ' + mediumFa(l.medium) + ' بین «' + ((a && a.name) || 'گره') + '» و «' + ((b && b.name) || 'گره') + '» بلند است و سیگنال از دست می‌دهد.' }, [
-            { action: 'add_repeater', label: 'نصب تقویت‌کننده در میانهٔ مسیر', linkId: l.id },
-          ]);
+          // روی لینک دکل تقویت‌کننده نصب نمی‌شود (دکل فقط به سوئیچ وصل است): راه‌حل، سوئیچ نزدیک‌تر است
+          const towerLink = (a && isCellTower(a)) || (b && isCellTower(b));
+          if (towerLink) {
+            add('signal_loss', { linkId: l.id, message: 'مسیر ' + mediumFa(l.medium) + ' بین «' + ((a && a.name) || 'گره') + '» و «' + ((b && b.name) || 'گره') + '» بلند است و سیگنال از دست می‌دهد. روی لینک دکل تقویت‌کننده نصب نمی‌شود؛ سوئیچ را نزدیک‌تر به دکل بسازید یا جابه‌جا کنید.' }, []);
+          } else {
+            add('signal_loss', { linkId: l.id, message: 'مسیر ' + mediumFa(l.medium) + ' بین «' + ((a && a.name) || 'گره') + '» و «' + ((b && b.name) || 'گره') + '» بلند است و سیگنال از دست می‌دهد.' }, [
+              { action: 'add_repeater', label: 'نصب تقویت‌کننده در میانهٔ مسیر', linkId: l.id },
+            ]);
+          }
         }
       }
       if (l.status === 'cut') {
@@ -3342,6 +3374,21 @@
     return null;
   }
   function aiConnectNode(state, node) {
+    // دکل فقط به سوئیچ وصل می‌شود: نزدیک‌ترین سوئیچ خودی؛ اگر نیست، یکی کنار دکل می‌سازد و به بالادستی وصلش می‌کند
+    if (isCellTower(node)) {
+      let sw = nearestSwitchNode(state, node);
+      if (!sw) {
+        const spot = aiFindSpot(state, node.x + 120, node.y);
+        if (!spot) return false;
+        sw = buildNode(state, 'switch', spot.x, spot.y);
+        if (!sw) return false;
+        const up = nearestCoreNode(state, sw);
+        if (up) { const m = aiPickMedium(state, sw, up); if (m) connect(state, sw.id, up.id, m); }
+      }
+      const medium = aiPickMedium(state, node, sw);
+      if (!medium) return false;
+      return !!connect(state, node.id, sw.id, medium);
+    }
     const target = nearestCoreNode(state, node);
     if (!target) return false;
     const medium = aiPickMedium(state, node, target);
@@ -4288,7 +4335,21 @@
     for (const n of state.nodes) {
       if (n.id === fromNode.id) continue;
       if (isRivalNode(n) !== isRivalNode(fromNode)) continue;
-      if (!['core_router', 'aggregation', 'router', 'switch'].includes(n.type)) continue;
+      if (!['core_router', 'aggregation', 'switch'].includes(n.type)) continue;
+      if (n.status === 'failed' || n.status === 'building') continue;
+      const d = dist(fromNode.x, fromNode.y, n.x, n.y);
+      if (d < bestD) { bestD = d; best = n; }
+    }
+    return best;
+  }
+
+  // نزدیک‌ترین سوئیچ هم‌مالک (برای دکل‌ها که فقط به سوئیچ وصل می‌شوند)
+  function nearestSwitchNode(state, fromNode) {
+    let best = null, bestD = Infinity;
+    for (const n of state.nodes) {
+      if (n.id === fromNode.id) continue;
+      if (isRivalNode(n) !== isRivalNode(fromNode)) continue;
+      if (n.type !== 'switch') continue;
       if (n.status === 'failed' || n.status === 'building') continue;
       const d = dist(fromNode.x, fromNode.y, n.x, n.y);
       if (d < bestD) { bestD = d; best = n; }
@@ -4351,8 +4412,9 @@
       case 'connect': {
         const n = nodeById(state, fix.nodeId || prob.nodeId);
         if (!n) return fail('گره پیدا نشد.');
-        const target = nearestCoreNode(state, n);
-        if (!target) return fail('گره هسته‌ای برای اتصال نیست.');
+        // دکل فقط به سوئیچ وصل می‌شود
+        const target = isCellTower(n) ? nearestSwitchNode(state, n) : nearestCoreNode(state, n);
+        if (!target) return fail(isCellTower(n) ? 'سوئیچی برای اتصال دکل نیست؛ اول یک سوئیچ بسازید.' : 'گره هسته‌ای برای اتصال نیست.');
         // اولین رسانهٔ بازشده در این دوران (فیبر ۱۹۹۵، نقطه‌به‌نقطه ۱۹۹۶، وگرنه اترنت/مسی)
         const wanted = (fix.medium && fix.medium.length) ? fix.medium : ['fiber', 'ptp', 'ethernet', 'copper'];
         const medium = wanted.concat(['ethernet', 'copper']).find((m) => yearOf(state) >= mediumUnlockYear(m)) || 'copper';
@@ -4363,7 +4425,8 @@
         const l = linkById(state, fix.linkId || prob.linkId);
         if (!l) return fail('لینک پیدا نشد.');
         const a = nodeById(state, l.from);
-        const target = a ? nearestCoreNode(state, a) : null;
+        // لینک پشتیبان دکل هم فقط به سوئیچ می‌رود
+        const target = a ? (isCellTower(a) ? nearestSwitchNode(state, a) : nearestCoreNode(state, a)) : null;
         if (!target) return fail('مسیر پشتیبان ممکن نیست.');
         const nl = connect(state, a.id, target.id, yearOf(state) >= 1996 ? 'ptp' : 'ethernet', { isBackup: true });
         return nl ? { ok: true, link: nl } : fail('ساخت لینک پشتیبان ناموفق بود.');
@@ -4396,6 +4459,8 @@
         if (!l) return fail('لینک پیدا نشد.');
         const a = nodeById(state, l.from), b = nodeById(state, l.to);
         if (!a || !b) return fail('گره‌های لینک پیدا نشدند.');
+        // دکل فقط به سوئیچ وصل است؛ تقویت‌کننده روی لینک دکل نصب نمی‌شود (سوئیچ نزدیک‌تر راه‌حل است)
+        if (isCellTower(a) || isCellTower(b)) return fail('روی لینک دکل تقویت‌کننده نصب نمی‌شود؛ سوئیچ را نزدیک‌تر به دکل بسازید یا جابه‌جا کنید.');
         const eq = getEq('repeater');
         const cost = eq ? eq.cost : 4000;
         if (state.cash < cost) return fail('بودجه کافی برای تقویت‌کننده نیست.');
@@ -4467,6 +4532,9 @@
         // آسیب دائمی طوفان در نسخه‌های قبلی: ظرفیت به پایه برمی‌گردد (حالا آسیب موقت است)
         l.capacity = base;
       }
+      // تأخیر پایهٔ لینک با اعداد فعلی رسانه هم‌گام می‌شود (تنظیم پینگ: فیبر خیلی کم، PtP با فاصله)
+      const medBase = DATA.linkMedia && DATA.linkMedia[l.medium] && DATA.linkMedia[l.medium].latency;
+      if (medBase != null) l.latency = medBase;
       delete l.level;
       delete l.degradedUntil; delete l.degradeFactor;
     });
@@ -4514,6 +4582,12 @@
     for (const n of state.nodes) {
       if (n.interference == null) n.interference = 0;
       if (n.channel === undefined) n.channel = null;
+      // ادغام «روتر لبه» با «سوئیچ»: گره‌های روتر ذخیره‌های قبلی سوئیچ می‌شوند
+      // (موقعیت، ماژول‌ها، لینک‌ها و ظرفیت ذخیره‌شده دست‌نخورده می‌ماند)
+      if (n.type === 'router') {
+        n.type = 'switch';
+        if (n.name) n.name = n.name.replace('روتر لبه', 'سوئیچ');
+      }
       // سازگاری ذخیره‌های قدیمی: تجهیز حذف‌شده از کاتالوگ ساده‌شده → نزدیک‌ترین معادل کلی
       if (!getEq(n.type)) {
         const mapped = (DATA.legacyEquipmentMap || {})[n.type] || 'fwa_ap';
@@ -4594,7 +4668,7 @@
         return false;
       });
       if (removedBad > 0) {
-        if (Array.isArray(state.log)) log(state, removedBad + ' لینک نامعتبر (دکل/کابینت به گره غیرشبکه) از ذخیره حذف شد و ' + refundTotal + ' تومان هزینهٔ ساختش برگشت.', 'build');
+        if (Array.isArray(state.log)) log(state, removedBad + ' لینک نامعتبر (دکل فقط به سوئیچ وصل می‌شود) از ذخیره حذف شد و ' + refundTotal + ' تومان هزینهٔ ساختش برگشت.', 'build');
         refreshConnectivity(state);
       }
     }
@@ -4804,7 +4878,7 @@
     if (!gw) return { ok: false, error: 'دروازهٔ اینترنت پیدا نشد.' };
     const ping = pingBetween(state, info.servingNodeId, gw.id);
     if (!ping.ok) return { ok: false, error: ping.error || 'مسیر تا دروازه نیست.' };
-    const base = techLatencyBase(info.bestTech === 'copper' ? 'fiber' : info.bestTech, nodeById(state, info.servingNodeId));
+    const base = techLatencyBase(info.bestTech, nodeById(state, info.servingNodeId));
     return {
       ok: true, ms: Math.round(ping.ms + base), jitter: info.jitter,
       tech: info.bestTech, nodeId: info.servingNodeId, gatewayId: gw.id, pathNames: ping.pathNames,
@@ -4840,7 +4914,7 @@
     districtUnlocked, districtUnlockCost, unlockDistrict, districtAtPoint, buildingResidents, districtOverlayRadius,
     commuteCoverage, commuteRoutePoints, commuteRoadPath, nearestWorkDistrict, pointCellularCovered,
     commutePhase, commutePulses, nearestLeisureSpot, COMMUTE_CAP,
-    linkLatency, linkAttenuation, linkEffCapacity, ptpDistanceFactor, pingBetween, techJitter, pathLatency,
+    linkLatency, linkAttenuation, linkEffCapacity, ptpDistanceFactor, pingBetween, techJitter, techLatencyBase, pathLatency,
     refreshConnectivity, connectBuildingFiber, disconnectBuildingFiber, buildingFiberStatus, fiberDropFor,
     connectBuildingWired, disconnectBuildingWired, buildingWiredStatus, cabinetPorts, cabinetUsedPorts, COPPER_DROP_SPEED,
     disconnectLink, linkDisconnectImpact, linksOfNode,
