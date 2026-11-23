@@ -95,7 +95,17 @@
     return false;
   }
 
-  function generate(seed) {
+  // قالب‌های نقشه: هر قالب پارامترهای متفاوتی دارد (مسیر رودخانه، پل‌ها، فاصلهٔ روستاها، تراکم پراکنده).
+  // قالب پیش‌فرض «river» دقیقاً همان رفتار قبلی است (همان توالی تصادفی) تا نقشه‌های بذرهای قبلی عوض نشوند.
+  const PRESETS = {
+    river:   { riverBase: [0.60, 0.72], riverClamp: [0.48, 0.83], shiftClamp: [0.45, 0.85], bridges: [0.15, 0.38, 0.62, 0.85], villageDist: 4200, outsideCount: 260 },
+    coast:   { riverBase: [0.08, 0.16], riverClamp: [0.06, 0.22], shiftClamp: [0.05, 0.25], bridges: [0.25, 0.50, 0.75], villageDist: 4200, outsideCount: 260 },
+    central: { riverBase: [0.44, 0.52], riverClamp: [0.40, 0.58], shiftClamp: [0.38, 0.60], bridges: [0.12, 0.28, 0.44, 0.60, 0.76, 0.90], villageDist: 3800, outsideCount: 260 },
+    desert:  { riverBase: [0.80, 0.88], riverClamp: [0.75, 0.90], shiftClamp: [0.72, 0.92], bridges: [0.35, 0.65], villageDist: 5000, outsideCount: 140 },
+  };
+
+  function generate(seed, presetId) {
+    const P = PRESETS[presetId] || PRESETS.river;
     const rnd = mulberry32((seed == null ? 42 : seed) >>> 0);
     const R = (a, b) => a + rnd() * (b - a);
 
@@ -103,20 +113,20 @@
     const hq = { x: Math.round(R(WORLD_W * 0.42, WORLD_W * 0.58) / 20) * 20, y: Math.round(R(WORLD_H * 0.42, WORLD_H * 0.58) / 20) * 20 };
 
     // ---------- رودخانه ----------
-    let riverBase = R(WORLD_W * 0.60, WORLD_W * 0.72);
+    let riverBase = R(WORLD_W * P.riverBase[0], WORLD_W * P.riverBase[1]);
     const river = [];
     let rx = riverBase;
     const riverStep = (WORLD_H + 80) / 6;
     for (let i = 0; i < 7; i++) {
       const y = -40 + i * riverStep;
-      if (i > 0) rx = clamp(rx + R(-260, 260), WORLD_W * 0.48, WORLD_W * 0.83);
+      if (i > 0) rx = clamp(rx + R(-260, 260), WORLD_W * P.riverClamp[0], WORLD_W * P.riverClamp[1]);
       river.push({ x: Math.round(rx), y: Math.round(y) });
     }
     // رودخانه نباید از روی HQ رد شود
     const rxAtHq = riverXAtY(river, hq.y);
     if (Math.abs(rxAtHq - hq.x) < 480) {
       const shift = (rxAtHq >= hq.x ? 1 : -1) * (480 - Math.abs(rxAtHq - hq.x));
-      river.forEach((p) => { p.x = Math.round(clamp(p.x + shift, WORLD_W * 0.45, WORLD_W * 0.85)); });
+      river.forEach((p) => { p.x = Math.round(clamp(p.x + shift, WORLD_W * P.shiftClamp[0], WORLD_W * P.shiftClamp[1])); });
     }
 
     // ---------- شبکهٔ خیابان‌ها ----------
@@ -127,9 +137,9 @@
       av: roadLines(WORLD_W, 400, offset),
       ah: roadLines(WORLD_H, 400, offset),
     };
-    // پل‌ها: چهار بلوار افقی پخش‌شده در ارتفاع شهر
+    // پل‌ها: بلوارهای افقی پخش‌شده در ارتفاع شهر (تعدادشان به قالب نقشه بستگی دارد)
     const bridgeCands = roads.ah.filter((y) => y > 300 && y < WORLD_H - 300);
-    const bridges = [0.15, 0.38, 0.62, 0.85].map((f) => bridgeCands[Math.min(bridgeCands.length - 1, Math.floor(f * bridgeCands.length))]);
+    const bridges = P.bridges.map((f) => bridgeCands[Math.min(bridgeCands.length - 1, Math.floor(f * bridgeCands.length))]);
 
     // ---------- مناطق (بدون هم‌پوشانی: فاصلهٔ مراکز ≥ مجموع شعاع‌ها + حاشیه) ----------
     const DISTRICT_GAP = 40;
@@ -209,7 +219,7 @@
       for (let attempt = 0; attempt < 1500 && !pos; attempt++) {
         const x = Math.round(R(radius * 0.6, WORLD_W - radius * 0.6));
         const y = Math.round(R(radius * 0.6, WORLD_H - radius * 0.6));
-        if (Math.hypot(x - hq.x, y - hq.y) < 4200) continue;
+        if (Math.hypot(x - hq.x, y - hq.y) < P.villageDist) continue;
         if (Math.abs(x - riverXAtY(river, y)) < 130) continue;
         if (clearOfDistricts(x, y, radius)) pos = { x, y };
       }
@@ -344,7 +354,7 @@
     });
 
     // ---------- ساختمان‌های پراکندهٔ خارج از مناطق: کنار خیابان‌ها، رو به خیابان ----------
-    const OUTSIDE_COUNT = 260;
+    const OUTSIDE_COUNT = P.outsideCount;
     for (let i = 0; i < OUTSIDE_COUNT; i++) {
       let placed = null;
       for (let attempt = 0; attempt < 40 && !placed; attempt++) {
@@ -403,7 +413,7 @@
     return { districts, buildings, river, bridges, roads, parks, installPoints, hq };
   }
 
-  const MapGen = { generate, ARCHETYPES };
+  const MapGen = { generate, ARCHETYPES, PRESETS };
   if (typeof module !== 'undefined' && module.exports) module.exports = MapGen;
   if (root) root.MapGen = MapGen;
 })(typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : this));
