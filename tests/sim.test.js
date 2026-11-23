@@ -145,13 +145,14 @@ let s1, cell1, link1;
   const cell = GameSim.buildNode(s, 'cell_4g', d.x, d.y);
   finishBuild(s, cell);
   const primary = GameSim.connect(s, cell.id, core.id, 'fiber');
-  // فاصلهٔ منطقه تا هسته از برد PtP (۱۸۰۰) بیشتر است؛ مسیر پشتیبان از واسط‌های PtP می‌گذرد (زنجیره)
+  // فاصلهٔ منطقه تا هسته از برد PtP (۱۸۰۰) بیشتر است؛ مسیر پشتیبان از واسط‌های تقویت‌کننده می‌گذرد (زنجیره)
+  // (قانون جفت‌گره: دکل فقط به گره شبکه وصل می‌شود، پس واسط زنجیره «تقویت‌کننده سیگنال» است)
   const distDC = Math.hypot(d.x - core.x, d.y - core.y);
   const legs = Math.max(2, Math.ceil(distDC / 1500));
   const chain = [cell];
   for (let li = 1; li < legs; li++) {
     const t = li / legs;
-    const relay = GameSim.buildNode(s, 'ptp_link', Math.round(d.x + (core.x - d.x) * t), Math.round(d.y + (core.y - d.y) * t));
+    const relay = GameSim.buildNode(s, 'repeater', Math.round(d.x + (core.x - d.x) * t), Math.round(d.y + (core.y - d.y) * t));
     finishBuild(s, relay);
     chain.push(relay);
   }
@@ -3525,6 +3526,111 @@ let s1, cell1, link1;
   check('110af حالت تماشاچی ۲۰۰ روز بدون مارپیچ بدهی رشد می‌کند (مورد ۳۶)',
     s36.totalRevenue > 0 && subs36 > 500 && (s36.debt || 0) < 200000,
     'subs=' + subs36 + ' debt=' + Math.round(s36.debt || 0) + ' cash=' + Math.round(s36.cash));
+}
+
+// ---------- 111) قانون جفت‌گره: دکل/کابینت فقط به گره شبکه وصل می‌شود ----------
+{
+  const s = withLTE(newGameAll(31));
+  const core = coreOf(s), gw = gwOf(s);
+  const tw = GameSim.buildNode(s, 'cell_2g', core.x - 500, core.y + 300); finishBuild(s, tw);
+  const cabB = GameSim.buildNode(s, 'cabinet_basic', core.x - 420, core.y + 380); finishBuild(s, cabB);
+  const cabS = GameSim.buildNode(s, 'street_cabinet', core.x - 340, core.y + 300); finishBuild(s, cabS);
+  const ftth = GameSim.buildNode(s, 'ftth', core.x - 260, core.y + 380); finishBuild(s, ftth);
+  const tw2 = GameSim.buildNode(s, 'cell_4g', core.x - 180, core.y + 300); finishBuild(s, tw2);
+  const agg = GameSim.buildNode(s, 'aggregation', core.x - 100, core.y + 380); finishBuild(s, agg);
+  const rtr = GameSim.buildNode(s, 'router', core.x - 60, core.y + 300); finishBuild(s, rtr);
+  const sw = GameSim.buildNode(s, 'switch', core.x - 140, core.y + 460); finishBuild(s, sw);
+  const rep = GameSim.buildNode(s, 'repeater', core.x - 220, core.y + 460); finishBuild(s, rep);
+  check('111a گره‌های تست قانون جفت‌گره ساخته شدند', !!(tw && cabB && cabS && ftth && tw2 && agg && rtr && sw && rep),
+    JSON.stringify([tw, cabB, cabS, ftth, tw2, agg, rtr, sw, rep].map(n => n && n.type)));
+
+  const linksBefore = s.links.length, cashBefore = s.cash;
+  const bad1 = GameSim.connect(s, tw.id, cabB.id, 'copper');
+  const bad2 = GameSim.connect(s, cabB.id, tw.id, 'copper');
+  check('111b دکل↔کابینت ساده در هر دو جهت رد می‌شود (گزارش کاربر)',
+    !bad1 && !bad2 && s.links.length === linksBefore && s.cash === cashBefore,
+    'links=' + s.links.length + ' cashΔ=' + (s.cash - cashBefore));
+  const bad3 = GameSim.connect(s, tw.id, cabS.id, 'fiber');
+  const bad4 = GameSim.connect(s, tw.id, ftth.id, 'fiber');
+  const bad5 = GameSim.connect(s, tw.id, tw2.id, 'fiber');
+  const bad6 = GameSim.connect(s, cabB.id, cabS.id, 'copper');
+  const bad7 = GameSim.connect(s, cabS.id, ftth.id, 'fiber');
+  check('111c دکل↔کابینت خیابانی/FTTH/دکل و کابینت↔کابینت/FTTH رد می‌شود',
+    !bad3 && !bad4 && !bad5 && !bad6 && !bad7 && s.links.length === linksBefore,
+    'links=' + s.links.length);
+
+  const okAgg = GameSim.connect(s, tw.id, agg.id, 'fiber');
+  const okCore = GameSim.connect(s, tw2.id, core.id, 'fiber');
+  const okRtr = GameSim.connect(s, cabB.id, rtr.id, 'copper');
+  const okSw = GameSim.connect(s, cabS.id, sw.id, 'fiber');
+  const okRep = GameSim.connect(s, ftth.id, rep.id, 'fiber');
+  const okGw = GameSim.connect(s, agg.id, gw.id, 'fiber');
+  check('111d دکل/کابینت/FTTH به تجمیع/هسته/روتر/سوئیچ/تقویت‌کننده و تجمیع به دروازه وصل می‌شوند',
+    !!(okAgg && okCore && okRtr && okSw && okRep && okGw),
+    JSON.stringify([okAgg, okCore, okRtr, okSw, okRep, okGw].map(l => !!l)));
+
+  const pairBad = GameSim.canConnectPair(s, tw.id, cabB.id);
+  const pairOk = GameSim.canConnectPair(s, tw.id, agg.id);
+  const optsBad = GameSim.mediumOptions(s, tw.id, cabB.id);
+  check('111e canConnectPair و گزینه‌های رسانه برای جفت نامعتبر با دلیل فارسی بسته‌اند (انتخاب‌گر)',
+    pairBad.ok === false && /دکل فقط از گره‌های شبکه/.test(pairBad.error || '') && pairOk.ok === true &&
+    optsBad.length > 0 && optsBad.every(o => !o.ok && /دکل فقط از گره‌های شبکه/.test(o.reason || '')),
+    JSON.stringify({ pairBad, pairOk, opts: optsBad.map(o => o.ok) }));
+
+  // تغییر رسانه قانون جفت‌گره را دور نمی‌زند: لینک نامعتبر دستی (مثل ذخیرهٔ قدیمی) قابل تغییر نیست
+  const fakeBad = { id: 'l_fake_bad', from: tw.id, to: cabB.id, medium: 'copper', capacity: 100, latency: 5, status: 'active', isBackup: false, usage: 0 };
+  s.links.push(fakeBad);
+  const chOpts = GameSim.linkChangeOptions(s, fakeBad.id);
+  const chRes = GameSim.changeLinkMedium(s, fakeBad.id, 'fiber');
+  check('111f تغییر رسانه روی لینک نامعتبر (دکل↔کابینت) ممکن نیست',
+    chOpts.every(o => !o.ok) && chRes.ok === false && fakeBad.medium === 'copper',
+    JSON.stringify({ chRes, opts: chOpts.map(o => o.ok) }));
+  s.links = s.links.filter(l => l.id !== fakeBad.id);
+
+  // مهاجرت ذخیرهٔ قدیمی: لینک دکل↔کابینت ساده حذف و هزینهٔ ساختش (فاصله × هزینهٔ واحد) برگردانده می‌شود
+  const s2 = withLTE(newGameAll(32));
+  const core2 = coreOf(s2);
+  const twOld = GameSim.buildNode(s2, 'cell_2g', core2.x - 400, core2.y + 300); finishBuild(s2, twOld);
+  const cabOld = GameSim.buildNode(s2, 'cabinet_basic', core2.x - 300, core2.y + 380); finishBuild(s2, cabOld);
+  const dOld = Math.hypot(twOld.x - cabOld.x, twOld.y - cabOld.y);
+  const expectRefund = Math.round(dOld * GameSim.linkCostPerUnit('copper'));
+  s2.links.push({ id: 'l_old_bad', from: twOld.id, to: cabOld.id, medium: 'copper', capacity: 100, latency: 5, status: 'active', isBackup: false, usage: 0 });
+  const cashOld = s2.cash;
+  const loaded = GameSim.loadGame(GameSim.saveGame(s2));
+  const badGone = !loaded.links.some(l => l.id === 'l_old_bad');
+  const cashLoaded = loaded.cash; // قبل از تیک (تیک درآمد روزانه اضافه می‌کند)
+  let tickOk = true;
+  try { GameSim.tick(loaded, 1); } catch (e) { tickOk = false; }
+  check('111g ذخیرهٔ قدیمی با لینک دکل↔کابینت: لینک حذف + بازپرداخت فاصله×هزینهٔ واحد + تیک سالم',
+    badGone && cashLoaded === cashOld + expectRefund && tickOk,
+    'gone=' + badGone + ' cashΔ=' + (cashLoaded - cashOld) + ' expect=' + expectRefund + ' tickOk=' + tickOk);
+}
+
+// ---------- 112) هیت‌مپ سیگنال: فقط دکل سلولی (نه هسته/دروازه/روتر/کابینت) ----------
+{
+  const s = withLTE(newGameAll(33));
+  const core = coreOf(s), gw = gwOf(s);
+  // گره‌های شبکه و سیمی نزدیک HQ، بدون هیچ دکلی در نزدیکی
+  const agg = GameSim.buildNode(s, 'aggregation', core.x + 250, core.y + 200); finishBuild(s, agg);
+  const rtr = GameSim.buildNode(s, 'router', core.x - 250, core.y + 200); finishBuild(s, rtr);
+  const sw = GameSim.buildNode(s, 'switch', core.x + 250, core.y - 200); finishBuild(s, sw);
+  const rep = GameSim.buildNode(s, 'repeater', core.x - 250, core.y - 200); finishBuild(s, rep);
+  const cab = GameSim.buildNode(s, 'street_cabinet', core.x + 120, core.y + 320); finishBuild(s, cab);
+  const ftth = GameSim.buildNode(s, 'ftth', core.x - 120, core.y + 320); finishBuild(s, ftth);
+  const prep0 = GameSim.prepareSignalField(s);
+  const zeros = [core, gw, agg, rtr, sw, rep, cab, ftth].every(n =>
+    GameSim.signalFieldAt(prep0, n.x, n.y) === 0 && GameSim.signalAt(s, n.x, n.y).signal === 0);
+  check('112a سیگنال در محل هسته/دروازه/روتر/سوئیچ/تجمیع/تقویت‌کننده/کابینت/FTTH صفر است',
+    zeros && prep0.nodes.length === 0,
+    'prepNodes=' + prep0.nodes.length + ' coreSig=' + GameSim.signalFieldAt(prep0, core.x, core.y));
+  // حالا یک دکل: فقط همان حباب سیگنال می‌سازد
+  const tw = GameSim.buildNode(s, 'cell_2g', core.x + 900, core.y); finishBuild(s, tw);
+  const prep1 = GameSim.prepareSignalField(s);
+  check('112b فقط دکل در میدان سیگنال است و در محل دکل سیگنال ناصفر، در HQ صفر می‌ماند',
+    prep1.nodes.length === 1 && GameSim.signalFieldAt(prep1, tw.x, tw.y) > 0.5 &&
+    GameSim.signalFieldAt(prep1, core.x, core.y) === 0 && GameSim.signalFieldAt(prep1, gw.x, gw.y) === 0,
+    'prepNodes=' + prep1.nodes.length + ' tw=' + GameSim.signalFieldAt(prep1, tw.x, tw.y).toFixed(2) +
+    ' core=' + GameSim.signalFieldAt(prep1, core.x, core.y));
 }
 
 console.log('\nنتیجه: ' + pass + ' پاس، ' + fail + ' رد');
