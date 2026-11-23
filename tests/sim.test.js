@@ -1275,9 +1275,11 @@ let s1, cell1, link1;
     s2.links.length === s.links.length && s2.links.some((l) => l.id === l2.id) && !s2.links.some((l) => l.id === l1.id));
   const rBad = GameSim.disconnectLink(s, 'nope');
   check('52g قطع لینک ناموجود خطا می‌دهد', rBad.ok === false);
-  // لینک تکراری رد می‌شود
+  // لینک موازی مجاز است: اتصال دوم بین همان دو گره با همان رسانه ساخته می‌شود
   const dup = GameSim.connect(s, w.id, agg.id, 'fiber');
-  check('52h اتصال تکراری (همان دو گره + همان رسانه) رد می‌شود', dup === null);
+  check('52h اتصال موازی (همان دو گره + همان رسانه) ساخته می‌شود',
+    dup !== null && dup.id !== l2.id &&
+    s.links.filter((l) => (l.from === w.id && l.to === agg.id) || (l.from === agg.id && l.to === w.id)).length === 2);
 }
 
 // ---------- 53: مشترکان فردی با مدل تجمیعی منطقه سازگارند ----------
@@ -1712,10 +1714,10 @@ let s1, cell1, link1;
   check('62c بعد از تغییر آنی، ظرفیت ۱۰۰۰۰ است', link.capacity === 10000, 'cap=' + link.capacity);
   const rSame = GameSim.changeLinkMedium(s, link.id, 'fiber');
   check('62d تغییر به همان رسانه رد می‌شود', rSame.ok === false);
-  // تکراری: لینک مسی دوم بین همان دو گره → تغییرش به فیبر باید رد شود
+  // موازی: لینک مسی دوم بین همان دو گره → تغییرش به فیبر مجاز است (دو لینک فیبر موازی)
   const link2 = GameSim.connect(s, wifi.id, coreOf(s).id, 'copper');
   const rDup = GameSim.changeLinkMedium(s, link2.id, 'fiber');
-  check('62e تغییر تکراری (همان جفت+رسانه) رد می‌شود', rDup.ok === false, rDup.error || '');
+  check('62e تغییر رسانه به رسانهٔ لینک موازی مجاز است', rDup.ok === true && link2.medium === 'fiber', rDup.error || '');
   // فاصله: PtP بیش از ۱۸۰۰
   const far = GameSim.buildNode(s, 'cell_2g', d.x + 2000, d.y);
   finishBuild(s, far);
@@ -1729,15 +1731,14 @@ let s1, cell1, link1;
   const rLink = GameSim.connect(s, rA.id, rB.id, 'copper');
   const rCap = GameSim.changeLinkMedium(s, rLink.id, 'ptp');
   check('62g تغییر لینک روتر به PtP (بدون پشتیبانی) رد می‌شود', rCap.ok === false, rCap.error || '');
-  // ارتقا: ×۱٫۵ ظرفیت، آنی
-  const rUp = GameSim.upgradeLink(s, link.id);
-  check('62h ارتقای لینک آنی ظرفیت را ۱٫۵ برابر کرد', rUp.ok === true && link.level === 2 && link.capacity === 15000 && link.status === 'active',
-    'level=' + link.level + ' cap=' + link.capacity);
+  // ارتقای سطح لینک حذف شده است: نه API هست نه سقف سطح
+  check('62h ارتقای سطح لینک حذف شده است (API نیست)', GameSim.upgradeLink === undefined && GameSim.LINK_MAX_LEVEL === undefined);
   const rBk = GameSim.toggleLinkBackup(s, link.id);
   check('62i تبدیل به لینک پشتیبان', rBk.ok === true && link.isBackup === true);
   const s2 = GameSim.loadGame(GameSim.saveGame(s));
   const l2 = s2.links.find(l => l.id === link.id);
-  check('62j ذخیره/بارگذاری رسانه و سطح لینک را حفظ می‌کند', l2.medium === 'fiber' && l2.level === 2 && l2.capacity === 15000,
+  check('62j ذخیره/بارگذاری رسانهٔ لینک را حفظ می‌کند و ظرفیت پایه است (بدون سطح)',
+    l2.medium === 'fiber' && l2.capacity === 10000 && l2.level === undefined,
     JSON.stringify({ m: l2.medium, lvl: l2.level, cap: l2.capacity }));
 }
 
@@ -2610,6 +2611,76 @@ let s1, cell1, link1;
     lm2 && !GameSim.hasModule(lm2, 'tdlte') && loaded.cash === cashBeforeSave + 15000 &&
     lm4 && GameSim.hasModule(lm4, 'tdlte'),
     'cash=' + loaded.cash + ' before=' + cashBeforeSave);
+}
+
+// ---------- 94: لینک موازی + بالانس خودکار ترافیک + مهاجرت حذف ارتقای لینک ----------
+{
+  const s = newGameAll(42);
+  s.cash = 99999999;
+  const core = coreOf(s);
+  const d = s.districts.find(x => x.id === 'center');
+  const t = GameSim.buildNode(s, 'cell_4g', d.x, d.y);
+  finishBuild(s, t);
+  const l1 = GameSim.connect(s, t.id, core.id, 'copper');
+  const l2 = GameSim.connect(s, t.id, core.id, 'copper');
+  check('94a دو لینک موازی بین همان دو گره ساخته می‌شود و ظرفیت‌ها جمع می‌شوند',
+    !!l1 && !!l2 && l1.id !== l2.id && l1.capacity === 100 && l2.capacity === 100 &&
+    GameSim.parallelLinks(s, t.id, core.id).length === 2,
+    JSON.stringify({ l1: l1 && l1.capacity, l2: l2 && l2.capacity }));
+
+  d.subscribers = 2000;
+  GameSim.tick(s, 1); keepAlive(s);
+  const u1 = l1.usage || 0, u2 = l2.usage || 0;
+  check('94b ترافیک خودکار بین دو لینک موازی تقریباً برابر تقسیم می‌شود',
+    u1 > 0 && u2 > 0 && Math.abs(u1 - u2) / Math.max(u1, u2) < 0.05,
+    'u1=' + Math.round(u1) + ' u2=' + Math.round(u2));
+
+  GameSim.disconnectLink(s, l1.id);
+  GameSim.tick(s, 1); keepAlive(s);
+  check('94c با حذف یکی از لینک‌های موازی، سرویس از دیگری ادامه دارد',
+    t.connected === true && (l2.usage || 0) > 0 && d.servedDemand > 0,
+    'u2=' + Math.round(l2.usage || 0) + ' served=' + d.servedDemand);
+}
+{
+  const s = newGameAll(43);
+  s.cash = 99999999;
+  const core = coreOf(s);
+  const d = s.districts.find(x => x.id === 'center');
+  const t = GameSim.buildNode(s, 'cell_4g', d.x, d.y);
+  const a1 = GameSim.buildNode(s, 'aggregation', core.x - 200, core.y - 150);
+  const a2 = GameSim.buildNode(s, 'aggregation', core.x - 200, core.y + 150);
+  [t, a1, a2].forEach(n => finishBuild(s, n));
+  const lt1 = GameSim.connect(s, t.id, a1.id, 'fiber');
+  const lt2 = GameSim.connect(s, t.id, a2.id, 'fiber');
+  GameSim.connect(s, a1.id, core.id, 'fiber');
+  GameSim.connect(s, a2.id, core.id, 'fiber');
+  d.subscribers = 2000;
+  GameSim.tick(s, 1); keepAlive(s);
+  check('94d ترافیک بین دو مسیر موازی (دو گره تجمیع) تقسیم می‌شود',
+    (lt1.usage || 0) > 0 && (lt2.usage || 0) > 0,
+    'lt1=' + Math.round(lt1.usage || 0) + ' lt2=' + Math.round(lt2.usage || 0));
+}
+{
+  const s = newGameAll(44);
+  s.cash = 1000000;
+  const core = coreOf(s);
+  const t = GameSim.buildNode(s, 'cell_2g', core.x - 200, core.y);
+  finishBuild(s, t);
+  const la = GameSim.connect(s, t.id, core.id, 'fiber');
+  const lb = GameSim.connect(s, t.id, core.id, 'fiber');
+  la.level = 3; la.capacity = 22500; // ارتقای سطح قدیمی: ۱۰۰۰۰×۱٫۵²
+  lb.capacity = 20000;               // دوبرابرشده با رفع خودکار قدیمی
+  const cashB = s.cash;
+  const loaded = GameSim.loadGame(GameSim.saveGame(s));
+  const ra = loaded.links.find(l => l.id === la.id);
+  const rb = loaded.links.find(l => l.id === lb.id);
+  check('94e ذخیرهٔ قدیمی: لینک ارتقایافته به ظرفیت پایه برگشت و هزینه برگشت (۹۰۰۰+۶۰۰۰)',
+    ra.capacity === 10000 && ra.level === undefined && rb.capacity === 10000 &&
+    loaded.cash === cashB + 15000,
+    'ra=' + ra.capacity + ' rb=' + rb.capacity + ' cashΔ=' + (loaded.cash - cashB));
+  let crashed = false;
+  try { GameSim.tick(loaded, 1); } catch (e) { crashed = true; }
+  check('94f بازی مهاجرت‌کرده بدون خطا تیک می‌خورد', !crashed);
 }
 
 console.log('\nنتیجه: ' + pass + ' پاس، ' + fail + ' رد');
