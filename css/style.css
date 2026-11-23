@@ -243,22 +243,33 @@ input[type=number]{background:var(--bg);color:var(--text);border:1px solid var(-
   .mobile-only{display:inline-block}
   .panel-head.mobile-only{display:flex}
 
-  /* --- Topbar: compact rows, nothing overlaps (options live in the side menu) --- */
-  #topbar{gap:6px 10px;padding:6px 8px}
+  /* --- Topbar موبایل: سه ردیف مرتب، بدون هم‌پوشانی ---
+     ردیف ۱: منو + عنوان + کنترل سرعت + زنگ هشدار
+     ردیف ۲: چهار چیپ آمار (نقدینگی/سال/روز/رضایت) تمام‌عرض
+     ردیف ۳: ساخت + جزئیات تمام‌عرض */
+  :root{--topbar-h:146px}
+  #topbar{gap:6px 8px;padding:6px 8px}
   #btn-menu{order:0}
   .tb-title{order:1}
   .subtitle{display:none}
   .logo{font-size:16px}
-  .stats{order:2;flex:1 1 auto;justify-content:space-evenly;gap:6px}
-  .stats .stat{min-width:0}
-  .stats label{font-size:9px}
-  .stats strong{font-size:13px}
   .tb-group.controls{display:contents}
-  .speed-btns{order:3}
-  #btn-alerts{order:4}
-  #toggle-right{order:5;display:inline-flex}
-  #toggle-detail{order:6}
-  /* touch targets ≥40px (speed buttons slightly narrower so row 2 never wraps) */
+  .speed-btns{order:2;margin-inline-start:auto}
+  #btn-alerts{order:3}
+  .stats{order:4;flex:1 1 100%;gap:6px}
+  .stats .stat{
+    flex:1 1 0;min-width:0;align-items:center;text-align:center;
+    background:var(--surface2);border:1px solid var(--border);border-radius:9px;
+    padding:4px 3px 5px;
+  }
+  .stats .stat:first-child{flex-grow:1.7} /* نقدینگی: مقدار بلندتر، چیپ پهن‌تر */
+  .stats label{font-size:10.5px;white-space:nowrap}
+  .stats strong{font-size:13.5px;white-space:nowrap}
+  .stats .stat:first-child strong{font-size:12.5px}
+  #topbar .stat.secondary{display:none}
+  #toggle-right{order:5;display:inline-flex;flex:1 1 0;justify-content:center}
+  #toggle-detail{order:6;flex:1 1 0}
+  /* touch targets ≥40px (speed buttons slightly narrower so row 1 never wraps) */
   .btn.icon{min-width:40px;height:40px}
   .speed-btns .btn.icon{min-width:37px}
   #toggle-right,#toggle-detail{min-height:40px;padding:8px 10px;font-size:13px}
@@ -394,7 +405,3 @@ input[type=number]{background:var(--bg);color:var(--text);border:1px solid var(-
 .module-row > div:first-child { flex: 1; min-width: 0; }
 .module-row .btn { flex-shrink: 0; }
 .module-reason { flex: 1 1 100%; font-size: 11px; }
-@media (max-width: 900px) {
-  #topbar .stat.secondary { display: none; }
-  #topbar .tb-group.stats { overflow-x: auto; }
-}
