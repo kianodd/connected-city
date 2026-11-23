@@ -104,61 +104,13 @@
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   }
 
-  const ACCESS_TYPES = ['cell_2g', 'cell_3g', 'cell_4g', 'cell_5g', 'ftth', 'street_cabinet'];
+  const ACCESS_TYPES = ['cell_2g', 'cell_3g', 'cell_4g', 'cell_5g', 'ftth', 'street_cabinet', 'cabinet_basic'];
+  // مالک گره: بازیکن یا شرکت رقیب (گره‌های رقیب فقط برای نمایش/رقابت‌اند و قابل ویرایش نیستند)
+  function ownerOf(n) { return (n && n.owner === 'rival') ? 'rival' : 'player'; }
+  function isRivalNode(n) { return ownerOf(n) === 'rival'; }
   const CELL_TYPES = ['cell_2g', 'cell_3g', 'cell_4g', 'cell_5g'];
   function isCellTower(n) { return !!n && CELL_TYPES.includes(n.type); }
 
-  // ---------- ماژول‌ها (جایگزین ارتقای سطح) ----------
-  function nodeModules(n) { return (n && Array.isArray(n.modules)) ? n.modules : []; }
-  function hasModule(n, moduleId) { return nodeModules(n).includes(moduleId); }
-  function moduleCount(n, moduleId) { return nodeModules(n).filter((m) => m === moduleId).length; }
-  function moduleSlots(n) {
-    const eq = n ? getEq(n.type) : null;
-    return eq && eq.slots != null ? eq.slots : 0;
-  }
-  // ظرفیت TD-LTE هر دکلِ دارای ماژول (مگابیت) — همان ظرفیت آنتن قدیمی TD-LTE
-  const TDLTE_MODULE_CAPACITY = 600;
-  function tdlteCapacity(n) {
-    return (isCellTower(n) && (n.type === 'cell_4g' || n.type === 'cell_5g') && hasModule(n, 'tdlte')) ? TDLTE_MODULE_CAPACITY : 0;
-  }
-  // اعمال اثر ماژول‌ها روی ظرفیت/شعاع/پورت گره (از پایهٔ تجهیز، نه انباشته)
-  function applyModules(n) {
-    if (!n) return;
-    const eq = getEq(n.type);
-    const baseCap = n.baseCapacity != null ? n.baseCapacity : (eq ? (eq.capacity || 0) : (n.capacity || 0));
-    const baseRad = n.baseRadius != null ? n.baseRadius : (eq ? (eq.radius || 0) : (n.radius || 0));
-    n.baseCapacity = baseCap;
-    n.baseRadius = baseRad;
-    n.capacity = Math.round(baseCap * Math.pow(1.5, moduleCount(n, 'cap_boost')));
-    if (baseRad > 0) n.radius = Math.round(baseRad * Math.pow(1.1, moduleCount(n, 'range_boost')));
-  }
-  function moduleInfo(state, nodeId) {
-    const n = nodeById(state, nodeId);
-    if (!n) return null;
-    const slots = moduleSlots(n);
-    const installed = nodeModules(n).slice();
-    const y = yearOf(state);
-    const options = (DATA.moduleList || []).map((m) => {
-      let ok = true, reason = '';
-      if (slots <= 0) { ok = false; reason = 'این تجهیز اسلات ماژول ندارد.'; }
-      else if (installed.length >= slots) { ok = false; reason = 'همهٔ اسلات‌های ماژول پر است.'; }
-      else if (y < (m.era || 1991)) { ok = false; reason = 'از سال ' + m.era + ' در دسترس است.'; }
-      else if (m.id === 'tdlte') {
-        if (n.type !== 'cell_4g' && n.type !== 'cell_5g') { ok = false; reason = 'ماژول TD-LTE فقط روی دکل 4G و 5G نصب می‌شود'; }
-        else if (hasModule(n, 'tdlte')) { ok = false; reason = 'قبلاً نصب شده است.'; }
-      } else if (m.id === 'ports_boost') {
-        if (n.type !== 'street_cabinet' && n.type !== 'ftth') { ok = false; reason = 'فقط برای کابینت خیابانی و گره FTTH است.'; }
-      } else if (m.id === 'range_boost') {
-        if (!(n.baseRadius > 0)) { ok = false; reason = 'این گره پوشش رادیویی ندارد.'; }
-      } else if (m.id === 'cap_boost') {
-        if (!(n.baseCapacity > 0)) { ok = false; reason = 'این گره ظرفیت شبکه ندارد.'; }
-      }
-      if (ok && (state.cash || 0) < (m.cost || 0)) { ok = false; reason = 'نقدینگی کافی نیست.'; }
-      return { id: m.id, name: m.name, desc: m.desc, cost: m.cost, monthlyCost: m.monthlyCost, era: m.era, ok, reason, installed: installed.filter((x) => x === m.id).length };
-    });
-    return { node: n, slots, installed, options };
-  }
-  // نام سادهٔ گره برای ذخیره‌های قدیمی: برندهای خیالی از نام برداشته می‌شوند
   const OLD_NAME_PREFIXES = [
     ['دکل سلولی 2G آریاتل', 'دکل 2G'], ['دکل سلولی 3G آریاتل', 'دکل 3G'],
     ['دکل سلولی 4G آریاتل', 'دکل 4G'], ['دکل سلولی 5G سیمرغ‌لینک', 'دکل 5G'],
@@ -182,21 +134,171 @@
     if (!name) { const eq = getEq(n.type); name = eq ? eq.name : (n.type || 'گره'); }
     return name;
   }
+
+  // ---------- ماژول‌ها: نصب یک‌باره + آپگرید سطح‌به‌سطح (بدون محدودیت تعداد، بدون اشغال جا) ----------
+  // هر نوع ماژول یک‌بار روی گره نصب و بعد سطح‌به‌سطح قوی‌تر می‌شود؛ در ذخیره به‌صورت شمارش
+  // همان شناسه در آرایهٔ modules نگه داشته می‌شود (سطح = تعداد تکرار)، پس ذخیره‌های قبلی
+  // با ماژول‌های انباشته خودکار به همان سطح‌ها تبدیل می‌شوند. هزینهٔ رسیدن به سطح L:
+  // cost × 1.6^(L-1). سقف سطح برای سلامت بازی: ۱۰ (منبع تغذیه: ۸).
+  const MODULE_LEVEL_CAP = 10;
+  const POWER_LEVEL_CAP = 8;
+  const MODULE_COST_GROWTH = 1.6;
+  function nodeModules(n) { return (n && Array.isArray(n.modules)) ? n.modules : []; }
+  function hasModule(n, moduleId) { return nodeModules(n).includes(moduleId); }
+  function moduleCount(n, moduleId) { return nodeModules(n).filter((m) => m === moduleId).length; }
+  function moduleLevel(n, moduleId) { return moduleCount(n, moduleId); }
+  // ماژول خراب: اثرش کامل قطع است تا تعمیر شود (تعمیر آنی است)
+  function isModuleBroken(n, moduleId) { return !!(n && n.brokenModules && n.brokenModules[moduleId]); }
+  function effModuleCount(n, moduleId) { return isModuleBroken(n, moduleId) ? 0 : moduleCount(n, moduleId); }
+  function moduleSlots(n) { // فقط برای سازگاری قدیمی؛ دیگر محدودیتی اعمال نمی‌شود
+    const eq = n ? getEq(n.type) : null;
+    return eq && eq.slots != null ? eq.slots : 0;
+  }
+  function moduleLevelCap(moduleId) { return moduleId === 'power' ? POWER_LEVEL_CAP : MODULE_LEVEL_CAP; }
+  function moduleCostForLevel(m, level) { // هزینهٔ رسیدن از سطح level-1 به level
+    if (!m || level < 1) return 0;
+    return Math.round((m.cost || 0) * Math.pow(MODULE_COST_GROWTH, level - 1));
+  }
+  // ظرفیت TD-LTE هر دکلِ دارای ماژول: هر سطح ۶۰۰ مگابیت
+  const TDLTE_MODULE_CAPACITY = 600;
+  function tdlteCapacity(n) {
+    return (isCellTower(n) && (n.type === 'cell_4g' || n.type === 'cell_5g')) ? TDLTE_MODULE_CAPACITY * effModuleCount(n, 'tdlte') : 0;
+  }
+  // ---------- برق گره: «ماژول منبع تغذیه» مثل بقیهٔ ماژول‌ها سطح دارد ----------
+  // توان هر سطح دو برابر سطح قبل است: ۸۰۰، ۱۶۰۰، ۳۲۰۰، ۶۴۰۰… وات. سطح پایه در قیمت ساخت هست.
+  function powerWatts(level) { return level <= 0 ? 0 : 800 * Math.pow(2, level - 1); }
+  function nodePowerDraw(n) { // مصرف فعلی گره (وات): پایهٔ تجهیز + ماژول‌های سالم (به ازای هر سطح)
+    if (!n) return 0;
+    const eq = getEq(n.type);
+    let draw = (eq && eq.powerDraw) || 0;
+    const seen = new Set(nodeModules(n));
+    for (const mid of seen) {
+      if (mid === 'power') continue;
+      const m = getModule(mid);
+      if (m) draw += (m.powerDraw || 0) * effModuleCount(n, mid);
+    }
+    return draw;
+  }
+  function nodePowerCapacity(n) { return isModuleBroken(n, 'power') ? 0 : powerWatts(moduleCount(n, 'power')); }
+  function nodePowerInfo(n) {
+    const draw = nodePowerDraw(n), capacity = nodePowerCapacity(n);
+    return { draw, capacity, ok: draw <= capacity, level: moduleCount(n, 'power'), broken: isModuleBroken(n, 'power') };
+  }
+  function smallestPowerLevelFor(draw) {
+    for (let L = 1; L <= POWER_LEVEL_CAP; L++) if (powerWatts(L) >= draw) return L;
+    return POWER_LEVEL_CAP;
+  }
+  // اعمال اثر ماژول‌ها روی ظرفیت/شعاع/پورت گره (از پایهٔ تجهیز، نه انباشته؛ ماژول خراب اثر ندارد)
+  function applyModules(n) {
+    if (!n) return;
+    const eq = getEq(n.type);
+    const baseCap = n.baseCapacity != null ? n.baseCapacity : (eq ? (eq.capacity || 0) : (n.capacity || 0));
+    const baseRad = n.baseRadius != null ? n.baseRadius : (eq ? (eq.radius || 0) : (n.radius || 0));
+    n.baseCapacity = baseCap;
+    n.baseRadius = baseRad;
+    n.capacity = Math.round(baseCap * Math.pow(1.5, effModuleCount(n, 'cap_boost')));
+    if (baseRad > 0) n.radius = Math.round(baseRad * Math.pow(1.1, effModuleCount(n, 'range_boost')));
+  }
+  function moduleEffectText(n, moduleId, level) { // پیش‌نمایش اثر یک سطح مشخص (برای پنل)
+    if (moduleId === 'cap_boost') return 'ظرفیت ×' + (Math.round(Math.pow(1.5, level) * 100) / 100);
+    if (moduleId === 'range_boost') return 'شعاع ×' + (Math.round(Math.pow(1.1, level) * 100) / 100);
+    if (moduleId === 'ports_boost') return 'پورت +' + (24 * level);
+    if (moduleId === 'tdlte') return 'ظرفیت TD-LTE: ' + (TDLTE_MODULE_CAPACITY * level) + ' Mbps';
+    if (moduleId === 'power') return 'توان ' + powerWatts(level) + ' وات';
+    return '';
+  }
+  function moduleInfo(state, nodeId) {
+    const n = nodeById(state, nodeId);
+    if (!n) return null;
+    const installed = nodeModules(n).slice();
+    const levels = {};
+    for (const mid of installed) levels[mid] = (levels[mid] || 0) + 1;
+    const y = yearOf(state);
+    const power = nodePowerInfo(n);
+    const options = (DATA.moduleList || []).map((m) => {
+      const level = levels[m.id] || 0;
+      const cap = moduleLevelCap(m.id);
+      const nextLevel = level + 1;
+      const nextCost = nextLevel <= cap ? moduleCostForLevel(m, nextLevel) : 0;
+      const broken = isModuleBroken(n, m.id);
+      let ok = true, reason = '';
+      if (broken) { ok = false; reason = 'این ماژول خراب است؛ اول آن را تعمیر کنید.'; }
+      else if (nextLevel > cap) { ok = false; reason = 'به سقف سطح (' + cap + ') رسیده است.'; }
+      else if (y < (m.era || 1991)) { ok = false; reason = 'از سال ' + m.era + ' در دسترس است.'; }
+      else if (m.id === 'tdlte') {
+        if (n.type !== 'cell_4g' && n.type !== 'cell_5g') { ok = false; reason = 'ماژول TD-LTE فقط روی دکل 4G و 5G نصب می‌شود'; }
+      } else if (m.id === 'ports_boost') {
+        if (n.type !== 'street_cabinet' && n.type !== 'ftth') { ok = false; reason = 'فقط برای کابینت خیابانی و گره FTTH است.'; }
+      } else if (m.id === 'range_boost') {
+        if (!(n.baseRadius > 0)) { ok = false; reason = 'این گره پوشش رادیویی ندارد.'; }
+      } else if (m.id === 'cap_boost') {
+        if (!(n.baseCapacity > 0)) { ok = false; reason = 'این گره ظرفیت شبکه ندارد.'; }
+      }
+      if (ok && (state.cash || 0) < nextCost) { ok = false; reason = 'نقدینگی کافی نیست.'; }
+      // هشدار برق پیش از نصب: اگر این سطح مصرف را از توان منبع بیشتر کند، گره خاموش می‌شود
+      let powerWarn = false;
+      if (m.id !== 'power' && nextLevel <= cap) {
+        const drawAfter = power.draw + (m.powerDraw || 0);
+        if (drawAfter > power.capacity) powerWarn = true;
+      }
+      return {
+        id: m.id, name: m.name, desc: m.desc, cost: nextCost, baseCost: m.cost,
+        monthlyCost: m.monthlyCost, era: m.era, ok, reason, level, nextLevel,
+        maxLevel: cap, broken, powerDraw: m.powerDraw || 0, powerWarn,
+        effectNow: level > 0 ? moduleEffectText(n, m.id, level) : '',
+        effectNext: nextLevel <= cap ? moduleEffectText(n, m.id, nextLevel) : '',
+        installed: level,
+      };
+    });
+    return { node: n, slots: moduleSlots(n), installed, levels, power, options };
+  }
   function installModule(state, nodeId, moduleId) {
     const info = moduleInfo(state, nodeId);
     if (!info) return { ok: false, error: 'گره پیدا نشد.' };
+    const n = info.node;
+    if (isRivalNode(n)) return { ok: false, error: 'این گره متعلق به شرکت رقیب است و قابل تغییر نیست.' };
     const opt = info.options.find((o) => o.id === moduleId);
     if (!opt) return { ok: false, error: 'ماژول نامعتبر است.' };
     if (!opt.ok) return { ok: false, error: opt.reason || 'نصب ممکن نیست.' };
-    const n = info.node;
     state.cash -= opt.cost || 0;
     state.totalCosts = (state.totalCosts || 0) + (opt.cost || 0);
     if (!Array.isArray(n.modules)) n.modules = [];
     n.modules.push(moduleId);
     applyModules(n);
-    log(state, '«' + opt.name + '» روی «' + (n.name || 'گره') + '» نصب شد (آنی).', 'build');
+    const lvl = moduleCount(n, moduleId);
+    log(state, '«' + opt.name + '» روی «' + (n.name || 'گره') + '» ' + (lvl > 1 ? 'به سطح ' + lvl + ' آپگرید شد' : 'نصب شد') + ' (آنی).', 'build');
     refreshConnectivity(state);
-    return { ok: true, cost: opt.cost, module: moduleId, capacity: n.capacity, radius: n.radius };
+    const pw = nodePowerInfo(n);
+    return { ok: true, cost: opt.cost, module: moduleId, level: lvl, capacity: n.capacity, radius: n.radius, powered: pw.ok };
+  }
+  // خرابی ماژول: اثرش قطع می‌شود (منبع تغذیهٔ خراب = گره خاموش) تا تعمیر شود
+  function breakModule(state, nodeId, moduleId) {
+    const n = nodeById(state, nodeId);
+    if (!n || moduleCount(n, moduleId) <= 0 || isModuleBroken(n, moduleId)) return false;
+    if (!n.brokenModules) n.brokenModules = {};
+    n.brokenModules[moduleId] = true;
+    applyModules(n);
+    const m = getModule(moduleId);
+    log(state, 'ماژول «' + ((m && m.name) || moduleId) + '» روی «' + (n.name || 'گره') + '» خراب شد و از کار افتاد.', 'error');
+    refreshConnectivity(state);
+    return true;
+  }
+  // تعمیر ماژول خراب: آنی، با هزینهٔ ۲۰٪ هزینهٔ سطح فعلی (حداقل ۲۰۰ تومان)
+  function repairModule(state, nodeId, moduleId) {
+    const n = nodeById(state, nodeId);
+    if (!n) return { ok: false, error: 'گره پیدا نشد.' };
+    if (isRivalNode(n)) return { ok: false, error: 'این گره متعلق به شرکت رقیب است.' };
+    if (!isModuleBroken(n, moduleId)) return { ok: false, error: 'این ماژول خراب نیست.' };
+    const m = getModule(moduleId);
+    const cost = Math.max(200, Math.round(0.2 * moduleCostForLevel(m, Math.max(1, moduleCount(n, moduleId)))));
+    if ((state.cash || 0) < cost) return { ok: false, error: 'بودجه کافی برای تعمیر ماژول نیست.' };
+    state.cash -= cost;
+    state.totalCosts = (state.totalCosts || 0) + cost;
+    delete n.brokenModules[moduleId];
+    applyModules(n);
+    log(state, 'ماژول «' + ((m && m.name) || moduleId) + '» روی «' + (n.name || 'گره') + '» تعمیر شد (آنی).', 'repair');
+    refreshConnectivity(state);
+    return { ok: true, cost, module: moduleId };
   }
 
   // گره دسترسی: انواع کلاسیک + هر تجهیز کاتالوگ با دستهٔ access/antenna و فیلد tech
@@ -228,12 +330,28 @@
   }
   function packageSpeed(pkg) { return pkg ? (pkg.speedMbps || pkg.speed || 50) : 50; }
   // ترافیک میانگینِ یک مشترک (Mbps) در ساعت شلوغ، با ضریب مصرف منطقه
+  // ضریب تقاضای هر کاربر بر اساس سال (خط زمانی): ۱۹۹۱ کم (فناوری ضعیف) تا دوران مدرن زیاد.
+  // بین نقاط منحنی DATA.eraDemandCurve خطی درون‌یابی می‌شود.
+  function eraDemandMult(state) {
+    const curve = (DATA && DATA.eraDemandCurve) || [];
+    if (!curve.length) return 1;
+    const y = yearOf(state);
+    if (y <= curve[0].year) return curve[0].mult;
+    for (let i = 1; i < curve.length; i++) {
+      if (y <= curve[i].year) {
+        const a = curve[i - 1], b = curve[i];
+        const t = (y - a.year) / Math.max(1, b.year - a.year);
+        return a.mult + (b.mult - a.mult) * t;
+      }
+    }
+    return curve[curve.length - 1].mult;
+  }
   function perSubTraffic(state, d, timeFactor) {
     const pkg = districtPackage(state, d);
-    return packageSpeed(pkg) * CONCURRENCY * (timeFactor == null ? 1 : timeFactor) * (d.usageMult || 1);
+    return packageSpeed(pkg) * CONCURRENCY * (timeFactor == null ? 1 : timeFactor) * (d.usageMult || 1) * eraDemandMult(state);
   }
   function techOfNode(type) {
-    if (type === 'ftth' || type === 'street_cabinet') return 'fiber';
+    if (type === 'ftth' || type === 'street_cabinet' || type === 'cabinet_basic') return 'fiber';
     if (type && type.indexOf('cell_') === 0) return 'cellular';
     const eq = getEq(type);
     return (eq && eq.tech) || null;
@@ -241,20 +359,20 @@
   // گره در این لحظه برای یک فناوری مشخص سرویس می‌دهد؟
   // TD-LTE فناوریِ دکل‌های 4G/5G دارای «ماژول TD-LTE» است (گرهٔ جدا ندارد).
   function nodeServesTech(state, n, tech) {
-    if (!isAccessNode(n) || !isUsableNode(n) || !n.connected) return false;
+    if (!isAccessNode(n) || !isUsableNode(n) || !n.connected || isRivalNode(n)) return false;
     if (tech === 'fwa') return tdlteCapacity(n) > 0;
     return techOfNode(n.type) === tech;
   }
   // گره دسترسی در این لحظه واقعاً سرویس می‌دهد؟ (متصل + قابل‌استفاده)
   function nodeServes(state, n) {
-    if (!isAccessNode(n) || !isUsableNode(n) || !n.connected) return false;
+    if (!isAccessNode(n) || !isUsableNode(n) || !n.connected || isRivalNode(n)) return false;
     return true;
   }
   // نقطه داخل پوشش یک دکل 4G/5G متصل است؟ (برای نمایش وضعیت TD-LTE در تست سرعت)
   function pointIn4GCoverage(state, x, y) {
     for (const m of (state.nodes || [])) {
       if (m.type !== 'cell_4g' && m.type !== 'cell_5g') continue;
-      if (!isUsableNode(m) || !m.connected) continue;
+      if (!isUsableNode(m) || !m.connected || isRivalNode(m)) continue;
       if (dist(x, y, m.x, m.y) <= (m.radius || 0) && inWedge(m, x, y)) return true;
     }
     return false;
@@ -697,6 +815,8 @@
     const toolCount = (state.nodes || []).filter((n) => nodeCategory(n) === 'tools' && isUsableNode(n)).length;
     const buildSpeed = clamp((0.6 + 0.4 * Math.min(1, ratio(techs, reqTechs)) + 0.1 * Math.max(0, techs - reqTechs)) * (1 + Math.min(0.3, 0.03 * toolCount)), 0.6, 2.6);
     const repairSpeed = clamp((0.3 + 0.7 * Math.min(1, ratio(techs, reqTechs)) + 0.15 * Math.max(0, techs - reqTechs)) * (1 + Math.min(0.5, 0.06 * toolCount)), 0.3, 3.2);
+    // تعمیر آنی است؛ تکنسین‌ها حالا هزینهٔ تعمیر را کم می‌کنند (هر تکنسین ۶٪، حداکثر ۵۰٪ تخفیف)
+    const repairDiscount = clamp(1 - 0.06 * techs, 0.5, 1);
     const capMult = clamp(0.88 + 0.12 * Math.min(1, ratio(engs, reqEngs)) + 0.04 * Math.max(0, engs - reqEngs), 0.88, 1.35);
     const supR = Math.min(1, ratio(sups, reqSups));
     const satDecayRate = 0.25 * (1 - 0.45 * supR);
@@ -707,7 +827,7 @@
     return {
       techs, engs, sups, sales, reqTechs, reqEngs, reqSups, reqSales,
       nodeCount, linkCount, totalSubs, servedDistricts,
-      buildSpeed, repairSpeed, capMult, satDecayRate, satRecoveryRate,
+      buildSpeed, repairSpeed, repairDiscount, capMult, satDecayRate, satRecoveryRate,
       churnKeepUnserved, churnKeepLowQos, growthMult,
       monthlySalaryTotal: staff.reduce((s, m) => s + (m.salary || 0), 0),
     };
@@ -1075,7 +1195,15 @@
   function isUsableLink(l) { return l && (l.status === 'active' || l.status === 'congested'); }
 
   // ---------- ساخت بازی جدید ----------
-  function newGame(seed) {
+  // اندازهٔ جهان هر بازی: بازی جدید از DATA (نقشهٔ بزرگ)، ذخیره‌های قدیمی جهان خودشان را نگه می‌دارند
+  function worldSize(state) {
+    return {
+      w: (state && state.worldW) || (DATA.world && DATA.world.width) || 7200,
+      h: (state && state.worldH) || (DATA.world && DATA.world.height) || 5400,
+    };
+  }
+  function newGame(seed, opts) {
+    opts = opts || {};
     const s = (seed === undefined || seed === null) ? 42 : (seed >>> 0);
     // نقشهٔ تصادفی با بذر؛ در نبود مولد، نقشهٔ ثابت DATA
     const gen = (MapGen && MapGen.generate) ? MapGen.generate(s) : null;
@@ -1135,6 +1263,8 @@
       loan: 0,
       isNewGame: true,
       buildings: genBuildings.slice(),
+      worldW: (DATA.world && DATA.world.width) || 14400,
+      worldH: (DATA.world && DATA.world.height) || 10800,
       installPoints: genInstallPoints,
       mapSeed: s,
       map: gen ? { river: gen.river, bridges: gen.bridges, roads: gen.roads, parks: gen.parks } : null,
@@ -1151,7 +1281,7 @@
       population: d.population, demandBase: d.demandBase, usageMult: 1,
       priceSensitivity: d.priceSensitivity, potentialRevenue: d.potentialRevenue,
       unlocked: d.id === 'center' || d.id === 'north',
-      demand: 0, servedDemand: 0, subscribers: 0,
+      demand: 0, servedDemand: 0, subscribers: 0, rivalSubscribers: 0,
       qos: 0, potentialQos: 0, satisfaction: 0, revenue: 0, complaints: 0, connected: false,
       avgLatency: 0, jitter: 0, perSubMbps: 0, commuteCoverage: null, eraFactor: 1, _qosAcc: 0, _qosDays: 0,
     }));
@@ -1173,7 +1303,7 @@
       id: 'n' + (++state.counters.node), type: 'core_router', name: coreEq ? coreEq.name : 'روتر هسته',
       x: hq.x, y: hq.y, status: 'active', health: 100,
       capacity: coreEq ? coreEq.capacity : 40000, radius: 0,
-      modules: [], baseCapacity: coreEq ? coreEq.capacity : 40000, baseRadius: 0,
+      modules: Array(smallestPowerLevelFor((coreEq && coreEq.powerDraw) || 0)).fill('power'), baseCapacity: coreEq ? coreEq.capacity : 40000, baseRadius: 0,
       tech: null, direction: 0, angle: 360, power: 1,
       buildTimer: 0, usage: 0, connected: true, channel: null, interference: 0,
     };
@@ -1181,7 +1311,7 @@
       id: 'n' + (++state.counters.node), type: 'internet_gateway', name: gwEq ? gwEq.name : 'دروازه اینترنت',
       x: hq.x + 140, y: hq.y, status: 'active', health: 100,
       capacity: gwEq ? gwEq.capacity : 40000, radius: 0,
-      modules: [], baseCapacity: gwEq ? gwEq.capacity : 40000, baseRadius: 0,
+      modules: Array(smallestPowerLevelFor((gwEq && gwEq.powerDraw) || 0)).fill('power'), baseCapacity: gwEq ? gwEq.capacity : 40000, baseRadius: 0,
       tech: null, direction: 0, angle: 360, power: 1,
       buildTimer: 0, usage: 0, connected: true, channel: null, interference: 0,
     };
@@ -1194,6 +1324,23 @@
       medium: 'fiber', capacity: 10000, latency: 2,
       status: 'active', isBackup: false, usage: 0,
     });
+
+    // شرکت رقیب (اختیاری): پیش‌فرض در جریان بازی روشن است؛ در سیم پیش‌فرض خاموش تا تست‌ها/ذخیره‌های قدیمی دست نخورند.
+    state.rival = { enabled: opts.rival === true, cash: 60000, price: RIVAL_PRICE, lastBuildDay: 2, nodesBuilt: 0 };
+    if (state.rival.enabled) {
+      // مرکز دادهٔ رقیب در دورترین منطقه از HQ بازیکن
+      let farD = null, farDist = -1;
+      for (const d of state.districts) {
+        const dd = dist(hq.x, hq.y, d.x, d.y);
+        if (dd > farDist) { farDist = dd; farD = d; }
+      }
+      const rc = rivalBuildNode(state, 'core_router', farD.x, farD.y, true);
+      const rg = rivalBuildNode(state, 'internet_gateway', farD.x + 140, farD.y, true);
+      if (rc && rg) {
+        state.links.push({ id: 'l' + (++state.counters.link), from: rc.id, to: rg.id, medium: 'fiber', capacity: 10000, latency: 2, status: 'active', isBackup: false, usage: 0 });
+      }
+      log(state, 'یک شرکت رقیب هم در شهر شروع به کار کرده است؛ مرکز داده‌اش در «' + (farD ? farD.name : 'دوردست') + '» است.', 'info');
+    }
 
     log(state, 'شرکت مخابراتی شما تأسیس شد. هسته و دروازه اینترنت در مرکز داده فعال‌اند.', 'info');
     return state;
@@ -1238,7 +1385,7 @@
       health: 100,
       capacity: eq.capacity || 0,
       radius: eq.radius || 0,
-      modules: [],
+      modules: Array(smallestPowerLevelFor(eq.powerDraw || 0)).fill('power'), // منبع تغذیهٔ پایه در قیمت ساخت هست
       baseCapacity: eq.capacity || 0,
       baseRadius: eq.radius || 0,
       tech: CELL_TECH[eqId] || null,
@@ -1260,6 +1407,166 @@
     return node;
   }
 
+  // ---------- رسانه‌های اتصال: قفل دوران + نظرسنجی پهپاد برای PtP ----------
+  function mediumUnlockYear(medium) {
+    const mi = (DATA.linkMedia && DATA.linkMedia[medium]) || {};
+    return mi.era || TL.startYear;
+  }
+  // پهپاد نقشه‌برداری: قبل از ساخت لینک نقطه‌به‌نقطه، خط دید و ظرفیت مؤثر را بررسی می‌کند.
+  function surveyPtP(state, aId, bId) {
+    const a = nodeById(state, aId), b = nodeById(state, bId);
+    if (!a || !b) return null;
+    const d = dist(a.x, a.y, b.x, b.y);
+    const mi = (DATA.linkMedia && DATA.linkMedia.ptp) || {};
+    const maxRange = mi.maxRange || 1800;
+    const losFactor = ptpLosFactor(state, a, b);
+    const blocked = losFactor < 1;
+    let blockedByName = '';
+    if (blocked) {
+      for (const bd of (state.buildings || [])) {
+        if ((bd.height || 0) < 10) continue;
+        const bcx = bd.x + (bd.w || 26) / 2, bcy = bd.y + (bd.h || 20) / 2;
+        const t = clamp(((bcx - a.x) * (b.x - a.x) + (bcy - a.y) * (b.y - a.y)) / (Math.pow(b.x - a.x, 2) + Math.pow(b.y - a.y, 2) || 1), 0, 1);
+        if (dist(bcx, bcy, a.x + t * (b.x - a.x), a.y + t * (b.y - a.y)) < 45) { blockedByName = bd.name || 'ساختمان بلند'; break; }
+      }
+    }
+    // ظرفیت مؤثر دقیقاً مثل لینک ساخته‌شده: پایه × ضریب فاصله × ضریب دید مستقیم
+    const effCapacity = Math.round(linkBaseCapacity('ptp') * ptpDistanceFactor(state, a, b));
+    return {
+      distance: Math.round(d), maxRange, inRange: d <= maxRange,
+      losClear: !blocked, losFactor, blockedByName,
+      distanceFactor: clamp(1 - 0.6 * d / maxRange, 0.4, 1),
+      effCapacity,
+    };
+  }
+  // گزینه‌های رسانه برای پنل اتصال: هر رسانه با وضعیت قفل دوران و (برای PtP) نتیجهٔ نظرسنجی پهپاد
+  function mediumOptions(state, aId, bId) {
+    const y = yearOf(state);
+    return ['fiber', 'ptp', 'ethernet', 'copper'].map((m) => {
+      const mi = (DATA.linkMedia && DATA.linkMedia[m]) || {};
+      const unlockYear = mi.era || TL.startYear;
+      const opt = {
+        medium: m, name: mi.name || m, capacity: mi.capacity || 0, latency: mi.latency || 0,
+        unlockYear, ok: y >= unlockYear, reason: y >= unlockYear ? '' : 'از سال ' + unlockYear,
+      };
+      if (m === 'ptp') opt.survey = surveyPtP(state, aId, bId);
+      return opt;
+    });
+  }
+
+  // ---------- شرکت رقیب: ساخت گره/لینک داخلی (بدون دخالت بازیکن) ----------
+  const RIVAL_PRICE = 110; // قیمت بستهٔ خانگی رقیب (بازیکن: ۱۲۰) — ارزان‌تر، ولی کیفیتش از پوشش می‌آید
+  function rivalBuildNode(state, eqId, x, y, free) {
+    const eq = getEq(eqId);
+    if (!eq) return null;
+    // جای معتبر پیدا کن (نه روی ساختمان/رودخانه)
+    let px = x, py = y, tries = 0;
+    while (tries < 24 && !isValidPlacement(state, px, py).ok) {
+      px = x + (rand(state) * 2 - 1) * 160;
+      py = y + (rand(state) * 2 - 1) * 160;
+      tries++;
+    }
+    if (!isValidPlacement(state, px, py).ok) return null;
+    if (!free) {
+      if (!state.rival || state.rival.cash < eq.cost) return null;
+      state.rival.cash -= eq.cost;
+    }
+    const node = {
+      id: 'n' + (++state.counters.node), type: eqId, name: eq.name + ' (رقیب)',
+      x: Math.round(px), y: Math.round(py), status: 'active', health: 100,
+      capacity: eq.capacity || 0, radius: eq.radius || 0,
+      modules: Array(smallestPowerLevelFor(eq.powerDraw || 0)).fill('power'),
+      baseCapacity: eq.capacity || 0, baseRadius: eq.radius || 0,
+      tech: CELL_TECH[eqId] || null, direction: 0, angle: 360, power: 1,
+      buildTimer: 0, usage: 0, connected: false, channel: null, interference: 0,
+      owner: 'rival',
+    };
+    if (channelCountFor(node) > 0) node.channel = leastInterferedChannel(state, node);
+    state.nodes.push(node);
+    if (state.rival) state.rival.nodesBuilt = (state.rival.nodesBuilt || 0) + 1;
+    return node;
+  }
+  function rivalConnect(state, aId, bId) {
+    const a = nodeById(state, aId), b = nodeById(state, bId);
+    if (!a || !b) return null;
+    const y = yearOf(state);
+    const d = dist(a.x, a.y, b.x, b.y);
+    let medium = 'ethernet';
+    if (y >= 1995) medium = 'fiber';
+    if (y >= 1996 && d > 1200 && d <= 1800 && rand(state) < 0.5) medium = 'ptp';
+    const mi = (DATA.linkMedia && DATA.linkMedia[medium]) || { capacity: 1000, latency: 5 };
+    const link = {
+      id: 'l' + (++state.counters.link), from: aId, to: bId, medium,
+      capacity: mi.capacity, latency: mi.latency, status: 'active', isBackup: false, usage: 0,
+    };
+    state.links.push(link);
+    return link;
+  }
+  // هوش مصنوعی رقیب: حداکثر هر ۲ روز یک گره؛ منطقهٔ بی‌پوشش و پرجمعیت را هدف می‌گیرد.
+  function rivalTick(state, dtDays) {
+    const R = state.rival;
+    if (!R || !R.enabled) return;
+    const rSubs = (state.districts || []).reduce((s, d) => s + (d.rivalSubscribers || 0), 0);
+    const rQosAvg = rSubs > 0 ? (state.districts || []).reduce((s, d) => s + (d.rivalQos || 0) * (d.rivalSubscribers || 0), 0) / rSubs : 0;
+    R.cash += Math.round(rSubs * (R.price || RIVAL_PRICE) / 30 * dtDays * 0.55 * (0.4 + 0.6 * rQosAvg));
+    if (state.day - (R.lastBuildDay || 0) < 4) return;
+    if ((state.nodes || []).filter((n) => isRivalNode(n)).length >= 55) return; // سقف شبکهٔ رقیب
+    const y = yearOf(state);
+    // انتخاب منطقهٔ هدف
+    let best = null, bestScore = -1;
+    for (const d of (state.districts || [])) {
+      const rivalHere = (state.nodes || []).filter((n) => isRivalNode(n) && isAccessNode(n) && dist(n.x, n.y, d.x, d.y) < (d.radius || 300) + 200).length;
+      if (rivalHere >= 3) continue;
+      if ((d.rivalSubscribers || 0) >= (d.population || 0) * 0.35 * 0.6) continue; // بازار این منطقه برای رقیب اشباع است
+      const playerHere = (state.nodes || []).some((n) => !isRivalNode(n) && isAccessNode(n) && isUsableNode(n) && n.connected && dist(n.x, n.y, d.x, d.y) < (d.radius || 300) + 200);
+      const share = (d.rivalSubscribers || 0) / Math.max(1, (d.population || 1) * 0.35);
+      let score = (d.population || 0) * (1 - share);
+      if (!playerHere) score *= 1.6; // منطقهٔ بی‌پوشش بازیکن جذاب‌تر است
+      if (rivalHere === 0) score *= 1.3;
+      if (score > bestScore) { bestScore = score; best = d; }
+    }
+    if (!best) return;
+    // انتخاب تجهیز بر اساس دوران و بودجه
+    let eqId;
+    const roll = rand(state);
+    if (y >= 2004 && roll < 0.2 && R.cash >= (getEq('ftth') || {}).cost) eqId = 'ftth';
+    else if (y >= 1998 && roll < 0.35 && R.cash >= (getEq('street_cabinet') || {}).cost) eqId = 'street_cabinet';
+    else if (y >= 2019 && R.cash >= 150000) eqId = 'cell_5g';
+    else if (y >= 2009 && R.cash >= 60000) eqId = 'cell_4g';
+    else if (y >= 2001 && R.cash >= 30000) eqId = 'cell_3g';
+    else eqId = 'cell_2g';
+    const eq = getEq(eqId);
+    if (!eq || R.cash < eq.cost) return;
+    const tx = best.x + (rand(state) * 2 - 1) * (best.radius || 300) * 0.5;
+    const ty = best.y + (rand(state) * 2 - 1) * (best.radius || 300) * 0.5;
+    // نزدیک‌ترین گرهٔ بالادستی رقیب
+    let up = null, upDist = Infinity;
+    for (const n of (state.nodes || [])) {
+      if (!isRivalNode(n)) continue;
+      if (!(n.type === 'core_router' || n.type === 'aggregation' || n.type === 'router' || n.type === 'switch')) continue;
+      const dd = dist(tx, ty, n.x, n.y);
+      if (dd < upDist) { upDist = dd; up = n; }
+    }
+    if (!up) return;
+    // اگر خیلی دور است و دوران تجمیع رسیده، اول یک تجمیع وسط راه می‌سازد
+    if (upDist > 2400 && y >= 2000 && R.cash >= (getEq('aggregation') || {}).cost + eq.cost) {
+      const agg = rivalBuildNode(state, 'aggregation', (tx + up.x) / 2, (ty + up.y) / 2, false);
+      if (agg) {
+        rivalConnect(state, agg.id, up.id);
+        R.lastBuildDay = state.day;
+        log(state, 'شرکت رقیب یک «تجمیع (رقیب)» ساخت تا شبکه‌اش را به «' + best.name + '» برساند.', 'info');
+        refreshConnectivity(state);
+        return;
+      }
+    }
+    const node = rivalBuildNode(state, eqId, tx, ty, false);
+    if (!node) return;
+    rivalConnect(state, node.id, up.id);
+    R.lastBuildDay = state.day;
+    log(state, 'شرکت رقیب یک «' + eq.name + '» در «' + best.name + '» ساخت.', 'info');
+    refreshConnectivity(state);
+  }
+
   // ---------- اتصال دو گره با لینک ----------
   function connect(state, fromId, toId, medium, opts) {
     opts = opts || {};
@@ -1267,6 +1574,7 @@
     const b = nodeById(state, toId);
     if (!a || !b) { log(state, 'اتصال ناموفق: گره مبدأ یا مقصد وجود ندارد.', 'error'); return null; }
     if (fromId === toId) { log(state, 'اتصال گره به خودش ممکن نیست.', 'error'); return null; }
+    if (ownerOf(a) !== ownerOf(b)) { log(state, 'نمی‌توان به گره شرکت رقیب وصل شد.', 'error'); return null; }
     // دکل سلولی فقط برای سرویس به مشترک است: به گره دسترسی دیگری (دکل/FTTH/کابینت) وصل نمی‌شود
     // تا ترافیک گره‌های دیگر از آن عبور نکند؛ بک‌هال دکل مستقیم به تجمیع/هسته/روتر/سوئیچ است.
     const ACCESS_NODE_TYPES = ['cell_2g', 'cell_3g', 'cell_4g', 'cell_5g', 'ftth', 'street_cabinet'];
@@ -1276,6 +1584,11 @@
     }
     medium = medium || 'fiber';
     const mediaInfo = (DATA.linkMedia && DATA.linkMedia[medium]) || { capacity: 1000, latency: 5 };
+    // روش‌های اتصال هم با خط زمانی باز می‌شوند: مسی/اترنت از ۱۹۹۱، فیبر ۱۹۹۵، نقطه‌به‌نقطه ۱۹۹۶.
+    if (!opts.internal && yearOf(state) < (mediaInfo.era || TL.startYear)) {
+      log(state, 'اتصال «' + mediumFa(medium) + '» هنوز در این دوران نیست؛ از سال ' + mediaInfo.era + ' در دسترس می‌شود.', 'error');
+      return null;
+    }
 
     // رسانهٔ ناشناخته (از جمله رسانه‌های حذف‌شده در نسخه‌های قبلی) لینک نمی‌سازد
     if (DATA.linkMedia && !DATA.linkMedia[medium]) {
@@ -1354,6 +1667,8 @@
       if (!mediumSupportedBy(a && a.type, m) || !mediumSupportedBy(b && b.type, m)) {
         opt.ok = false; opt.reason = 'یکی از دو گره این رسانه را پشتیبانی نمی‌کند'; return opt;
       }
+      const mEra = ((DATA.linkMedia && DATA.linkMedia[m]) || {}).era || TL.startYear;
+      if (yearOf(state) < mEra) { opt.ok = false; opt.reason = 'از سال ' + mEra; return opt; }
       if (m === 'ptp' && a && b && dist(a.x, a.y, b.x, b.y) > ((DATA.linkMedia.ptp || {}).maxRange || 1800)) {
         opt.ok = false; opt.reason = 'فاصله بیش از برد نقطه‌به‌نقطه (۱۸۰۰ واحد)'; return opt;
       }
@@ -1417,6 +1732,8 @@
   function disconnectLink(state, linkId) {
     const l = linkById(state, linkId);
     if (!l) return { ok: false, error: 'لینک پیدا نشد.' };
+    const la0 = nodeById(state, l.from);
+    if (la0 && isRivalNode(la0)) return { ok: false, error: 'این لینک متعلق به شرکت رقیب است.' };
     const a = nodeById(state, l.from), b = nodeById(state, l.to);
     state.links = state.links.filter((x) => x.id !== linkId);
     log(state, 'اتصال ' + mediumFa(l.medium) + ' بین «' + ((a && a.name) || 'گره') + '» و «' + ((b && b.name) || 'گره') + '» قطع شد.', 'build');
@@ -1463,6 +1780,7 @@
         if (visited.has(nxt)) continue;
         const nn = nodeById(state, nxt);
         if (!nn || nn.status === 'failed' || nn.status === 'building') continue;
+        if (ownerOf(nn) !== ownerOf(start)) continue; // ترافیک هر شرکت فقط روی شبکهٔ خودش می‌رود
         visited.set(nxt, { prev: cur, linkId: l.id });
         queue.push(nxt);
       }
@@ -1536,7 +1854,7 @@
     let best = null, bestScore = -1;
     for (const n of state.nodes) {
       if (!isAccessNode(n)) continue;
-      if (!isUsableNode(n)) continue;
+      if (!isUsableNode(n) || isRivalNode(n)) continue;
       if (!inWedge(n, district.x, district.y)) continue;
       const d = dist(district.x, district.y, n.x, n.y);
       const reach = (n.radius || 0) + district.radius * 0.6;
@@ -1589,6 +1907,15 @@
     state.links.forEach((l) => { l.usage = 0; if (l.status === 'congested') l.status = 'active'; });
     state.nodes.forEach((n) => { n.usage = 0; });
 
+    // برق گره‌ها: مصرف بیشتر از توان منبع تغذیه = گره خاموش (بدون برق کافی) تا منبع آپگرید شود
+    state.nodes.forEach((n) => {
+      const pw = nodePowerInfo(n);
+      n.powered = pw.ok;
+      if (n.status === 'failed' || n.status === 'repairing' || n.status === 'building') return;
+      if (!pw.ok && n.status !== 'nopower') n.status = 'nopower';
+      else if (pw.ok && n.status === 'nopower') n.status = n.connected ? 'active' : 'unconnected';
+    });
+
     // گره‌های متصل به دروازه اینترنت (BFS از همه دروازه‌ها)
     const connectedSet = new Set();
     const gateways = state.nodes.filter((n) => n.type === 'internet_gateway' && isUsableNode(n));
@@ -1596,8 +1923,9 @@
     q.forEach((id) => connectedSet.add(id));
     while (q.length) {
       const cur = q.shift();
+      const curNode = nodeById(state, cur);
       // دکل سلولی برگ است: ترافیک گره‌های دیگر از آن عبور نمی‌کند
-      if (isCellTower(nodeById(state, cur))) continue;
+      if (isCellTower(curNode)) continue;
       for (const l of state.links) {
         if (!isUsableLink(l)) continue;
         if (l.isBackup && !state.failoverActive) continue;
@@ -1606,6 +1934,7 @@
         if (connectedSet.has(nxt)) continue;
         const nn = nodeById(state, nxt);
         if (!nn || !isUsableNode(nn)) continue;
+        if (ownerOf(nn) !== ownerOf(curNode)) continue; // هر شرکت فقط روی شبکهٔ خودش
         connectedSet.add(nxt); q.push(nxt);
       }
     }
@@ -1790,6 +2119,53 @@
       totalRevenue += d.revenue;
     }
 
+    // ---------- شرکت رقیب: سهم بازار هر منطقه ----------
+    // رقیب در همهٔ مناطق (حتی قفل‌شده برای بازیکن) می‌تواند مشترک بگیرد؛ بازار هر منطقه
+    // بین دو شرکت تقسیم می‌شود: رشد رقیب از ظرفیت پوشش خودش و قیمت ارزان‌ترش می‌آید و
+    // وقتی کیفیت یک طرف خیلی بهتر باشد، بخشی از مشترکان طرف دیگر جابه‌جا می‌شوند.
+    if (state.rival && state.rival.enabled) {
+      for (const d of (state.districts || [])) {
+        const rivalServers = state.nodes.filter((n) =>
+          isRivalNode(n) && isAccessNode(n) && isUsableNode(n) && n.connected &&
+          dist(d.x, d.y, n.x, n.y) <= (n.radius || 0) + d.radius * 0.6 && inWedge(n, d.x, d.y));
+        const rivalCap = rivalServers.reduce((s, n) => s + (n._effCap != null ? n._effCap : n.capacity || 0), 0);
+        const perSubR = perSubTraffic(state, d, demandTimeFactor);
+        const rSubs = d.rivalSubscribers || 0;
+        const rDemand = rSubs * perSubR;
+        d.rivalCap = Math.round(rivalCap);
+        d.rivalQos = rDemand > 0 ? clamp(Math.min(rDemand, rivalCap) / rDemand, 0, 1) : 0;
+        d.rivalPotentialQos = rivalCap > 0 ? clamp(rivalCap / Math.max(rDemand, perSubR, 0.0001), 0, 1) * (d.rivalQos < 1 ? Math.max(0.15, d.rivalQos) : 1) : 0;
+        if (noDaily) continue;
+        const maxSubs = Math.floor((d.population || 0) * 0.35);
+        let rs = rSubs;
+        // رشد رقیب از بازار آزاد (مشترک‌نشده) منطقه
+        const freeMarket = Math.max(0, maxSubs - (d.subscribers || 0) - rs);
+        if (d.rivalPotentialQos >= 0.12 && freeMarket > 0) {
+          // در مناطق قفل‌شده برای بازیکن، رقیب کندتر رشد می‌کند تا بازی منصفانه بماند
+          const rateF = districtUnlocked(d) ? 1 : 0.4;
+          rs += Math.min(freeMarket, Math.max(1, Math.ceil((d.population || 0) * 0.0028 * rateF * d.rivalPotentialQos)));
+        } else if (d.rivalQos < 0.05 && rs > 0) {
+          rs = Math.max(0, Math.floor(rs * 0.92));
+        }
+        // جابه‌جایی مشترکان به سمت کیفیت بهتر (فقط در مناطق باز برای بازیکن)
+        if (districtUnlocked(d)) {
+          if ((d.potentialQos || 0) > d.rivalPotentialQos + 0.45 && rs > 0) {
+            const move = Math.max(1, Math.floor(rs * 0.015));
+            rs -= move;
+            d.subscribers = Math.min(maxSubs, (d.subscribers || 0) + move);
+            joinsToday += move;
+          } else if (d.rivalPotentialQos > (d.potentialQos || 0) + 0.45 && (d.subscribers || 0) > 0) {
+            const move = Math.max(1, Math.floor((d.subscribers || 0) * 0.015));
+            d.subscribers -= move;
+            rs += move;
+            leavesToday += move;
+          }
+        }
+        // رقیب حداکثر نیمی از بازار هر منطقه را می‌گیرد تا همیشه جا برای بازیکن بماند
+        d.rivalSubscribers = clamp(rs, 0, Math.min(Math.max(0, maxSubs - (d.subscribers || 0)), Math.floor(maxSubs * 0.5)));
+      }
+    }
+
     // ---------- ساختمان‌های پراکندهٔ خارج از مناطق ----------
     // هر جای نقشه به‌جز رودخانه (ساختمان‌ها هرگز در رودخانه ساخته نمی‌شوند) می‌تواند مشترک بگیرد:
     // ساختمانِ زیر پوشش یک گره دسترسیِ متصل، با همان قواعد ظرفیت/کیفیت مناطق.
@@ -1800,7 +2176,7 @@
     sc.potentialSubs = outsideBuildings.length * 6; // میانگین خانوار هر ساختمان پراکنده
     // ترافیک پراکنده‌ها هم فقط از مشترکان می‌آید (بستهٔ خانگی × ضریب هم‌زمانی)
     const homePkg0 = (state.packages || []).find((p) => p.id === 'home');
-    const scPerSub = packageSpeed(homePkg0) * CONCURRENCY * demandTimeFactor;
+    const scPerSub = packageSpeed(homePkg0) * CONCURRENCY * demandTimeFactor * eraDemandMult(state);
     sc.demand = Math.round(sc.subscribers * scPerSub);
     const accessNodes = state.nodes.filter((n) => nodeServes(state, n));
     let coveredCount = 0;
@@ -1855,6 +2231,8 @@
       joins: joinsToday,
       leaves: leavesToday,
       congestedLinks: state.links.filter((l) => l.status === 'congested').length,
+      rivalSubscribers: (state.districts || []).reduce((s, d) => s + (d.rivalSubscribers || 0), 0),
+      rivalCash: (state.rival && state.rival.enabled) ? Math.round(state.rival.cash || 0) : 0,
     };
     state.lastFlow = summary;
     // رضایت کلی فقط روی مناطق باز (مناطق قفل‌شده در آمار شهر نمی‌آیند)
@@ -1864,6 +2242,7 @@
       ? Math.round((unlockedDistricts.reduce((s, d) => s + d.satisfaction * (d.population || 0), 0) + sc.satisfaction * scatteredPop) / totalPop) : 0;
     let monthlyCosts = 0;
     for (const n of state.nodes) {
+      if (isRivalNode(n)) continue; // هزینهٔ گره‌های رقیب با خودش است
       const eq = getEq(n.type);
       if (!eq || n.status === 'building') continue;
       monthlyCosts += (eq.monthlyCost || 0);
@@ -1890,7 +2269,9 @@
   function districtUnlockCost(d) {
     if (!d) return 0;
     const potential = Math.floor((d.population || 0) * 0.35) * 120; // سقف مشترک × بستهٔ خانگی
-    return Math.max(3000, Math.round(potential * 0.5));
+    const base = Math.max(3000, Math.round(potential * 0.5));
+    // روستاها کم‌جمعیت‌اند و بازکردنشان ارزان‌تر است
+    return d.type === 'village' ? Math.max(1500, Math.round(base * 0.35)) : base;
   }
   function unlockDistrict(state, districtId) {
     const d = (state.districts || []).find((x) => x.id === districtId);
@@ -1946,7 +2327,7 @@
   }
   function pointCellularCovered(state, x, y) {
     for (const n of (state.nodes || [])) {
-      if (!isCellTower(n) || !isUsableNode(n) || !n.connected) continue;
+      if (!isCellTower(n) || !isUsableNode(n) || !n.connected || isRivalNode(n)) continue;
       if (dist(x, y, n.x, n.y) <= (n.radius || 0) && inWedge(n, x, y)) return true;
     }
     return false;
@@ -2015,7 +2396,7 @@
     const out = [];
     if (!ph || ph.fraction <= 0) return out;
     const phaseT = (h - ph.start) / Math.max(0.0001, ph.end - ph.start);
-    const ds = (state.districts || []).filter(d => d.type === 'residential' && d.unlocked !== false);
+    const ds = (state.districts || []).filter(d => ['residential', 'dense', 'villa', 'slum', 'sparse', 'village'].includes(d.type) && d.unlocked !== false);
     let idx = 0;
     for (const d of ds) {
       const dest = (ph.dir === 'toWork' || ph.dir === 'toHome')
@@ -2087,10 +2468,10 @@
   }
   function fiberSourceNodes(state) {
     return (state.nodes || []).filter((n) =>
-      (n.type === 'ftth' || n.type === 'aggregation' || n.type === 'core_router') && n.connected && isUsableNode(n));
+      (n.type === 'ftth' || n.type === 'aggregation' || n.type === 'core_router') && n.connected && isUsableNode(n) && !isRivalNode(n));
   }
   function cabinetSourceNodes(state) {
-    return (state.nodes || []).filter((n) => (n.type === 'street_cabinet' || n.type === 'ftth') && n.connected && isUsableNode(n));
+    return (state.nodes || []).filter((n) => (n.type === 'street_cabinet' || n.type === 'cabinet_basic' || n.type === 'ftth') && n.connected && isUsableNode(n) && !isRivalNode(n));
   }
   // انشعاب سیمی ساختمان: از کابینت خیابانی یا مستقیم از گره FTTH (معماری GPON: OLT←تقسیم‌کننده←ساختمان).
   // هزینهٔ نصب با مشترک است — برای بازیکن رایگان. انشعاب فیبر از دوران FTTH (۲۰۰۴) ممکن است.
@@ -2100,6 +2481,10 @@
     const b = (state.buildings || []).find((x) => x.id === buildingId);
     if (!b) return { ok: false, error: 'ساختمان پیدا نشد.' };
     if (fiberDropFor(state, buildingId)) return { ok: false, error: 'این ساختمان قبلاً به شبکهٔ سیمی وصل شده است؛ برای تغییر نوع اتصال اول اتصال فعلی را قطع کنید.' };
+    const srcEarly = nodeId ? nodeById(state, nodeId) : null;
+    if (srcEarly && srcEarly.type === 'cabinet_basic' && medium === 'fiber') {
+      return { ok: false, error: 'کابینت ساده فقط انشعاب سیم مسی می‌دهد؛ برای فیبر از کابینت خیابانی یا گره FTTH استفاده کنید.' };
+    }
     if (medium === 'fiber' && yearOf(state) < 2004) {
       return { ok: false, error: 'انشعاب فیبر تا خانه هنوز در این دوران نیست؛ از سال ۲۰۰۴ (دوران FTTH) ممکن می‌شود. فعلاً سیم مسی (DSL) بگیرید.' };
     }
@@ -2110,8 +2495,12 @@
     const cx = b.x + (b.w || 26) / 2, cy = b.y + (b.h || 20) / 2;
     let src = nodeId ? nodeById(state, nodeId) : null;
     if (nodeId) {
-      if (!src || (src.type !== 'street_cabinet' && src.type !== 'ftth')) {
+      if (src && isRivalNode(src)) return { ok: false, error: 'این گره متعلق به شرکت رقیب است.' };
+      if (!src || (src.type !== 'street_cabinet' && src.type !== 'cabinet_basic' && src.type !== 'ftth')) {
         return { ok: false, error: 'انشعاب سیمی از راه کابینت خیابانی یا گره FTTH انجام می‌شود؛ یکی از آن‌ها را نزدیک ساختمان انتخاب کنید.' };
+      }
+      if (src.type === 'cabinet_basic' && medium === 'fiber') {
+        return { ok: false, error: 'کابینت ساده فقط انشعاب سیم مسی می‌دهد؛ برای فیبر از کابینت خیابانی یا گره FTTH استفاده کنید.' };
       }
       if (!isUsableNode(src) || !src.connected) {
         return { ok: false, error: 'این گره به شبکه وصل نیست؛ اول آن را به تجمیع/هسته وصل کنید.' };
@@ -2120,6 +2509,7 @@
     if (!src) {
       let bd2 = Infinity;
       for (const n of cabinetSourceNodes(state)) {
+        if (medium === 'fiber' && n.type === 'cabinet_basic') continue; // کابینت ساده فقط سیم مسی می‌دهد
         const dd = dist(cx, cy, n.x, n.y);
         const lim = medium === 'copper' ? COPPER_DROP_MAX_DIST : (n.radius || 180);
         if (dd <= lim && dd < bd2) { bd2 = dd; src = n; }
@@ -2215,7 +2605,7 @@
         }
       }
       if (d.qos >= 0.5) continue;
-      const servers = state.nodes.filter((n) => isAccessNode(n) && isUsableNode(n) &&
+      const servers = state.nodes.filter((n) => isAccessNode(n) && isUsableNode(n) && !isRivalNode(n) &&
         dist(d.x, d.y, n.x, n.y) <= (n.radius || 0) + d.radius * 0.6);
       const anyConnected = servers.some((n) => n.connected);
       if (!servers.length) {
@@ -2237,11 +2627,29 @@
       }
     }
     for (const n of state.nodes) {
+      if (isRivalNode(n)) continue; // مشکلات گره‌های رقیب به بازیکن مربوط نیست
       if (n.status === 'failed') {
         add('failed_node', { nodeId: n.id, message: 'گره «' + (n.name || 'نامشخص') + '» خراب شده است.' }, [
-          { action: 'repair', label: 'تعمیر گره', nodeId: n.id },
+          { action: 'repair', label: 'تعمیر گره (آنی)', nodeId: n.id },
           { action: 'replace', label: 'جایگزینی گره', nodeId: n.id },
         ]);
+      }
+      // بدون برق کافی: مصرف از توان منبع تغذیه بیشتر است و گره خاموش است
+      if (n.status === 'nopower') {
+        const pw = nodePowerInfo(n);
+        add('no_power', { nodeId: n.id, message: 'گره «' + (n.name || 'نامشخص') + '» برق کافی ندارد و خاموش است (مصرف ' + pw.draw + ' وات، توان منبع ' + pw.capacity + ' وات).' }, [
+          { action: 'install_power', label: 'آپگرید منبع تغذیه', nodeId: n.id },
+        ]);
+      }
+      // ماژول خراب: اثرش قطع است تا آنی تعمیر شود
+      if (n.brokenModules) {
+        for (const mid of Object.keys(n.brokenModules)) {
+          if (!n.brokenModules[mid]) continue;
+          const m = getModule(mid);
+          add('module_broken', { nodeId: n.id, message: 'ماژول «' + ((m && m.name) || mid) + '» روی «' + (n.name || 'گره') + '» خراب است و کار نمی‌کند.' }, [
+            { action: 'repair_module', label: 'تعمیر ماژول (آنی)', nodeId: n.id, moduleId: mid },
+          ]);
+        }
       }
       // ازدحام گره: مصرف از ظرفیتش گذشته است
       if (isUsableNode(n) && (n.capacity || 0) > 0 && (n.usage || 0) > (n.capacity || 0)) {
@@ -2381,8 +2789,9 @@
       for (const ly of roads.h) if (y - M < ly && ly < y + h + M) return true;
       return false;
     }
-    const W = (DATA.world && DATA.world.width) || 3200;
-    const H = (DATA.world && DATA.world.height) || 2400;
+    const ws = worldSize(state);
+    const W = ws.w;
+    const H = ws.h;
     for (let lx = 200; lx < W; lx += 200) if (x - M < lx && lx < x + w + M) return true;
     for (let ly = 200; ly < H; ly += 200) if (y - M < ly && ly < y + h + M) return true;
     return false;
@@ -2415,6 +2824,8 @@
     for (const d of state.districts) {
       const cap = d.buildingCap || 0;
       if (!cap || (counts[d.id] || 0) >= cap) continue;
+      // رشد زندهٔ شهر: فقط مناطق بازشده و در حال سرویس ساختمان تازه می‌گیرند
+      if (!districtUnlocked(d) || !(d.connected || (d.subscribers || 0) > 0 || (d.rivalSubscribers || 0) > 0)) continue;
       const p = Math.min(1, (rates[d.type] != null ? rates[d.type] : 0.07) * dtDays);
       if (rand(state) >= p) continue;
       // تلاش برای یافتن جای مناسب داخل منطقه (نه روی خیابان، نه در رودخانه، نه روی ساختمان/گره دیگر)
@@ -2461,6 +2872,7 @@
           type: bType,
           color: palette[Math.floor(rand(state) * palette.length)],
           name: height >= 15 ? 'برج ' + d.name + ' ' + ((counts[d.id] || 0) + 1) : undefined,
+          bornDay: state.day, // برای نمایش «در حال ساخت» روی نقشه
         });
         counts[d.id] = (counts[d.id] || 0) + 1;
         // ساختمان جدید یعنی جمعیت و مصرف بالقوهٔ بیشتر (تدریجی و متناسب)
@@ -2496,6 +2908,7 @@
           height: 1 + Math.floor(rand(state) * 4),
           type: bType,
           color: palette[Math.floor(rand(state) * palette.length)],
+          bornDay: state.day,
         });
         break;
       }
@@ -2535,6 +2948,7 @@
     keep.population = totalPop;
     keep.usageMult = ((keep.usageMult || 1) * keepPop + (drop.usageMult || 1) * dropPop) / Math.max(1, totalPop);
     keep.subscribers = (keep.subscribers || 0) + (drop.subscribers || 0);
+    keep.rivalSubscribers = (keep.rivalSubscribers || 0) + (drop.rivalSubscribers || 0);
     keep.potentialRevenue = (keep.potentialRevenue || 0) + (drop.potentialRevenue || 0);
     keep.buildingCap = (keep.buildingCap || 0) + (drop.buildingCap || 0);
     keep.satisfaction = Math.round(((keep.satisfaction || 0) * keepPop + (drop.satisfaction || 0) * dropPop) / totalPop);
@@ -2852,11 +3266,9 @@
           log(state, 'ساخت «' + (n.name || 'گره') + '» تمام شد؛ برای سرویس باید به شبکه وصل شود.', 'build');
         }
       } else if (n.status === 'repairing') {
-        n.repairWork = (n.repairWork || 0) - dtDays * fxTick.repairSpeed;
-        if (n.repairWork <= 0) {
-          n.repairWork = 0; n.status = 'active'; n.health = n.repairHealth || 85;
-          log(state, 'تعمیر «' + (n.name || 'گره') + '» تمام شد و به شبکه برگشت.', 'repair');
-        }
+        // تعمیر آنی است: گره‌های «در حال تعمیر» ذخیره‌های قدیمی همان لحظه برمی‌گردند
+        n.repairWork = 0; n.status = 'active'; n.health = n.repairHealth || 85;
+        log(state, 'تعمیر «' + (n.name || 'گره') + '» تمام شد و به شبکه برگشت.', 'repair');
       } else if (n.status === 'upgrading') {
         // ذخیره‌های قدیمی: ارتقای نیمه‌کاره به ماژول تبدیل شده است؛ گره فعال می‌شود
         n.upgradeWork = 0;
@@ -2866,11 +3278,8 @@
     }
     for (const l of state.links) {
       if (l.status === 'repairing') {
-        l.repairWork = (l.repairWork || 0) - dtDays * fxTick.repairSpeed;
-        if (l.repairWork <= 0) {
-          l.repairWork = 0; l.status = 'active';
-          log(state, 'تعمیر لینک ' + mediumFa(l.medium) + ' تمام شد.', 'repair');
-        }
+        l.repairWork = 0; l.status = 'active';
+        log(state, 'تعمیر لینک ' + mediumFa(l.medium) + ' تمام شد.', 'repair');
       }
     }
     // انشعاب‌های فیبر در حال نصب (سرعت تکنسین‌ها)
@@ -2900,6 +3309,15 @@
         n.health = clamp(n.health - 0.02 * dtDays * (prot ? 0.5 : 1), 10, 100);
       }
     }
+    // خرابی تصادفی ماژول‌ها (فقط گره‌های بازیکن؛ تعمیرشان آنی است)
+    for (const n of state.nodes) {
+      if (isRivalNode(n) || isHQ(n) || n.status !== 'active') continue;
+      const distinct = Array.from(new Set(nodeModules(n))).filter((mid) => !isModuleBroken(n, mid));
+      if (!distinct.length) continue;
+      if (rand(state) < 0.0012 * dtDays) {
+        breakModule(state, n.id, distinct[Math.floor(rand(state) * distinct.length)]);
+      }
+    }
     for (const l of state.links) {
       if (isHQ(nodeById(state, l.from)) && isHQ(nodeById(state, l.to))) continue;
       if (l.status === 'active' && rand(state) < 0.0002 * dtDays) {
@@ -2925,6 +3343,9 @@
     // رویدادها + failover خودکار
     const events = rollEvents(state, dtDays);
     if (state.links.some((l) => l.status === 'cut')) failover(state);
+
+    // شرکت رقیب شبکه‌اش را گسترش می‌دهد (اگر فعال باشد)
+    rivalTick(state, dtDays);
 
     // جریان ترافیک (روزانه: با میانگین ضریب تقاضای ۲۴ ساعت)
     computeFlow(state, { dailyAvg: true });
@@ -2954,13 +3375,16 @@
       let revenue = state.monthRevenue || 0;
       state.monthRevenue = 0;
       let costs = 0;
+      let rivalCosts = 0;
       for (const n of state.nodes) {
         if (n.status === 'building') continue;
         const eq = getEq(n.type);
         if (!eq) continue;
-        costs += (eq.monthlyCost || 0);
-        for (const mid of nodeModules(n)) { const m = getModule(mid); if (m) costs += (m.monthlyCost || 0); }
+        let nodeCost = (eq.monthlyCost || 0);
+        for (const mid of nodeModules(n)) { const m = getModule(mid); if (m) nodeCost += (m.monthlyCost || 0); }
+        if (isRivalNode(n)) rivalCosts += nodeCost; else costs += nodeCost;
       }
+      if (state.rival && state.rival.enabled) state.rival.cash -= rivalCosts;
       for (const st of state.staff) costs += st.salary || 0;
 
       for (const d of (state.districts || [])) { d._qosAcc = 0; d._qosDays = 0; }
@@ -2988,6 +3412,7 @@
   function demolishNode(state, id) {
     const n = nodeById(state, id);
     if (!n) return { ok: false, error: 'گره پیدا نشد.' };
+    if (isRivalNode(n)) return { ok: false, error: 'این گره متعلق به شرکت رقیب است و قابل حذف نیست.' };
     const eq = getEq(n.type);
     const refund = eq ? Math.round(eq.cost * 0.5) : 0; // بازپرداخت ۵۰٪ هزینهٔ ساخت
     state.nodes = state.nodes.filter((x) => x.id !== id);
@@ -3001,8 +3426,9 @@
 
   // مکان معتبر برای نصب/جابه‌جایی: داخل نقشه، بیرون رودخانه و بیرون ساختمان‌ها
   function isValidPlacement(state, x, y) {
-    const W = (DATA.world && DATA.world.width) || 7200;
-    const H = (DATA.world && DATA.world.height) || 5400;
+    const ws = worldSize(state);
+    const W = ws.w;
+    const H = ws.h;
     if (x < 20 || y < 20 || x > W - 20 || y > H - 20) return { ok: false, error: 'این نقطه بیرون از نقشه است.' };
     const river = state.map && state.map.river;
     if (river && river.length > 1) {
@@ -3024,6 +3450,7 @@
   function moveNode(state, id, x, y) {
     const n = nodeById(state, id);
     if (!n) return { ok: false, error: 'گره پیدا نشد.' };
+    if (isRivalNode(n)) return { ok: false, error: 'این گره متعلق به شرکت رقیب است و قابل جابه‌جایی نیست.' };
     if (n.status === 'building') return { ok: false, error: 'این گره در حال ساخت است و فعلاً قابل جابه‌جایی نیست.' };
     if (n.status === 'repairing') return { ok: false, error: 'این گره در حال تعمیر است و فعلاً قابل جابه‌جایی نیست.' };
     const valid = isValidPlacement(state, x, y);
@@ -3078,6 +3505,7 @@
     let best = null, bestD = Infinity;
     for (const n of state.nodes) {
       if (n.id === fromNode.id) continue;
+      if (isRivalNode(n) !== isRivalNode(fromNode)) continue;
       if (!['core_router', 'aggregation', 'router', 'switch'].includes(n.type)) continue;
       if (n.status === 'failed' || n.status === 'building') continue;
       const d = dist(fromNode.x, fromNode.y, n.x, n.y);
@@ -3093,41 +3521,69 @@
       case 'repair': {
         const n = nodeById(state, fix.nodeId || prob.nodeId);
         if (!n) return fail('گره پیدا نشد.');
-        if (n.status === 'repairing') return fail('این گره در حال تعمیر است.');
+        if (isRivalNode(n)) return fail('این گره متعلق به شرکت رقیب است.');
         const eq = getEq(n.type);
-        const cost = eq ? Math.round(eq.cost * 0.1) : 500;
+        const cost = Math.round((eq ? Math.round(eq.cost * 0.1) : 500) * staffEffects(state).repairDiscount);
         if (state.cash < cost) return fail('بودجه کافی برای تعمیر نیست.');
-        state.cash -= cost; n.status = 'repairing'; n.repairWork = 1; n.repairHealth = 85;
-        log(state, 'تعمیر «' + (n.name || 'نامشخص') + '» شروع شد.', 'repair');
+        // تعمیر آنی است: گره همان لحظه به سرویس برمی‌گردد
+        state.cash -= cost; n.status = 'active'; n.repairWork = 0; n.health = 85;
+        log(state, '«' + (n.name || 'نامشخص') + '» تعمیر شد و به شبکه برگشت (آنی).', 'repair');
+        refreshConnectivity(state);
         return { ok: true, cost };
       }
       case 'replace': {
         const n = nodeById(state, fix.nodeId || prob.nodeId);
         if (!n) return fail('گره پیدا نشد.');
-        if (n.status === 'repairing') return fail('این گره در حال تعمیر است.');
+        if (isRivalNode(n)) return fail('این گره متعلق به شرکت رقیب است.');
         const eq = getEq(n.type);
-        const cost = eq ? Math.round(eq.cost * 0.25) : 1000;
+        const cost = Math.round((eq ? Math.round(eq.cost * 0.25) : 1000) * staffEffects(state).repairDiscount);
         if (state.cash < cost) return fail('بودجه کافی برای جایگزینی نیست.');
-        state.cash -= cost; n.status = 'repairing'; n.repairWork = 0.75; n.repairHealth = 100;
-        log(state, 'جایگزینی «' + (n.name || 'نامشخص') + '» شروع شد.', 'repair');
+        // جایگزینی هم آنی است: گره با سلامت کامل برمی‌گردد
+        state.cash -= cost; n.status = 'active'; n.repairWork = 0; n.health = 100;
+        log(state, '«' + (n.name || 'نامشخص') + '» با نمونهٔ نو جایگزین شد (آنی).', 'repair');
+        refreshConnectivity(state);
         return { ok: true, cost };
       }
       case 'repair_link': {
         const l = linkById(state, fix.linkId || prob.linkId);
         if (!l) return fail('لینک پیدا نشد.');
-        if (l.status === 'repairing') return fail('این لینک در حال تعمیر است.');
-        const cost = 800;
+        const la = nodeById(state, l.from);
+        if (la && isRivalNode(la)) return fail('این لینک متعلق به شرکت رقیب است.');
+        const cost = Math.round(800 * staffEffects(state).repairDiscount);
         if (state.cash < cost) return fail('بودجه کافی برای تعمیر لینک نیست.');
-        state.cash -= cost; l.status = 'repairing'; l.repairWork = 2;
-        log(state, 'تعمیر لینک ' + mediumFa(l.medium) + ' شروع شد.', 'repair');
+        // تعمیر لینک هم آنی است
+        state.cash -= cost; l.status = 'active'; l.repairWork = 0;
+        log(state, 'لینک ' + mediumFa(l.medium) + ' تعمیر شد (آنی).', 'repair');
+        refreshConnectivity(state);
         return { ok: true, cost };
+      }
+      case 'install_power': {
+        const n = nodeById(state, fix.nodeId || prob.nodeId);
+        if (!n) return fail('گره پیدا نشد.');
+        // منبع تغذیه را سطح‌به‌سطح آپگرید کن تا مصرف گره را پوشش دهد
+        let totalCost = 0;
+        for (let guard = 0; guard < POWER_LEVEL_CAP; guard++) {
+          const pw = nodePowerInfo(n);
+          if (pw.ok) break;
+          const r = installModule(state, n.id, 'power');
+          if (!r.ok) return totalCost > 0 ? { ok: true, cost: totalCost } : fail(r.error || 'آپگرید منبع تغذیه ناموفق بود.');
+          totalCost += r.cost || 0;
+        }
+        return nodePowerInfo(n).ok ? { ok: true, cost: totalCost } : fail('توان منبع تغذیه هنوز کافی نیست.');
+      }
+      case 'repair_module': {
+        const r = repairModule(state, fix.nodeId || prob.nodeId, fix.moduleId);
+        return r.ok ? { ok: true, cost: r.cost } : fail(r.error || 'تعمیر ماژول ناموفق بود.');
       }
       case 'connect': {
         const n = nodeById(state, fix.nodeId || prob.nodeId);
         if (!n) return fail('گره پیدا نشد.');
         const target = nearestCoreNode(state, n);
         if (!target) return fail('گره هسته‌ای برای اتصال نیست.');
-        const l = connect(state, n.id, target.id, (fix.medium && fix.medium[0]) || 'fiber');
+        // اولین رسانهٔ بازشده در این دوران (فیبر ۱۹۹۵، نقطه‌به‌نقطه ۱۹۹۶، وگرنه اترنت/مسی)
+        const wanted = (fix.medium && fix.medium.length) ? fix.medium : ['fiber', 'ptp', 'ethernet', 'copper'];
+        const medium = wanted.concat(['ethernet', 'copper']).find((m) => yearOf(state) >= mediumUnlockYear(m)) || 'copper';
+        const l = connect(state, n.id, target.id, medium);
         return l ? { ok: true, link: l } : fail('اتصال برقرار نشد.');
       }
       case 'build_backup': {
@@ -3136,7 +3592,7 @@
         const a = nodeById(state, l.from);
         const target = a ? nearestCoreNode(state, a) : null;
         if (!target) return fail('مسیر پشتیبان ممکن نیست.');
-        const nl = connect(state, a.id, target.id, 'ptp', { isBackup: true });
+        const nl = connect(state, a.id, target.id, yearOf(state) >= 1996 ? 'ptp' : 'ethernet', { isBackup: true });
         return nl ? { ok: true, link: nl } : fail('ساخت لینک پشتیبان ناموفق بود.');
       }
       case 'failover': {
@@ -3175,8 +3631,8 @@
         if (!rep) return fail('ساخت تقویت‌کننده ناموفق بود.');
         const medium = l.medium;
         state.links = state.links.filter((x) => x.id !== l.id);
-        connect(state, a.id, rep.id, medium);
-        connect(state, rep.id, b.id, medium);
+        connect(state, a.id, rep.id, medium, { internal: true }); // همان رسانهٔ لینک قبلی (grandfathered)
+        connect(state, rep.id, b.id, medium, { internal: true });
         log(state, 'تقویت‌کننده در میانهٔ مسیر ' + mediumFa(medium) + ' نصب شد؛ افت سیگنال جبران شد.', 'build');
         return { ok: true, cost, node: rep };
       }
@@ -3316,23 +3772,36 @@
       if (n.baseCapacity == null) n.baseCapacity = eqN ? (eqN.capacity || 0) : (n.capacity || 0);
       if (n.baseRadius == null) n.baseRadius = eqN ? (eqN.radius || 0) : (n.radius || 0);
       if (n.level != null && n.level > 1) {
-        const extra = Math.min(4, n.level - 1);
-        const slots = moduleSlots(n);
-        let converted = 0;
-        for (let i = 0; i < extra && n.modules.length < slots; i++) { n.modules.push('cap_boost'); converted++; }
-        for (let i = 0; i < extra && n.modules.length < slots; i++) n.modules.push('range_boost');
+        // سطح قدیمی → سطح ماژول (دیگر محدودیت تعداد نیست، پس همهٔ سطح‌ها تبدیل می‌شوند)
+        const extra = n.level - 1;
+        for (let i = 0; i < extra; i++) n.modules.push('cap_boost');
+        for (let i = 0; i < extra; i++) n.modules.push('range_boost');
       }
       delete n.level;
+      if (!n.brokenModules) n.brokenModules = {};
       applyModules(n);
+      // برق: گره‌های ذخیره‌های قدیمی منبع تغذیه ندارند؛ خودکار تا سطحِ پوشش‌دهندهٔ مصرف فعلی پر می‌شود
+      for (let guard = 0; guard < POWER_LEVEL_CAP; guard++) {
+        const pw = nodePowerInfo(n);
+        if (pw.ok && pw.level > 0) break;
+        if (pw.level >= POWER_LEVEL_CAP) break;
+        n.modules.push('power');
+      }
       if (n.channel == null && channelCountFor(n) > 0) n.channel = leastInterferedChannel(state, n);
       // ساخت آنی است: گره‌های در حال ساختِ ذخیره‌های قدیمی همان لحظه فعال شوند
       if (n.status === 'building') { n.status = 'active'; n.buildTimer = 0; }
       if (n.status === 'upgrading') { n.status = n._preUpgradeStatus || 'active'; delete n._preUpgradeStatus; n.upgradeWork = 0; }
+      if (n.status === 'repairing') { n.status = 'active'; n.repairWork = 0; n.health = n.repairHealth || 85; } // تعمیر آنی است
     }
     (state.fiberDrops || []).forEach((fd) => { if (fd.status === 'building') { fd.status = 'active'; fd.work = 0; } });
     const capMult = (DATA.growth && DATA.growth.capMultiplier) || {};
     if (!state.scattered) state.scattered = { subscribers: 0, demand: 0, servedDemand: 0, qos: 0, satisfaction: 0, revenue: 0, potentialSubs: 0, buildingCount: 0, coveredCount: 0 };
+    // شرکت رقیب در ذخیره‌های قدیمی نیست: پیش‌فرض خاموش (فقط در بازی جدید با انتخاب بازیکن روشن می‌شود)
+    if (!state.rival) state.rival = { enabled: false, cash: 0, price: RIVAL_PRICE, lastBuildDay: 0, nodesBuilt: 0 };
+    // ذخیره‌های قدیمی جهان کوچک خودشان را نگه می‌دارند (نقشهٔ بزرگ فقط برای بازی جدید است)
+    if (!state.worldW) { state.worldW = 7200; state.worldH = 5400; }
     for (const d of (state.districts || [])) {
+      if (d.rivalSubscribers == null) d.rivalSubscribers = 0;
       // بازبودن منطقه: مرکز/شمال یا منطقه‌ای که بازیکن در آن گره ساخته/مشترک گرفته باز می‌ماند
       if (d.unlocked == null) {
         d.unlocked = d.id === 'center' || d.id === 'north' || (d.subscribers || 0) > 0 || !!d.everServed ||
@@ -3492,7 +3961,11 @@
     demolishNode, moveNode, isValidPlacement, hireStaff, fireStaff, staffEffects, updatePackage, applyFix,
     // خط زمانی، ماژول‌ها، مناطق، رفت‌وآمد، پینگ
     yearOf, eraOf, checkEraChange, eraExpectedCellGen, cellGenOf,
-    getModule, nodeModules, hasModule, moduleCount, moduleSlots, tdlteCapacity, applyModules, moduleInfo, installModule,
+    getModule, nodeModules, hasModule, moduleCount, moduleLevel, moduleSlots, tdlteCapacity, applyModules, moduleInfo, installModule,
+    moduleCostForLevel, effModuleCount, isModuleBroken, repairModule, breakModule,
+    powerWatts, nodePowerDraw, nodePowerCapacity, nodePowerInfo, smallestPowerLevelFor,
+    eraDemandMult, surveyPtP, mediumOptions, mediumUnlockYear,
+    isRivalNode, ownerOf, rivalTick, RIVAL_PRICE, worldSize,
     districtUnlocked, districtUnlockCost, unlockDistrict, districtAtPoint, buildingResidents,
     commuteCoverage, commuteRoutePoints, nearestWorkDistrict, pointCellularCovered,
     commutePhase, commutePulses, nearestLeisureSpot, COMMUTE_CAP,
