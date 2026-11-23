@@ -598,15 +598,28 @@
   }
 
   /* ---------- مناطق قفل‌شده: خاکستری + قفل ---------- */
+  var _overlayR = { count: -1, map: {} };
+  function lockedOverlayRadius(d) {
+    // شعاع قفل تا دورترین ساختمان منطقه کشیده می‌شود تا هیچ ساختمانی بیرون دایره نماند
+    var bs = (state && state.buildings) || [];
+    if (_overlayR.count !== bs.length) _overlayR = { count: bs.length, map: {} };
+    var key = String(d.id);
+    if (_overlayR.map[key] == null) {
+      var G = global.GameSim;
+      _overlayR.map[key] = (G && G.districtOverlayRadius) ? G.districtOverlayRadius(state, d) : (d.radius || 0);
+    }
+    return _overlayR.map[key];
+  }
   function drawLockedDistricts() {
     var ds = getDistricts();
     for (var i = 0; i < ds.length; i++) {
       var d = ds[i];
       if (d.unlocked !== false) continue;
-      if (!circleInRect(d.x, d.y, d.radius || 0, cullRect)) continue;
+      var lr = lockedOverlayRadius(d);
+      if (!circleInRect(d.x, d.y, lr, cullRect)) continue;
       ctx.save();
       ctx.beginPath();
-      ctx.arc(d.x, d.y, d.radius || 0, 0, Math.PI * 2);
+      ctx.arc(d.x, d.y, lr, 0, Math.PI * 2);
       ctx.fillStyle = 'rgba(24,28,38,0.74)';
       ctx.fill();
       ctx.strokeStyle = 'rgba(170,182,205,0.85)';
@@ -616,7 +629,7 @@
       ctx.setLineDash([]);
       // قفل (بدنه + کمان)
       var s = 36 / cam.z;
-      ctx.translate(d.x, d.y - (d.radius || 0) * 0.35);
+      ctx.translate(d.x, d.y - lr * 0.35);
       ctx.strokeStyle = '#c9d2e0';
       ctx.lineWidth = 2.4 / cam.z;
       ctx.beginPath();
