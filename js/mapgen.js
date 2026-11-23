@@ -47,6 +47,11 @@
     { id: 'techpark',    name: 'پارک فناوری',    type: 'commercial',  radius: 360, population: 5000,  demandBase: 3600, priceSensitivity: 0.35, potentialRevenue: 82000 },
     { id: 'garden_city', name: 'باغ‌شهر',        type: 'residential', radius: 430, population: 9000,  demandBase: 2400, priceSensitivity: 0.65, potentialRevenue: 48000 },
     { id: 'port',        name: 'بندر خشک',       type: 'industrial',  radius: 460, population: 2800,  demandBase: 2900, priceSensitivity: 0.3,  potentialRevenue: 76000 },
+    // روستاهای دورافتاده: خوشه‌های مسکونی کوچک و کم‌جمعیت، دور از شهر (جایگذاری جدا با فاصلهٔ حداقلی از HQ)
+    { id: 'village_n',   name: 'روستای شمالی',   type: 'village',     radius: 240, population: 1500,  demandBase: 420,  priceSensitivity: 1.0,  potentialRevenue: 9000 },
+    { id: 'village_s',   name: 'روستای جنوبی',   type: 'village',     radius: 230, population: 1300,  demandBase: 380,  priceSensitivity: 1.0,  potentialRevenue: 8000 },
+    { id: 'village_e',   name: 'روستای شرقی',    type: 'village',     radius: 250, population: 1700,  demandBase: 460,  priceSensitivity: 1.0,  potentialRevenue: 10000 },
+    { id: 'village_w',   name: 'روستای غربی',    type: 'village',     radius: 220, population: 1200,  demandBase: 350,  priceSensitivity: 1.0,  potentialRevenue: 7500 },
   ];
 
   function mulberry32(seed) {
@@ -196,7 +201,20 @@
       x: Math.round(clamp(hq.x + Math.cos(northAng) * northDist, 320, WORLD_W - 320)),
       y: Math.round(clamp(hq.y + Math.sin(northAng) * northDist, 320, WORLD_H - 320)),
     });
-    ARCHETYPES.forEach((a) => { if (a.id !== 'center' && a.id !== 'north') placeDistrict(a); });
+    ARCHETYPES.forEach((a) => { if (a.id !== 'center' && a.id !== 'north' && a.type !== 'village') placeDistrict(a); });
+    // روستاها: دور از مرکز شهر (دست‌کم ۴۲۰۰ واحد از HQ) و بدون هم‌پوشانی با مناطق دیگر
+    ARCHETYPES.filter((a) => a.type === 'village').forEach((a) => {
+      let pos = null;
+      const radius = Math.round(a.radius * R(0.85, 1.15));
+      for (let attempt = 0; attempt < 1500 && !pos; attempt++) {
+        const x = Math.round(R(radius * 0.6, WORLD_W - radius * 0.6));
+        const y = Math.round(R(radius * 0.6, WORLD_H - radius * 0.6));
+        if (Math.hypot(x - hq.x, y - hq.y) < 4200) continue;
+        if (Math.abs(x - riverXAtY(river, y)) < 130) continue;
+        if (clearOfDistricts(x, y, radius)) pos = { x, y };
+      }
+      if (pos) placeDistrict(a, pos); else placeDistrict(a);
+    });
 
     // ---------- بلوک‌های شهری (سلول‌های بین خطوط خیابان) ----------
     const SETBACK = ROAD_MARGIN + 2; // فاصلهٔ نمای ساختمان از محور خیابان
@@ -226,7 +244,14 @@
       const inCluster = cluster && Math.hypot(x + w / 2 - cluster.x, y + h / 2 - cluster.y) < 170;
       const tall = (d.type === 'dense' || d.type === 'commercial' || d.type === 'government' || d.type === 'academic') && rnd() > (inCluster ? 0.25 : 0.55);
       const height = tall ? 10 + Math.floor(rnd() * 18) : 2 + Math.floor(rnd() * 7);
-      const bType = (d.type === 'industrial' || d.type === 'heavy_industrial') ? 'industrial' : bTypes[Math.floor(rnd() * 3)];
+      // ترکیب ساختمان‌ها بر اساس نوع منطقه: مسکونی‌ها کنار هم + چند تجاری نزدیکشان؛
+      // منطقهٔ تجاریِ خاص بیشتر تجاری + کمی صنعتی؛ منطقهٔ صنعتی بیشتر صنعتی.
+      const mixRoll = rnd();
+      let bType;
+      if (d.type === 'industrial' || d.type === 'heavy_industrial') bType = mixRoll < 0.85 ? 'industrial' : 'commercial';
+      else if (d.type === 'commercial') bType = mixRoll < 0.8 ? 'commercial' : 'industrial';
+      else if (['residential', 'dense', 'villa', 'slum', 'sparse', 'village'].includes(d.type)) bType = mixRoll < 0.85 ? 'residential' : 'commercial';
+      else bType = mixRoll < 0.5 ? 'office' : (mixRoll < 0.8 ? 'commercial' : 'residential');
       const palette = palettes[bType] || palettes.residential;
       buildings.push({
         id: 'b' + bIdx,
@@ -240,6 +265,7 @@
     }
     districts.forEach((d) => {
       const count = (d.type === 'dense' || d.type === 'commercial' || d.type === 'slum') ? 16
+        : d.type === 'village' ? 7
         : d.type === 'sparse' ? 7
         : d.type === 'villa' ? 8
         : (d.type === 'landmark' || d.type === 'medical' || d.type === 'transport') ? 10 : 12;
@@ -247,7 +273,7 @@
         ? { x: d.x + R(-0.35, 0.35) * d.radius, y: d.y + R(-0.35, 0.35) * d.radius } : null;
       const myBlocks = blocks.filter((b) => !b.used && Math.hypot(b.cx - d.x, b.cy - d.y) < d.radius * 0.95);
       for (let i = myBlocks.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); const t = myBlocks[i]; myBlocks[i] = myBlocks[j]; myBlocks[j] = t; }
-      const parkBlocks = (d.type === 'villa' || d.id === 'garden_city') ? 2 : (d.type === 'sparse' ? 0 : 1);
+      const parkBlocks = (d.type === 'villa' || d.id === 'garden_city') ? 2 : ((d.type === 'sparse' || d.type === 'village') ? 0 : 1);
       let placedCount = 0;
       myBlocks.forEach((blk, bi) => {
         if (bi < parkBlocks && !rectHitsRiver(blk.x0, blk.y0, blk.x1 - blk.x0, blk.y1 - blk.y0, river)) {
@@ -318,7 +344,7 @@
     });
 
     // ---------- ساختمان‌های پراکندهٔ خارج از مناطق: کنار خیابان‌ها، رو به خیابان ----------
-    const OUTSIDE_COUNT = 130;
+    const OUTSIDE_COUNT = 260;
     for (let i = 0; i < OUTSIDE_COUNT; i++) {
       let placed = null;
       for (let attempt = 0; attempt < 40 && !placed; attempt++) {
@@ -361,7 +387,7 @@
     const freeBlocks = blocks.filter((b) => !b.used && !rectHitsRiver(b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0, river)
       && !buildings.some((bb) => bb.x < b.x1 && bb.x + (bb.w || 26) > b.x0 && bb.y < b.y1 && bb.y + (bb.h || 20) > b.y0));
     for (let i = freeBlocks.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); const t = freeBlocks[i]; freeBlocks[i] = freeBlocks[j]; freeBlocks[j] = t; }
-    freeBlocks.slice(0, 34).forEach((blk) => {
+    freeBlocks.slice(0, 56).forEach((blk) => {
       blk.park = true; blk.used = true;
       parks.push({ x: blk.x0 + 4, y: blk.y0 + 4, w: blk.x1 - blk.x0 - 8, h: blk.y1 - blk.y0 - 8 });
     });
