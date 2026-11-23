@@ -1292,13 +1292,8 @@
       }
     }
 
-    // لینک تکراری (همان دو گره + همان رسانه) مجاز نیست
-    const dup = (state.links || []).some((l) => l.medium === medium &&
-      ((l.from === fromId && l.to === toId) || (l.from === toId && l.to === fromId)));
-    if (dup) {
-      log(state, 'این دو گره قبلاً با همین رسانه به هم وصل شده‌اند.', 'error');
-      return null;
-    }
+    // لینک موازی مجاز است: بین همان دو گره می‌شود چند لینک (با رسانهٔ یکسان یا متفاوت) ساخت؛
+    // هرکدام ظرفیت خودش را دارد و ترافیک خودکار بینشان تقسیم می‌شود (بالانس بار).
 
     const link = {
       id: 'l' + (++state.counters.link),
@@ -1320,17 +1315,17 @@
     return (state.links || []).filter((l) => l.from === nodeId || l.to === nodeId);
   }
 
-  // ---------- تغییر نوع و ارتقای لینک ----------
+  // ---------- تغییر نوع لینک (ارتقای سطح لینک حذف شده است؛ افزایش پهنای باند فقط با لینک موازی و ماژول گره) ----------
   const LINK_MEDIUM_COST = { fiber: 5000, copper: 2000, ptp: 18000, ethernet: 3000 };
   const LINK_CHANGE_DAYS = { fiber: 0.5, copper: 0.25, ptp: 0.25, ethernet: 0.25 };
-  const LINK_MAX_LEVEL = 5;
 
   function linkBaseCapacity(medium) {
     const mi = (DATA.linkMedia && DATA.linkMedia[medium]) || {};
     return mi.capacity || 1000;
   }
-  function linkCapacityFor(medium, level) {
-    return Math.round(linkBaseCapacity(medium) * Math.pow(1.5, Math.max(1, level || 1) - 1));
+  // ظرفیت هر لینک همیشه ظرفیت پایهٔ رسانه‌اش است (سطح ندارد)
+  function linkCapacityFor(medium) {
+    return linkBaseCapacity(medium);
   }
   // آیا این نوع گره (طبق مشخصهٔ connects در داده‌ها) این رسانه را برای لینک گره‌به‌گره پشتیبانی می‌کند؟
   function mediumSupportedBy(nodeType, medium) {
@@ -1362,9 +1357,6 @@
       if (m === 'ptp' && a && b && dist(a.x, a.y, b.x, b.y) > ((DATA.linkMedia.ptp || {}).maxRange || 1800)) {
         opt.ok = false; opt.reason = 'فاصله بیش از برد نقطه‌به‌نقطه (۱۸۰۰ واحد)'; return opt;
       }
-      const dup = (state.links || []).some((l) => l.id !== link.id && l.medium === m &&
-        ((l.from === link.from && l.to === link.to) || (l.from === link.to && l.to === link.from)));
-      if (dup) { opt.ok = false; opt.reason = 'لینکی با همین رسانه بین این دو گره هست'; return opt; }
       if (state.cash < opt.cost) { opt.ok = false; opt.reason = 'نقدینگی کافی نیست'; return opt; }
       return opt;
     });
@@ -1383,22 +1375,6 @@
     log(state, 'نوع لینک به «' + opt.name + '» تغییر کرد (آنی).', 'build');
     refreshConnectivity(state);
     return { ok: true, cost: opt.cost, days: 0 };
-  }
-  function upgradeLink(state, linkId) {
-    const link = (state.links || []).find((l) => l.id === linkId);
-    if (!link) return { ok: false, error: 'لینک پیدا نشد.' };
-    const level = link.level || 1;
-    if (level >= LINK_MAX_LEVEL) return { ok: false, error: 'لینک در حداکثر سطح است.' };
-    const cost = Math.round(0.6 * (LINK_MEDIUM_COST[link.medium] || 3000) * level);
-    if (state.cash < cost) return { ok: false, error: 'نقدینگی کافی نیست.' };
-    state.cash -= cost;
-    // ارتقای لینک آنی است
-    link.level = level + 1;
-    link.capacity = linkCapacityFor(link.medium, link.level);
-    link.status = 'active';
-    log(state, 'ظرفیت لینک به سطح ' + link.level + ' ارتقا یافت (آنی).', 'build');
-    refreshConnectivity(state);
-    return { ok: true, cost, days: 0, nextCapacity: link.capacity };
   }
   function toggleLinkBackup(state, linkId) {
     const link = (state.links || []).find((l) => l.id === linkId);
@@ -1477,6 +1453,7 @@
       if (isCellTower(curNode) && cur !== start.id) continue;
       for (const l of state.links) {
         if (excludeCut && !isUsableLink(l)) continue;
+        if (opts.excludeLinks && opts.excludeLinks.has(l.id)) continue;
         // لینک پشتیبان فقط وقتی فیل‌اور فعال است (یا جست‌وجوی مسیر جایگزین) ترافیک می‌گیرد
         if (l.isBackup && !state.failoverActive && !opts.allowBackup) continue;
         let nxt = null;
@@ -1491,6 +1468,68 @@
       }
     }
     return null;
+  }
+
+  // ---------- بالانس خودکار ترافیک روی لینک‌های موازی و مسیرهای موازی ----------
+  // لینک‌های موازیِ قابل‌استفاده بین دو گره (همان قواعد bfsPath: قطع/پشتیبان کنار گذاشته می‌شوند)
+  function parallelLinks(state, aId, bId) {
+    return (state.links || []).filter((l) => {
+      if (!isUsableLink(l)) return false;
+      if (l.isBackup && !state.failoverActive) return false;
+      return (l.from === aId && l.to === bId) || (l.from === bId && l.to === aId);
+    });
+  }
+  // ظرفیت مؤثر مجموع یک قطعه (مجموع لینک‌های موازی بین دو گره)
+  function segmentEffCapacity(state, aId, bId, fx) {
+    return parallelLinks(state, aId, bId).reduce((s, l) => s + linkEffCapacity(state, l, fx), 0);
+  }
+  // گلوگاه یک مسیر متناوب [گره، لینک، گره، ...]: کمترین ظرفیت مؤثر قطعه‌ها (با تجمیع موازی‌ها)
+  function pathBottleneck(state, path, fx) {
+    let bn = Infinity;
+    for (const id of path) {
+      const l = linkById(state, id);
+      if (l) bn = Math.min(bn, segmentEffCapacity(state, l.from, l.to, fx));
+    }
+    return bn === Infinity ? 0 : bn;
+  }
+  // ثبت ترافیک روی یک مسیر: سهم هر قطعه بین لینک‌های موازی به نسبت ظرفیت مؤثرشان تقسیم می‌شود،
+  // پس بهره‌برداری همهٔ موازی‌ها تقریباً برابر می‌ماند و با حذف/خرابی یکی، بار روی بقیه می‌افتد.
+  function chargePath(state, path, share, fx) {
+    if (!(share > 0)) return;
+    for (const id of path) {
+      const l = linkById(state, id);
+      if (l) {
+        const pars = parallelLinks(state, l.from, l.to);
+        const caps = pars.map((p) => linkEffCapacity(state, p, fx));
+        const tot = caps.reduce((a, b) => a + b, 0);
+        if (tot > 0) pars.forEach((p, j) => { p.usage += share * (caps[j] / tot); });
+        else l.usage += share;
+        continue;
+      }
+      const nn = nodeById(state, id);
+      if (nn) nn.usage += share;
+    }
+  }
+  // تا maxPaths مسیر با گام اول متفاوت از گره تا دروازه (برای تقسیم بار بین مسیرهای موازی؛
+  // گام‌های پایانی مشترک مثل هسته←دروازه در همهٔ مسیرها می‌مانند)
+  function bfsPaths(state, startId, maxPaths) {
+    const paths = [];
+    const excluded = new Set();
+    for (let k = 0; k < maxPaths; k++) {
+      const p = bfsPath(state, startId, { excludeLinks: excluded });
+      if (!p) break;
+      paths.push(p);
+      const firstLink = p.find((id) => linkById(state, id));
+      if (firstLink) excluded.add(firstLink);
+    }
+    return paths;
+  }
+  // تقسیم سهم ترافیک یک گرهٔ سرویس‌دهنده بین مسیرهای موازی‌اش به نسبت گلوگاه هر مسیر
+  function chargeBalanced(state, paths, share, fx) {
+    if (!paths.length || !(share > 0)) return;
+    const weights = paths.map((p) => Math.max(1, pathBottleneck(state, p, fx)));
+    const wTot = weights.reduce((a, b) => a + b, 0);
+    paths.forEach((p, j) => chargePath(state, p, share * (weights[j] / wTot), fx));
   }
 
   function servingNodeForDistrict(state, district) {
@@ -1595,6 +1634,12 @@
     const priority = (d) => (d.id === 'hospital' || d.type === 'medical' ? 0
       : (['industrial', 'heavy_industrial', 'commercial', 'government'].includes(d.type) ? 1 : 2));
     const ordered = state.districts.slice().sort((a, b) => priority(a) - priority(b));
+    // کش مسیرهای موازی هر گرهٔ سرویس‌دهنده در همین محاسبه (بالانس خودکار بین مسیرها و لینک‌های موازی)
+    const pathCache = new Map();
+    const pathsFor = (nodeId) => {
+      if (!pathCache.has(nodeId)) pathCache.set(nodeId, bfsPaths(state, nodeId, 3));
+      return pathCache.get(nodeId);
+    };
 
     let totalRevenue = 0, qosSum = 0, servedDistricts = 0;
     let joinsToday = 0, leavesToday = 0;
@@ -1647,21 +1692,15 @@
       const accessCap = servers.reduce((s, n) => s + capOf(n), 0);
       let served = Math.min(d.demand, accessCap);
 
-      // انتشار روی مسیرها و محاسبه ازدحام
+      // انتشار روی مسیرها و محاسبه ازدحام: ترافیک هر گرهٔ سرویس‌دهنده خودکار بین مسیرهای موازی
+      // و لینک‌های موازی تقسیم می‌شود (مصرف همهٔ گره‌های میانی مسیر هم ثبت می‌شود)
       let remaining = served;
       for (const srv of servers) {
         if (remaining <= 0) break;
         const share = Math.min(remaining, capOf(srv));
-        const path = bfsPath(state, srv.id);
-        if (!path) continue;
-        // مسیر bfsPath متناوب [گره، لینک، گره، ...] است: ترافیک از همهٔ گره‌های میانی
-        // (روتر/سوئیچ/تجمیع/هسته/دروازه) عبور می‌کند و مصرف همهٔ آن‌ها ثبت می‌شود
-        for (const id of path) {
-          const l = linkById(state, id);
-          if (l) { l.usage += share; continue; }
-          const nn = nodeById(state, id);
-          if (nn) nn.usage += share;
-        }
+        const paths = pathsFor(srv.id);
+        if (!paths.length) continue;
+        chargeBalanced(state, paths, share, fx);
         remaining -= share;
       }
       // گلوگاه لینک‌ها: اگر مصرف > ظرفیت مؤثر (با ضریب مهندسان شبکه + افت سیگنال مسیر طولانی)، کیفیت افت می‌کند
@@ -1784,14 +1823,7 @@
     if (sc.servedDemand > 0 && capSum > 0) {
       for (const [nid, cap] of coveringCaps) {
         const share = sc.servedDemand * (cap / capSum);
-        const path = bfsPath(state, nid);
-        if (!path) continue;
-        for (const id of path) {
-          const l = linkById(state, id);
-          if (l) { l.usage += share; continue; }
-          const nn = nodeById(state, id);
-          if (nn) nn.usage += share;
-        }
+        chargeBalanced(state, pathsFor(nid), share, fx);
       }
     }
     // کیفیت تجربه‌شدهٔ مشترکان پراکنده (بدون مشترک = ۰)
@@ -2200,7 +2232,7 @@
         add('congestion', { districtId: d.id, message: 'ظرفیت در «' + d.name + '» کم است و کیفیت پایین آمده.' }, [
           { action: 'upgrade', label: 'نصب ماژول افزایش ظرفیت', districtId: d.id },
           { action: 'build_access', label: 'افزودن گره دسترسی دیگر', districtId: d.id },
-          { action: 'upgrade_link', label: 'ارتقای لینک‌های پرمصرف', districtId: d.id },
+          { action: 'parallel_link', label: 'ساخت لینک موازی برای لینک‌های پرمصرف', districtId: d.id },
         ]);
       }
     }
@@ -2851,7 +2883,7 @@
         }
       }
     }
-    // (تغییر نوع و ارتقای لینک آنی است و در تیک پردازش نمی‌شود)
+    // (تغییر نوع لینک آنی است و در تیک پردازش نمی‌شود)
 
     // خرابی‌های تصادفی کوچک (هسته و دروازه در مرکز داده محافظت‌شده‌اند)
     // سامانه‌های برق (دستهٔ power) از گره‌های نزدیک محافظت می‌کنند: خرابی کمتر، فرسودگی کندتر
@@ -3148,14 +3180,17 @@
         log(state, 'تقویت‌کننده در میانهٔ مسیر ' + mediumFa(medium) + ' نصب شد؛ افت سیگنال جبران شد.', 'build');
         return { ok: true, cost, node: rep };
       }
-      case 'upgrade_link': {
+      case 'parallel_link': {
+        // افزایش پهنای باند فقط با لینک موازی: کنار هر لینک پرمصرف یک لینک هم‌نوع ساخته می‌شود
+        // و ترافیک خودکار بینشان تقسیم می‌شود.
         const hot = state.links.filter((l) => l.status === 'congested');
         if (!hot.length) return fail('لینک پرمصرفی نیست.');
-        const cost = 6000 * hot.length;
-        if (state.cash < cost) return fail('بودجه کافی برای ارتقای لینک نیست.');
+        const cost = hot.reduce((s, l) => s + (LINK_MEDIUM_COST[l.medium] || 3000), 0);
+        if (state.cash < cost) return fail('بودجه کافی برای ساخت لینک موازی نیست.');
         state.cash -= cost;
-        hot.forEach((l) => { l.capacity = Math.round(l.capacity * 2); l.status = 'active'; });
-        log(state, hot.length + ' لینک پرمصرف ارتقا یافت.', 'build');
+        let built = 0;
+        hot.forEach((l) => { if (connect(state, l.from, l.to, l.medium)) built++; });
+        log(state, built + ' لینک موازی کنار لینک‌های پرمصرف ساخته شد؛ ترافیک خودکار تقسیم می‌شود.', 'build');
         return { ok: true, cost };
       }
       default:
@@ -3174,14 +3209,31 @@
     if (!Array.isArray(state.buildings)) state.buildings = (DATA.buildings || []).slice();
     if (!state.counters) state.counters = { node: 0, link: 0, staff: 0, problem: 0 };
     (state.links || []).forEach((l) => {
-      if (!l.level) l.level = 1;
-      // لینک‌های در حال تغییرِ ذخیره‌های میانی: تغییرشان آنی اعمال شود
+      // لینک‌های در حال تغییرِ ذخیره‌های میانی: تغییر نوعشان آنی اعمال شود
       if (l.status === 'changing' || l.status === 'upgrading') {
         if (l.pendingMedium) { l.medium = l.pendingMedium; delete l.pendingMedium; }
-        if (l.pendingLevel) { l.level = l.pendingLevel; delete l.pendingLevel; }
         l.changeWork = 0;
         l.status = 'active';
       }
+      delete l.pendingLevel;
+      // ارتقای سطح لینک حذف شده است: ظرفیت لینک‌های ارتقایافته به پایه برمی‌گردد و هزینهٔ
+      // ارتقاهای قبلی برگردانده می‌شود (سطح: مجموع ۰٫۶×هزینهٔ رسانه×سطح برای هر گام؛
+      // ظرفیت دوبرابرشده با رفع خودکار قدیمی: ۶۰۰۰ برای هر بار دوبرابرشدن).
+      const base = linkBaseCapacity(l.medium);
+      const lvl = l.level || 1;
+      if (lvl > 1) {
+        let refund = 0;
+        for (let k = 1; k < lvl; k++) refund += Math.round(0.6 * (LINK_MEDIUM_COST[l.medium] || 3000) * k);
+        state.cash = (state.cash || 0) + refund;
+        l.capacity = base;
+      } else if ((l.capacity || 0) > base) {
+        const n = Math.round(Math.log2(l.capacity / base));
+        if (n >= 1 && base * Math.pow(2, n) === l.capacity) {
+          state.cash = (state.cash || 0) + 6000 * n;
+          l.capacity = base;
+        }
+      }
+      delete l.level;
     });
     if (!state.counters.building) state.counters.building = state.buildings.length;
     if (state.monthRevenue == null) state.monthRevenue = 0;
@@ -3211,9 +3263,9 @@
     state.eraYear = (eraOf(state) || {}).year || TL.startYear;
     state.missions = (state.missions || []).filter((m) => (DATA.missions || []).some((dm) => dm.id === m.id));
     (state.links || []).forEach((l) => {
-      if (l.medium === 'satellite') { // لینک ماهواره‌ای قدیمی → فیبر (اتصال و سطح حفظ می‌شود)
+      if (l.medium === 'satellite') { // لینک ماهواره‌ای قدیمی → فیبر (اتصال حفظ می‌شود)
         l.medium = 'fiber';
-        l.capacity = linkCapacityFor('fiber', l.level || 1);
+        l.capacity = linkBaseCapacity('fiber');
         l.latency = (DATA.linkMedia && DATA.linkMedia.fiber && DATA.linkMedia.fiber.latency) || 2;
       }
     });
@@ -3448,7 +3500,7 @@
     refreshConnectivity, connectBuildingFiber, disconnectBuildingFiber, buildingFiberStatus, fiberDropFor,
     connectBuildingWired, disconnectBuildingWired, buildingWiredStatus, cabinetPorts, cabinetUsedPorts, COPPER_DROP_SPEED,
     disconnectLink, linkDisconnectImpact, linksOfNode,
-    changeLinkMedium, upgradeLink, toggleLinkBackup, linkChangeOptions, linkCapacityFor, LINK_MAX_LEVEL,
+    changeLinkMedium, toggleLinkBackup, linkChangeOptions, linkCapacityFor, linkBaseCapacity, parallelLinks, segmentEffCapacity,
     subscriberStats, buildingServiceStatus, buildingHasSubscription, buildingNetworkPath, individualTargetFor, CONCURRENCY, INDIVIDUAL_CAP,
     tdlteFed, pointIn4GCoverage, nodeServes, nodeServesTech,
     buildingPreference, districtPreference, districtTechSplit,
