@@ -349,8 +349,18 @@
   function screenToWorld(sx, sy) {
     return { x: (sx - viewW / 2) / cam.z + cam.x, y: (sy - viewH / 2) / cam.z + cam.y };
   }
+  function centerOnHQ() {
+    var nodes = (state && state.nodes) || [];
+    var hq = null;
+    for (var i = 0; i < nodes.length; i++) if (nodes[i].type === 'core_router' && nodes[i].owner !== 'rival') { hq = nodes[i]; break; }
+    if (!hq) return false;
+    camT.x = hq.x; camT.y = hq.y; camT.z = clamp(0.35, 0.08, 3);
+    cam.x = camT.x; cam.y = camT.y; cam.z = camT.z;
+    return true;
+  }
   function fitCamera() {
     if (!viewW || !viewH) return;
+    if (state && state.isNewGame && centerOnHQ()) return; // بازی جدید: شروع روی مقر شرکت با زوم قابل بازی
     var z;
     if (viewH > viewW) z = Math.max(viewW / WORLD_W, viewH / WORLD_H); // portrait: fill the viewport, crop the sides
     else z = Math.min(viewW / WORLD_W, viewH / WORLD_H) * 0.98;        // landscape/desktop: whole world visible
@@ -780,6 +790,7 @@
       if (l._attFactor != null && l._attFactor < 0.8 && !seen['l' + l.id]) {
         seen['l' + l.id] = true;
         var a2 = nodeById(state, l.from), b2 = nodeById(state, l.to);
+        if (a2 && a2.owner === 'rival') continue; // هشدارهای رقیب در فهرست بازیکن نیست
         if (a2 && b2 && inRect((a2.x + b2.x) / 2, (a2.y + b2.y) / 2, cullRect)) {
           drawWarningTriangle((a2.x + b2.x) / 2, (a2.y + b2.y) / 2, 8 / cam.z);
         }
@@ -2162,6 +2173,12 @@
     }
     var w = screenToWorld(p.x, p.y);
     if (placementMode) {
+      var hitP = hitTest(w.x, w.y);
+      if (hitP && hitP.kind === 'node') { // ضربه روی گره موجود همیشه انتخاب است، نه ساخت
+        selected = hitP;
+        if (cb.onSelect) cb.onSelect(hitP.kind, hitP.id, Math.round(w.x), Math.round(w.y));
+        return;
+      }
       if (cb.onPlace) cb.onPlace(Math.round(w.x), Math.round(w.y));
       return;
     }
@@ -2239,7 +2256,7 @@
       return CityMap;
     },
 
-    setState: function (s) { state = s || state; staticCam = null; _distCache = null; _heat.signal = null; _heat.speed = null; applyWorldSize(); applyMapData(); },
+    setState: function (s) { state = s || state; staticCam = null; _distCache = null; _heat.signal = null; _heat.speed = null; applyWorldSize(); applyMapData(); if (state && state.isNewGame) centerOnHQ(); },
     getState: function () { return state; },
 
     layers: layers,
