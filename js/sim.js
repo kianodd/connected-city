@@ -3263,6 +3263,72 @@
     return rerouted;
   }
 
+  // گلوگاه‌های یک منطقه: گره‌ها و لینک‌های اشباع‌شده روی مسیرهای سرویس همان منطقه
+  // (مصرف نهایی بعد از computeFlow خوانده می‌شود؛ بدترین‌ها اول، حداکثر ۳ مورد + شمارش بقیه).
+  // گرهٔ دسترسیِ کامل (مصرف ≥۹۹٪ ظرفیت) هم گلوگاه حساب می‌شود، چون سقف سرویس منطقه است.
+  function districtBottlenecks(state, d) {
+    const fx = staffEffects(state);
+    const servers = state.nodes.filter((n) =>
+      nodeServes(state, n) &&
+      dist(d.x, d.y, n.x, n.y) <= (n.radius || 0) + coverReach(d) && inWedge(n, d.x, d.y));
+    const fiberRatio = districtFiberRatio(state, d);
+    const capOf = (n) => {
+      const c = n._effCap != null ? n._effCap : n.capacity || 0;
+      if (techOfNode(n.type) === 'fiber') return c * fiberRatio;
+      return c + tdlteCapacity(n);
+    };
+    const accessCap = servers.reduce((s, n) => s + capOf(n), 0);
+    const serverIds = new Set(servers.map((n) => n.id));
+    const seen = new Set();
+    const cand = [];
+    for (const srv of servers) {
+      for (const p of bfsPaths(state, srv.id, 3)) {
+        for (const id of p) {
+          if (seen.has(id)) continue; seen.add(id);
+          const l = linkById(state, id);
+          if (l) {
+            const a = nodeById(state, l.from), b = nodeById(state, l.to);
+            if (!a || !b || isRivalNode(a) || isRivalNode(b)) continue;
+            const effCap = linkEffCapacity(state, l, fx);
+            if (!(effCap > 0)) continue;
+            const util = (l.usage || 0) / effCap;
+            if (util > 1) cand.push({ kind: 'link', linkId: l.id, util, usage: l.usage || 0, capacity: effCap, a, b, medium: l.medium });
+          } else {
+            const nn = nodeById(state, id);
+            if (!nn || isRivalNode(nn)) continue;
+            const effCap = (nn._effCap != null ? nn._effCap : nn.capacity || 0) + tdlteCapacity(nn);
+            if (!(effCap > 0)) continue;
+            const util = (nn.usage || 0) / effCap;
+            if (util > 1 || (serverIds.has(nn.id) && util >= 0.99)) cand.push({ kind: 'node', nodeId: nn.id, util, usage: nn.usage || 0, capacity: effCap, node: nn });
+          }
+        }
+      }
+    }
+    cand.sort((x, y) => y.util - x.util);
+    const top = cand.slice(0, 3);
+    const list = top.map((c) => {
+      const utilPct = Math.round(c.util * 100);
+      if (c.kind === 'node') {
+        const nd = districtAtPoint(state, c.node.x, c.node.y);
+        const name = c.node.name || 'گره';
+        return {
+          kind: 'node', nodeId: c.nodeId, name, where: nd ? 'در منطقهٔ «' + nd.name + '»' : '', utilPct,
+          usage: Math.round(c.usage), capacity: Math.round(c.capacity),
+          fixText: 'روی «' + name + '» ماژول افزایش ظرفیت نصب کن',
+          fix: { action: 'install_module', label: 'نصب ماژول افزایش ظرفیت روی «' + name + '»', nodeId: c.nodeId, moduleId: 'cap_boost' },
+        };
+      }
+      const an = (c.a && c.a.name) || 'گره', bn = (c.b && c.b.name) || 'گره';
+      return {
+        kind: 'link', linkId: c.linkId, name: 'لینک ' + mediumFa(c.medium), where: 'بین «' + an + '» و «' + bn + '»', utilPct,
+        usage: Math.round(c.usage), capacity: Math.round(c.capacity),
+        fixText: 'بین «' + an + '» و «' + bn + '» لینک موازی بساز',
+        fix: { action: 'parallel_link', label: 'ساخت لینک موازی بین «' + an + '» و «' + bn + '»', linkId: c.linkId },
+      };
+    });
+    return { list, more: Math.max(0, cand.length - top.length), demand: d.demand || 0, accessCap };
+  }
+
   // ---------- تولید مشکلات (علت + گزینه رفع برای UI) ----------
   const PROBLEM_TITLES = {
     no_coverage: 'نبود پوشش',
@@ -3310,11 +3376,30 @@
           { action: 'repair', label: 'بررسی و تعمیر گره', nodeId: srv.id },
         ]);
       } else {
-        add('congestion', { districtId: d.id, message: 'ظرفیت در «' + d.name + '» کم است و کیفیت پایین آمده.' }, [
-          { action: 'upgrade', label: 'نصب ماژول افزایش ظرفیت', districtId: d.id },
-          { action: 'build_access', label: 'افزودن گره دسترسی دیگر', districtId: d.id },
-          { action: 'parallel_link', label: 'ساخت لینک موازی برای لینک‌های پرمصرف', districtId: d.id },
-        ]);
+        // گلوگاه دقیق روی مسیرهای سرویس منطقه نام برده می‌شود (گره/لینک + درصد مصرف + رفع مشخص)
+        const bn = districtBottlenecks(state, d);
+        if (bn.list.length) {
+          add('congestion', {
+            districtId: d.id, bottlenecks: bn.list, bottleneckMore: bn.more,
+            message: 'ظرفیت در «' + d.name + '» کم است و کیفیت پایین آمده. گلوگاه‌ها روی مسیرهای سرویس منطقه:',
+          }, bn.list.map((b) => b.fix));
+        } else if (bn.demand > bn.accessCap) {
+          // هیچ گره/لینک مشخصی اشباع نیست؛ مجموع ظرفیت دسترسی منطقه از تقاضا کمتر است
+          add('congestion', {
+            districtId: d.id, bottlenecks: [], bottleneckMore: 0,
+            message: 'مجموع ظرفیت دسترسی منطقهٔ «' + d.name + '» کم است (تقاضا ' + Math.round(bn.demand).toLocaleString('fa-IR') + ' مگابیت، ظرفیت دسترسی ' + Math.round(bn.accessCap).toLocaleString('fa-IR') + ' مگابیت) و گلوگاه مشخصی روی مسیرها نیست — گره دسترسی اضافه کن.',
+          }, [
+            { action: 'build_access', label: 'افزودن گره دسترسی دیگر', districtId: d.id },
+          ]);
+        } else {
+          add('congestion', {
+            districtId: d.id, bottlenecks: [], bottleneckMore: 0,
+            message: 'ظرفیت مسیرهای منطقهٔ «' + d.name + '» زیر فشار است و گلوگاه مشخصی روی مسیرها نیست — لینک موازی یا گره دسترسی اضافه کن.',
+          }, [
+            { action: 'parallel_link', label: 'ساخت لینک موازی برای لینک‌های پرمصرف', districtId: d.id },
+            { action: 'build_access', label: 'افزودن گره دسترسی دیگر', districtId: d.id },
+          ]);
+        }
       }
     }
     for (const n of state.nodes) {
@@ -4667,7 +4752,9 @@
       case 'parallel_link': {
         // افزایش پهنای باند فقط با لینک موازی: کنار هر لینک پرمصرف یک لینک هم‌نوع ساخته می‌شود
         // و ترافیک خودکار بینشان تقسیم می‌شود. هزینهٔ هر لینک (فاصله × هزینهٔ واحد) در connect کسر می‌شود.
-        const hot = state.links.filter((l) => l.status === 'congested' && !isRivalNode(nodeById(state, l.from)));
+        const hot = fix.linkId
+          ? state.links.filter((l) => l.id === fix.linkId && !isRivalNode(nodeById(state, l.from)))
+          : state.links.filter((l) => l.status === 'congested' && !isRivalNode(nodeById(state, l.from)));
         if (!hot.length) return fail('لینک پرمصرفی نیست.');
         let built = 0, cost = 0;
         hot.forEach((l) => {
@@ -5144,6 +5231,8 @@
     projectDemandFactor, activeProjectFor, tickCityProjects,
     districtAttractiveness, runMigration,
     onlineBizCap, updateOnlineBiz, onlineBizDemandFactor, onlineBizRevenueFactor,
+    // گلوگاه دقیق هشدار کمبود ظرفیت (۲۰۲۶-۱۱-۲۳)
+    districtBottlenecks, buildProblems,
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = GameSim;
