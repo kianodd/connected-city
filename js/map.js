@@ -607,6 +607,7 @@
   var _packetPool = [];
   function drawPackets() {
     var links = (state && state.links) || [];
+    var offMap = parallelOffsets(links);
     var depth = gatewayDepths();
     var tNow = Date.now() / 1000;
     var drawn = 0;
@@ -620,6 +621,7 @@
       // جهت: از گره دورتر از دروازه به گره نزدیک‌تر (به سمت اینترنت) و برعکس (دانلود)
       var da = depth[a.id], db = depth[b.id];
       var up = (da != null && db != null) ? (da > db) : true;
+      var ends = offsetEnds(a, b, offMap[l.id] || 0); a = ends[0]; b = ends[1];
       var from = up ? a : b, to = up ? b : a;
       var util = clamp((l.usage || 0) / Math.max(1, l.capacity || 1), 0.05, 1);
       var count = Math.max(1, Math.round(util * 4));
@@ -1248,8 +1250,34 @@
     ctx.restore();
   }
 
+  // افست عمودی لینک‌های موازی (بین همان دو گره) تا روی نقشه روی هم نیفتند
+  function parallelOffsets(links) {
+    var groups = {};
+    for (var i = 0; i < links.length; i++) {
+      var l = links[i];
+      var a = l.from != null ? l.from : l.a, b = l.to != null ? l.to : l.b;
+      var key = String(a) < String(b) ? a + '|' + b : b + '|' + a;
+      (groups[key] = groups[key] || []).push(l);
+    }
+    var map = {};
+    Object.keys(groups).forEach(function (key) {
+      var g = groups[key];
+      if (g.length < 2) return;
+      g.forEach(function (l, idx) { map[l.id] = idx - (g.length - 1) / 2; });
+    });
+    return map;
+  }
+  function offsetEnds(a, b, off) {
+    if (!off) return [a, b];
+    var dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
+    var sgn = String(a.id) < String(b.id) ? 1 : -1; // جهت متعارف: افست برای هر دو جهت یکسان
+    var ox = (-dy / len) * off * 12 * sgn, oy = (dx / len) * off * 12 * sgn;
+    return [{ x: a.x + ox, y: a.y + oy, id: a.id }, { x: b.x + ox, y: b.y + oy, id: b.id }];
+  }
+
   function drawLinks() {
     var links = (state && state.links) || [];
+    var offMap = parallelOffsets(links);
     ctx.save();
     ctx.lineCap = 'round';
     var sqrtZ = Math.sqrt(cam.z);
@@ -1258,6 +1286,7 @@
       var a = endPoint(state, l.from != null ? l.from : l.a);
       var b = endPoint(state, l.to != null ? l.to : l.b);
       if (!a || !b) continue;
+      var ends = offsetEnds(a, b, offMap[l.id] || 0); a = ends[0]; b = ends[1];
       var med = linkMedium(l.medium || l.type);
       if (!layerAllowsLink(med, l)) continue;
       var st = LINK_STYLES[med] || LINK_STYLES.ethernet;
@@ -1610,7 +1639,7 @@
     var ls = (state && state.links) || [];
     for (var j = 0; j < ls.length; j++) {
       var l = ls[j];
-      s += l.id + ':' + l.medium + ',' + l.status + ',' + (l.level || 1) + ',' + Math.round(l.capacity || 0) + ';';
+      s += l.id + ':' + l.medium + ',' + l.status + ',' + Math.round(l.capacity || 0) + ';';
     }
     var ds = (state && state.fiberDrops) || [];
     for (var k = 0; k < ds.length; k++) {
