@@ -297,6 +297,7 @@
     no_subscription: 'اشتراک ندارد (وای‌فای داخل ساختمان فقط با اشتراک فعال می‌شود)',
     no_network: 'بدون اتصال به شبکه (ساختمان به شبکه وصل نیست و در برد دکل متصلی هم نیست)',
     no_tdlte_module: 'پوشش 4G هست ولی دکل «ماژول TD-LTE» ندارد',
+    district_locked: 'منطقه قفل است (سرویس فقط در مناطق باز)',
     no_4g_coverage: 'خارج از پوشش 4G (TD-LTE فقط روی پوشش شبکهٔ 4G و بالاتر کار می‌کند)'
   };
   function runSpeedTest(wx, wy) {
@@ -636,6 +637,35 @@
   }
 
   var indivShow = {}; // کلید لیست → تعداد ردیف نمایشی («نمایش بیشتر»)
+  var indivTestResults = {}; // شناسهٔ مشترک → HTML نتیجهٔ تست سرعت/تأخیر (بعد از رندر دوباره هم می‌ماند)
+  function indivTechFa(t) {
+    if (t.tech === 'fiber') return 'فیبر';
+    if (t.tech === 'copper') return 'مسی (DSL)';
+    if (t.tech === 'cellular') return 'سلولار' + (t.gen ? ' ' + t.gen + 'G' : '');
+    if (t.tech === 'fwa') return 'TD-LTE';
+    return t.tech;
+  }
+  function indivSpeedResultHtml(bid) {
+    var info = null;
+    try { info = GameSim.subscriberConnectionInfo(state, bid); } catch (e) { info = null; }
+    if (!info || !info.found) return '<span class="status-bad">تست سرعت ممکن نیست.</span>';
+    if (!info.bestTech) return 'سرعت تحویلی: <strong>۰ Mbps</strong> — <span class="status-bad">' + esc(SPEED_REASON_FA[info.reason] || 'بدون اتصال به شبکه') + '</span>';
+    var best = info.techs.find(function (t) { return t.tech === info.bestTech; }) || {};
+    return 'سرعت تحویلی: <strong>' + fmt(info.speed) + ' Mbps</strong>' +
+      (info.packageSpeed ? ' (بستهٔ ' + esc(info.packageName || '') + ': ' + fmt(info.packageSpeed) + ' Mbps)' : '') +
+      ' — از راه ' + esc(indivTechFa(best));
+  }
+  function indivPingResultHtml(bid) {
+    var r = null;
+    try { r = GameSim.subscriberLatencyTest(state, bid); } catch (e) { r = null; }
+    if (!r || !r.ok) return '<span class="status-bad">' + esc((r && r.error) || 'تست تأخیر ممکن نیست.') + '</span>';
+    var info = null;
+    try { info = GameSim.subscriberConnectionInfo(state, bid); } catch (e) { info = null; }
+    var best = info ? (info.techs.find(function (t) { return t.tech === r.tech; }) || {}) : {};
+    return 'پینگ تا اینترنت: <strong>' + fmt(r.ms) + ' میلی‌ثانیه</strong>' +
+      (r.jitter != null ? ' (نوسان: ' + fmt(r.jitter) + ')' : '') +
+      ' — از راه ' + esc(indivTechFa(best));
+  }
   function indivPackageName(p) {
     var cust = (state.customers || []).find(function (c) { return String(c.districtId) === String(p.districtId); });
     var pkg = (state.packages || []).find(function (x) { return x.id === (cust ? cust.packageId : 'home'); });
@@ -653,6 +683,11 @@
     if (!list || !list.length) return '<p class="muted">' + esc(emptyMsg || 'مشترک فردی ثبت نشده است.') + '</p>';
     var subCount = list.filter(function (p) { return p.status === 'subscribed'; }).length;
     var show = indivShow[key] || 12;
+    // فناوری‌های فعال ساختمان (برای پنل ساختمان): یک‌بار حساب می‌شود و برای همهٔ مشترکان همان ساختمان است
+    var connInfo = null;
+    if (opts.buildingId && window.GameSim && GameSim.subscriberConnectionInfo) {
+      try { connInfo = GameSim.subscriberConnectionInfo(state, opts.buildingId); } catch (e) { connInfo = null; }
+    }
     var rows = list.slice(0, show).map(function (p) {
       var isSub = p.status === 'subscriber' || p.status === 'subscribed' || p.status === 'active' || p.subscribed === true;
       var stFa = isSub ? 'مشترک' : 'غیرمشترک';
@@ -660,10 +695,22 @@
       var meta = indivPackageName(p);
       if (p.joinedDay != null) meta += (meta ? ' — ' : '') + 'از روز ' + fmt(p.joinedDay);
       if (opts.showBuilding) { var bl = indivBuildingLabel(p); if (bl) meta += (meta ? ' — ' : '') + bl; }
+      var extra = '';
+      if (isSub && connInfo) {
+        var techTxt = connInfo.techs.length ? connInfo.techs.map(indivTechFa).join('، ') : 'بدون اتصال به شبکه';
+        extra = '<div class="indiv-tech">اتصال: ' + esc(techTxt) + '</div>' +
+          '<div class="indiv-tests">' +
+          '<button class="btn sm" data-indiv-speed="' + esc(p.id) + '" data-bld="' + esc(opts.buildingId) + '">تست سرعت</button>' +
+          '<button class="btn sm" data-indiv-ping="' + esc(p.id) + '" data-bld="' + esc(opts.buildingId) + '">تست تأخیر</button>' +
+          '</div>' +
+          '<div class="indiv-result" data-indiv-result="' + esc(p.id) + '">' +
+          '<div data-indiv-speed-res>' + ((indivTestResults[p.id] || {}).speed || '') + '</div>' +
+          '<div data-indiv-ping-res>' + ((indivTestResults[p.id] || {}).ping || '') + '</div></div>';
+      }
       return '<div class="indiv-row"' + (opts.showBuilding && p.buildingId != null ? ' data-indiv-bld="' + esc(p.buildingId) + '" title="مشاهده ساختمان روی نقشه"' : '') + '><div class="indiv-head"><span>' + esc(p.name || p.id) + '</span>' +
         '<span class="muted">' + fmt(p.needMbps || 0) + ' Mbps — ' + stFa + '</span></div>' +
         (meta ? '<div class="muted tech-sub">' + esc(meta) + '</div>' : '') +
-        '<div class="cap-bar"><div class="cap-fill ' + (satv < 30 ? 'hot' : satv < 60 ? 'warm' : '') + '" style="width:' + satv + '%"></div></div></div>';
+        '<div class="cap-bar"><div class="cap-fill ' + (satv < 30 ? 'hot' : satv < 60 ? 'warm' : '') + '" style="width:' + satv + '%"></div></div>' + extra + '</div>';
     }).join('');
     var more = list.length > show
       ? '<button class="btn sm" data-indiv-more="' + esc(key) + '">نمایش بیشتر (' + fmt(list.length - show) + ' نفر دیگر)</button>'
@@ -687,9 +734,40 @@
         selectNode(bid, 'building');
       });
     });
+    box.querySelectorAll('[data-indiv-speed]').forEach(function (btn) {
+      btn.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        var pid = btn.getAttribute('data-indiv-speed');
+        var html = indivSpeedResultHtml(btn.getAttribute('data-bld'));
+        (indivTestResults[pid] = indivTestResults[pid] || {}).speed = html;
+        var el = box.querySelector('[data-indiv-result="' + pid + '"] [data-indiv-speed-res]');
+        if (el) el.innerHTML = html;
+      });
+    });
+    box.querySelectorAll('[data-indiv-ping]').forEach(function (btn) {
+      btn.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        var pid = btn.getAttribute('data-indiv-ping');
+        var html = indivPingResultHtml(btn.getAttribute('data-bld'));
+        (indivTestResults[pid] = indivTestResults[pid] || {}).ping = html;
+        var el = box.querySelector('[data-indiv-result="' + pid + '"] [data-indiv-ping-res]');
+        if (el) el.innerHTML = html;
+      });
+    });
   }
 
   function selectNode(id, kind) {
+    // ساختمان‌های مناطق قفل‌شده جزئیات ندارند؛ فقط راهنمای کوتاه نشان داده می‌شود
+    if (id != null) {
+      var foundSel = findNode(id);
+      if (foundSel && foundSel.kind === 'building' && foundSel.node.districtId) {
+        var bd = (state.districts || []).find(function (x) { return String(x.id) === String(foundSel.node.districtId); });
+        if (bd && window.GameSim && GameSim.districtUnlocked && !GameSim.districtUnlocked(bd)) {
+          toast('این منطقه قفل است؛ اول آن را باز کنید.', 'warn');
+          return;
+        }
+      }
+    }
     selectedId = id;
     renderDetail();
     // پنل جزئیات همیشه از بالا باز می‌شود تا خط اول زیر سربرگ بریده نشود
@@ -804,7 +882,7 @@
       try { bPref = (window.GameSim && GameSim.buildingPreference) ? GameSim.buildingPreference(state, n) : null; } catch (e) { bPref = null; }
       if (bPref) html += '<h5>ترجیح اینترنت ساکنان</h5>' + prefHtml(bPref);
       var bIndiv = (state.individuals || []).filter(function (p) { return String(p.buildingId) === String(n.id); });
-      html += '<h5>ساکنان ساختمان</h5>' + individualsHtml(bIndiv, 'ساکنی برای این ساختمان ثبت نشده است.', { key: 'b:' + n.id });
+      html += '<h5>ساکنان ساختمان</h5>' + individualsHtml(bIndiv, 'ساکنی برای این ساختمان ثبت نشده است.', { key: 'b:' + n.id, buildingId: n.id });
       // انشعاب سیمی دستی (فیبر یا سیم مسی از راه کابینت خیابانی؛ هر ساختمان فقط یکی از این دو)
       var fStatus = null;
       try { fStatus = (window.GameSim && (GameSim.buildingWiredStatus || GameSim.buildingFiberStatus)) ? (GameSim.buildingWiredStatus || GameSim.buildingFiberStatus)(state, n.id) : null; } catch (e) { fStatus = null; }
