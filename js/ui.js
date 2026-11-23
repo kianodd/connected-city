@@ -24,7 +24,7 @@
     { title: 'گام ۳: اتصال انتقال', text: 'ابزار «اتصال» را انتخاب کنید، روی دستگاه دسترسی و سپس روی یک گره تجمیع کلیک کنید و رسانه (فیبر/مسی/نقطه‌به‌نقطه) را انتخاب کنید تا لینک انتقال ساخته شود. مسیرهای بلند فیبر و مسی سیگنال از دست می‌دهند؛ «تقویت‌کننده سیگنال» در میانهٔ مسیر افت را جبران می‌کند.' },
     { title: 'گام ۴: اتصال هسته و دروازه', text: 'زنجیره باید کامل باشد: مشتری ← دسترسی ← تجمیع ← هسته ← دروازه اینترنت. گره تجمیع را به هسته و هسته را به دروازه وصل کنید تا اینترنت به شهر برسد.' },
     { title: 'گام ۵: فعال‌سازی سرویس', text: 'حالا مسیر کامل است و مشتریان آنلاین می‌شوند. از پنل «بسته‌ها» قیمت و سرعت بسته‌ها را تنظیم کنید؛ قیمت بالاتر درآمد بیشتر اما تقاضای کمتر می‌دهد. انشعاب فیبر و مسی ساختمان‌ها رایگان است (هزینهٔ نصب با مشترک است)؛ انشعاب فیبر از سال ۲۰۰۴ ممکن است.' },
-    { title: 'گام ۶: بررسی ظرفیت و رفع مشکل', text: 'اگر لینک یا دستگاه اشباع شود، هشدار ظاهر می‌شود. روی گره مشکل‌دار کلیک کنید: علت مشکل و گزینه‌های رفع آن (نصب ماژول، لینک موازی، تغییر رسانه) نمایش داده می‌شود. هر گره اسلات ماژول دارد: ماژول افزایش ظرفیت، افزایش برد، پورت اضافه و TD-LTE.' },
+    { title: 'گام ۶: بررسی ظرفیت و رفع مشکل', text: 'اگر لینک یا دستگاه اشباع شود، هشدار ظاهر می‌شود. روی گره مشکل‌دار کلیک کنید: علت مشکل و گزینه‌های رفع آن (نصب ماژول، لینک موازی، تغییر رسانه) نمایش داده می‌شود. هر گره ماژول دارد که سطح‌به‌سطح آپگرید می‌شود (بدون محدودیت تعداد): افزایش ظرفیت، افزایش برد، پورت اضافه، TD-LTE و منبع تغذیه. هر ماژول برق مصرف می‌کند؛ اگر مصرف از توان منبع بیشتر شود گره خاموش می‌شود.' },
     { title: 'گام ۷: گسترش به منطقه جدید', text: 'با درآمد حاصل، مناطق قفل‌شدهٔ شهر را باز کنید (از پنل هر منطقه) و شبکه را گسترش دهید. با گذشت سال‌ها مردم فناوری دوران خودشان را می‌خواهند؛ ماندن روی فناوری قدیمی رضایت را کم می‌کند. صبح‌ها مردم از خانه به محل کار می‌روند و در مسیر به پوشش موبایل نیاز دارند؛ پالس‌های سبز/قرمز روی نقشه پوشش مسیر را نشان می‌دهند.' },
     { title: 'گام ۸: مسیر جایگزین (افزونگی)', text: 'برای جلوگیری از قطعی هنگام خرابی، بین گره‌های کلیدی یک مسیر دوم بسازید. اگر مسیر اصلی قطع شود، ترافیک از مسیر جایگزین (مثلاً لینک نقطه‌به‌نقطه) عبور می‌کند. با ابزار «پینگ» تأخیر بین هر دو گره را ببینید. موفق باشید!' }
   ];
@@ -563,21 +563,33 @@
   }
 
   function openMediumPicker(a, b) {
-    var media = (window.GAME_DATA && (GAME_DATA.media || GAME_DATA.linkTypes)) || [
-      { id: 'fiber', name: 'فیبر نوری', costPerUnit: 8, capacity: 10000 },
-      { id: 'copper', name: 'مسی', costPerUnit: 3, capacity: 100 },
-      { id: 'wireless', name: 'بی‌سیم', costPerUnit: 2, capacity: 300 }
-    ];
+    var opts = [];
+    try { opts = (window.GameSim && GameSim.mediumOptions) ? GameSim.mediumOptions(state, a, b) : []; } catch (e) { opts = []; }
+    if (!opts.length) {
+      opts = ['fiber', 'ptp', 'ethernet', 'copper'].map(function (m) {
+        var mi = (window.GAME_DATA && GAME_DATA.linkMedia && GAME_DATA.linkMedia[m]) || {};
+        return { medium: m, name: mi.name || m, capacity: mi.capacity || 0, ok: true, reason: '' };
+      });
+    }
     var box = $('medium-options');
-    box.innerHTML = media.map(function (m) {
-      var locked = false; // رسانه‌ها دوران ندارند؛ همه از اول در دسترس‌اند
-      return '<button class="btn" style="display:block;width:100%;margin:6px 0;text-align:right" data-medium="' + esc(m.id) + '"' + (locked ? ' disabled' : '') + '>' +
-        esc(m.name || m.id) + ' — ظرفیت ' + fmt(m.capacity || 0) + ' Mbps' + (locked ? ' ' + ICONS.lock : '') + '</button>';
+    box.innerHTML = opts.map(function (o) {
+      var extra = '';
+      if (o.medium === 'ptp' && o.survey) {
+        var sv = o.survey;
+        extra = '<br><span class="muted">پهپاد نقشه‌برداری: دید مستقیم: ' + (sv.losClear ? 'آزاد' : 'مسدود' + (sv.blockedByName ? ' (' + esc(sv.blockedByName) + ')' : '')) +
+          ' — فاصله ' + fmt(sv.distance) + ' واحد — ظرفیت مؤثر حدود ' + fmt(sv.effCapacity) + ' Mbps' + (sv.inRange ? '' : ' — بیش از برد مجاز!') + '</span>';
+      }
+      if (!o.ok) extra += '<br><span class="muted">' + esc(o.reason || '') + '</span>';
+      return '<button class="btn" style="display:block;width:100%;margin:6px 0;text-align:right" data-medium="' + esc(o.medium) + '"' + (o.ok ? '' : ' disabled') + '>' +
+        esc(o.name || o.medium) + ' — ظرفیت ' + fmt(o.capacity || 0) + ' Mbps' + (o.ok ? '' : ' ' + ICONS.lock) + extra + '</button>';
     }).join('');
+    // پیش‌نمایش پهپاد روی نقشه تا وقتی پنجره باز است
+    try { if (window.CityMap && CityMap.setSurveyPreview) CityMap.setSurveyPreview(a, b); } catch (e) { /* ignore */ }
     box.querySelectorAll('[data-medium]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         var res = GameSim.connect(state, a, b, btn.getAttribute('data-medium'));
         $('medium-picker').classList.add('hidden');
+        try { if (window.CityMap && CityMap.clearSurveyPreview) CityMap.clearSurveyPreview(); } catch (e) { /* ignore */ }
         if (!res || res.ok === false) {
           toast((res && res.error) || 'اتصال برقرار نشد.', 'error');
           // حالت اتصال مسلح می‌ماند تا مقصد یا رسانهٔ دیگری انتخاب شود
@@ -594,7 +606,7 @@
   /* ---------- Detail panel ---------- */
   var STATUS_FA = {
     active: 'فعال', building: 'در حال ساخت', failed: 'خراب', unconnected: 'متصل‌نشده',
-    congested: 'شلوغ', cut: 'قطع', repairing: 'در حال تعمیر', upgrading: 'در حال ارتقا', changing: 'در حال تغییر نوع', online: 'آنلاین', offline: 'آفلاین'
+    congested: 'شلوغ', cut: 'قطع', repairing: 'در حال تعمیر', upgrading: 'در حال ارتقا', changing: 'در حال تغییر نوع', online: 'آنلاین', offline: 'آفلاین', nopower: 'بدون برق کافی'
   };
   function findNode(id) {
     if (!state) return null;
@@ -902,7 +914,7 @@
     }
     if (found.kind === 'district') {
       var TYPE_FA = { commercial: 'تجاری', residential: 'مسکونی', dense: 'پرتراکم', sparse: 'کم‌تراکم', industrial: 'صنعتی', landmark: 'مرکز مهم',
-        academic: 'دانشگاهی', medical: 'درمانی', heavy_industrial: 'صنعتی سنگین', tourism: 'گردشگری', transport: 'حمل‌ونقل', villa: 'ویلایی', slum: 'حاشیه‌نشین', government: 'اداری' };
+        academic: 'دانشگاهی', medical: 'درمانی', heavy_industrial: 'صنعتی سنگین', tourism: 'گردشگری', transport: 'حمل‌ونقل', villa: 'ویلایی', slum: 'حاشیه‌نشین', government: 'اداری', village: 'روستا' };
       var qosPct = Math.round((n.qos || 0) * 100);
       if (n.unlocked === false) {
         var unlockCost = (window.GameSim && GameSim.districtUnlockCost) ? GameSim.districtUnlockCost(n) : 0;
@@ -922,6 +934,8 @@
         '<dt>ترافیک مشترکان</dt><dd>' + fmt(n.demand) + ' Mbps</dd>' +
         '<dt>ترافیک سرویس‌شده</dt><dd>' + fmt(n.servedDemand) + ' Mbps</dd>' +
         '<dt>مشترکان</dt><dd>' + fmt(n.subscribers) + '</dd>' +
+        ((n.rivalSubscribers || 0) > 0 || (state.rival && state.rival.enabled) ? '<dt>مشترکان رقیب</dt><dd>' + fmt(n.rivalSubscribers || 0) + '</dd>' +
+          '<dt>سهم بازار شما</dt><dd>' + fmt(((n.subscribers || 0) + (n.rivalSubscribers || 0)) > 0 ? Math.round((n.subscribers || 0) / ((n.subscribers || 0) + (n.rivalSubscribers || 0)) * 100) : 0) + '٪</dd>' : '') +
         '<dt>نفوذ اشتراک</dt><dd>' + fmt(penPct) + '٪ از جمعیت</dd>' +
         '<dt>کیفیت سرویس</dt><dd>' + fmt(qosPct) + '٪</dd>' +
         '<dt>رضایت</dt><dd>' + fmt(Math.round(n.satisfaction || 0)) + '٪</dd>' +
@@ -965,6 +979,25 @@
     var path = null;
     if (window.GameSim && GameSim.tracePath && found.kind === 'node') path = GameSim.tracePath(state, n.id);
     if (path && path.length === 0) connected = false;
+    if (found.kind === 'node' && n.owner === 'rival') {
+      // گره شرکت رقیب: فقط خواندنی
+      html += '<div class="warn-box">' + ICONS.warn + ' این گره متعلق به شرکت رقیب است و قابل تغییر نیست.</div>';
+      html += '<p>وضعیت: ' + esc(STATUS_FA[n.status] || n.status || '—') + '</p>';
+      if (n.capacity != null) html += '<p>ظرفیت: ' + fmt(n.capacity) + ' Mbps</p>';
+      if (n.radius) html += '<p>شعاع پوشش: ' + fmt(n.radius) + ' واحد</p>';
+      box.innerHTML = html;
+      return;
+    }
+    if (found.kind === 'link') {
+      var laR = (state.nodes || []).find(function (x) { return String(x.id) === String(n.from); });
+      if (laR && laR.owner === 'rival') {
+        var medNameR = ((window.GAME_DATA && GAME_DATA.linkMedia && GAME_DATA.linkMedia[n.medium]) || {}).name || n.medium || 'ارتباطی';
+        html += '<div class="warn-box">' + ICONS.warn + ' این لینک متعلق به شرکت رقیب است و قابل تغییر نیست.</div>';
+        html += '<dl class="kv"><dt>نوع اتصال</dt><dd>' + esc(medNameR) + '</dd><dt>ظرفیت</dt><dd>' + fmt(n.capacity || 0) + ' Mbps</dd></dl>';
+        box.innerHTML = html;
+        return;
+      }
+    }
     if (found.kind === 'node') {
       html += connected
         ? '<p class="status-ok"><span class="dot-ok"></span>متصل به شبکه</p>'
@@ -986,7 +1019,18 @@
       var cls = pct > 90 ? 'hot' : pct > 70 ? 'warm' : '';
       html += '<p>ظرفیت: ' + fmt(used) + ' از ' + fmt(n.capacity) + ' Mbps (' + fmt(pct) + '٪)</p><div class="cap-bar"><div class="cap-fill ' + cls + '" style="width:' + pct + '%"></div></div>';
     }
-    if (n.type === 'street_cabinet' && window.GameSim && GameSim.cabinetPorts) {
+    // برق گره: مصرف در برابر توان منبع تغذیه
+    if (found.kind === 'node' && window.GameSim && GameSim.nodePowerInfo) {
+      var pw = null;
+      try { pw = GameSim.nodePowerInfo(n); } catch (e) { pw = null; }
+      if (pw) {
+        var pwPct = pw.capacity > 0 ? Math.min(100, Math.round(pw.draw / pw.capacity * 100)) : 100;
+        html += '<p>برق: مصرف ' + fmt(pw.draw) + ' از ' + fmt(pw.capacity) + ' وات (منبع تغذیه سطح ' + fmt(pw.level) + ')' +
+          (pw.broken ? ' — <span class="status-bad">منبع تغذیه خراب است!</span>' : (pw.ok ? '' : ' — <span class="status-bad">بدون برق کافی؛ گره خاموش است</span>')) + '</p>' +
+          '<div class="cap-bar"><div class="cap-fill ' + (pwPct > 90 ? 'hot' : pwPct > 70 ? 'warm' : '') + '" style="width:' + pwPct + '%"></div></div>';
+      }
+    }
+    if ((n.type === 'street_cabinet' || n.type === 'cabinet_basic') && window.GameSim && GameSim.cabinetPorts) {
       var usedPorts = GameSim.cabinetUsedPorts ? GameSim.cabinetUsedPorts(state, n.id) : 0;
       html += '<p>پورت‌های انشعاب: ' + fmt(usedPorts) + ' از ' + fmt(GameSim.cabinetPorts(n)) + ' پورت</p>';
     }
@@ -1037,27 +1081,28 @@
           '<div class="sector-row"><label>پهنا: <input type="range" min="30" max="360" value="' + angV + '" data-sector-angle="' + esc(n.id) + '"> <span data-sector-angle-val>' + fmt(angV) + '°</span></label></div>' +
           '<p class="muted">جهت ۰ درجه یعنی شمال؛ پهنا ۳۶۰ درجه یعنی پوشش کامل دایره‌ای.</p>';
       }
-      // ماژول‌های گره (جایگزین ارتقای سطح): نصب آنی، با اسلات محدود
+      // ماژول‌های گره: هر نوع یک‌بار نصب و سطح‌به‌سطح آپگرید می‌شود (بدون محدودیت تعداد)
       var modInfo = null;
       try { modInfo = (window.GameSim && GameSim.moduleInfo) ? GameSim.moduleInfo(state, n.id) : null; } catch (e) { modInfo = null; }
       if (modInfo) {
-        html += '<h5>ماژول‌ها (' + fmt(modInfo.installed.length) + ' از ' + fmt(modInfo.slots) + ' اسلات)</h5>';
-        if (modInfo.slots <= 0) {
-          html += '<p class="muted">این تجهیز اسلات ماژول ندارد.</p>';
-        } else {
-          var modNames = { cap_boost: 'افزایش ظرفیت', range_boost: 'افزایش برد', ports_boost: 'پورت اضافه', tdlte: 'TD-LTE' };
-          if (modInfo.installed.length) {
-            html += '<p>نصب‌شده: ' + modInfo.installed.map(function (m) { return esc(modNames[m] || m); }).join('، ') + '</p>';
-          }
-          modInfo.options.forEach(function (o) {
-            if (o.id === 'tdlte' && n.type !== 'cell_4g' && n.type !== 'cell_5g') return; // TD-LTE فقط روی دکل 4G/5G دیده می‌شود
-            html += '<div class="module-row"><div><strong>' + esc(o.name) + '</strong>' +
-              '<div class="muted">' + esc(o.desc) + '</div>' +
-              '<div class="muted">هزینه: ' + fmt(o.cost) + ' تومان — ماهانه: ' + fmt(o.monthlyCost) + (o.installed ? ' — نصب‌شده: ' + fmt(o.installed) : '') + '</div></div>' +
-              '<button class="btn sm primary" data-install-module="' + esc(o.id) + '" data-module-node="' + esc(n.id) + '"' + (o.ok ? '' : ' disabled') + '>نصب</button>' +
-              (o.ok ? '' : '<div class="muted module-reason">' + esc(o.reason) + '</div>') + '</div>';
-          });
-        }
+        html += '<h5>ماژول‌ها</h5><p class="muted">هر ماژول یک‌بار نصب و بعد سطح‌به‌سطح قوی‌تر می‌شود؛ محدودیت تعداد نیست. هر سطح برق بیشتری می‌خواهد.</p>';
+        modInfo.options.forEach(function (o) {
+          if (o.id === 'tdlte' && n.type !== 'cell_4g' && n.type !== 'cell_5g') return; // TD-LTE فقط روی دکل 4G/5G دیده می‌شود
+          var lvlTxt = o.level > 0 ? 'سطح ' + fmt(o.level) + (o.effectNow ? ' — ' + esc(o.effectNow) : '') : 'نصب نشده';
+          var btnTxt = o.level > 0 ? 'آپگرید به سطح ' + fmt(o.nextLevel) : 'نصب';
+          html += '<div class="module-row"><div><strong>' + esc(o.name) + '</strong> <span class="muted">(' + lvlTxt + ')</span>' +
+            '<div class="muted">' + esc(o.desc) + '</div>' +
+            '<div class="muted">' + (o.nextLevel <= o.maxLevel ? 'هزینهٔ سطح بعد: ' + fmt(o.cost) + ' تومان' : 'به سقف سطح رسیده') +
+            ' — ماهانه: ' + fmt(o.monthlyCost) + ' — مصرف برق: ' + fmt(o.powerDraw) + ' وات' +
+            (o.effectNext ? ' — اثر سطح بعد: ' + esc(o.effectNext) : '') + '</div>' +
+            (o.powerWarn ? '<div class="warn-box">' + ICONS.warn + ' هشدار برق: با این آپگرید مصرف از توان منبع بیشتر می‌شود و گره خاموش خواهد شد؛ اول «منبع تغذیه» را آپگرید کنید.</div>' : '') +
+            (o.broken ? '<div class="warn-box">' + ICONS.warn + ' این ماژول خراب است و کار نمی‌کند.</div>' : '') +
+            '</div>' +
+            (o.broken
+              ? '<button class="btn sm primary" data-repair-module="' + esc(o.id) + '" data-module-node="' + esc(n.id) + '">تعمیر (آنی)</button>'
+              : '<button class="btn sm primary" data-install-module="' + esc(o.id) + '" data-module-node="' + esc(n.id) + '"' + (o.ok ? '' : ' disabled') + '>' + btnTxt + '</button>') +
+            (!o.ok && !o.broken ? '<div class="muted module-reason">' + esc(o.reason) + '</div>' : '') + '</div>';
+        });
       }
       // لینک‌های این گره (با امکان قطع اتصال هرکدام)
       var nodeLinks = [];
@@ -1098,8 +1143,17 @@
       btn.addEventListener('click', function () {
         if (window.GameSim && GameSim.installModule) {
           var r = GameSim.installModule(state, btn.getAttribute('data-module-node'), btn.getAttribute('data-install-module'));
-          toast(r && r.ok === false ? (r.error || 'نصب ماژول انجام نشد.') : 'ماژول نصب شد (آنی).', r && r.ok === false ? 'error' : 'success');
+          toast(r && r.ok === false ? (r.error || 'نصب ماژول انجام نشد.') : (r.powered === false ? 'ماژول نصب شد ولی گره برق کافی ندارد و خاموش شد؛ منبع تغذیه را آپگرید کنید.' : 'ماژول نصب شد (آنی).'), r && r.ok === false ? 'error' : (r.powered === false ? 'warn' : 'success'));
         } else toast('نصب ماژول در این نسخه موجود نیست.', 'warn');
+        refresh();
+      });
+    });
+    box.querySelectorAll('[data-repair-module]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        if (window.GameSim && GameSim.repairModule) {
+          var r = GameSim.repairModule(state, btn.getAttribute('data-module-node'), btn.getAttribute('data-repair-module'));
+          toast(r && r.ok === false ? (r.error || 'تعمیر ماژول انجام نشد.') : 'ماژول تعمیر شد (آنی).', r && r.ok === false ? 'error' : 'success');
+        }
         refresh();
       });
     });
@@ -1199,6 +1253,12 @@
       ['هزینهٔ کارکنان (ماهانه)', fmt((state.staff || []).reduce(function (s, m) { return s + (m.salary || 0); }, 0)) + ' تومان — ' + fmt((state.staff || []).length) + ' نفر'],
       ['وام', fmt(f.loan || state.loan)], ['مالیات روزانه', fmt(f.taxPerDay)]
     ];
+    if (state.rival && state.rival.enabled) {
+      var lf = state.lastFlow || {};
+      rows.push(['مشترکان شرکت رقیب', fmt(lf.rivalSubscribers || 0)]);
+      rows.push(['نقدینگی شرکت رقیب', fmt(lf.rivalCash != null ? lf.rivalCash : Math.round(state.rival.cash || 0))]);
+      rows.push(['گره‌های شرکت رقیب', fmt((state.nodes || []).filter(function (x) { return x.owner === 'rival'; }).length)]);
+    }
     $('finance-body').innerHTML = '<table>' + rows.map(function (r) { return '<tr><th>' + r[0] + '</th><td>' + r[1] + '</td></tr>'; }).join('') + '</table>' +
       '<p class="muted">جزئیات درآمد بر اساس بسته‌های فعال و تعداد مشتریان متصل محاسبه می‌شود.</p>';
   }
@@ -1230,7 +1290,7 @@
     var countOf = function (id) { return staff.filter(function (s) { return s.role === id; }).length; };
     var nowLine = function (r) {
       if (!fx) return '';
-      if (r.id === 'technician') return 'سرعت ساخت ' + faMult(fx.buildSpeed) + ' — سرعت تعمیر ' + faMult(fx.repairSpeed) + ' — پیشنهاد برای شبکهٔ فعلی: ' + fmt(fx.reqTechs) + ' نفر';
+      if (r.id === 'technician') return 'سرعت ساخت ' + faMult(fx.buildSpeed) + ' — تخفیف هزینهٔ تعمیر: ' + fmt(Math.round((1 - (fx.repairDiscount != null ? fx.repairDiscount : 1)) * 100)) + '٪ (تعمیر آنی است) — پیشنهاد برای شبکهٔ فعلی: ' + fmt(fx.reqTechs) + ' نفر';
       if (r.id === 'engineer') return 'ظرفیت مؤثر شبکه ' + faMult(fx.capMult) + ' — پیشنهاد برای شبکهٔ فعلی: ' + fmt(fx.reqEngs) + ' نفر';
       if (r.id === 'support') return 'افت رضایت ' + faMult(fx.satDecayRate / 0.25) + ' — بازگشت رضایت ' + faMult(fx.satRecoveryRate / 0.25) + ' — پیشنهاد برای شبکهٔ فعلی: ' + fmt(fx.reqSups) + ' نفر';
       if (r.id === 'sales') return 'رشد مشترک ' + faMult(fx.growthMult) + ' — پیشنهاد برای شبکهٔ فعلی: ' + fmt(fx.reqSales) + ' نفر';
@@ -1666,7 +1726,7 @@
       refresh();
     });
     $('delete-no').addEventListener('click', function () { pendingDeleteId = null; $('delete-confirm').classList.add('hidden'); });
-    $('medium-cancel').addEventListener('click', function () { $('medium-picker').classList.add('hidden'); setMode('select'); });
+    $('medium-cancel').addEventListener('click', function () { $('medium-picker').classList.add('hidden'); try { if (window.CityMap && CityMap.clearSurveyPreview) CityMap.clearSurveyPreview(); } catch (e) { /* ignore */ } setMode('select'); });
     $('btn-finance').addEventListener('click', function () { renderFinance(); openModal('modal-finance'); });
     if ($('btn-timeline')) $('btn-timeline').addEventListener('click', function () { renderTimeline(); openModal('modal-timeline'); });
     $('btn-staff').addEventListener('click', function () { renderStaff(); openModal('modal-staff'); });
