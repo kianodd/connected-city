@@ -4022,5 +4022,48 @@ let s1, cell1, link1;
     'ok=' + ok + ' preset=' + loaded.mapPreset + ' basePop=' + d.basePopulation);
 }
 
+// ---------- رنگ ترجیح شبکهٔ ساختمان روی نقشه (لایهٔ prefnet) ----------
+{
+  // 123a: برای هر نوع ترجیح یک رنگ معتبر در منبع واحد (GAME_DATA.prefColors) هست
+  const pc = DATA.prefColors || {};
+  const hexOk = (v) => typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v);
+  check('123a برای هر نوع ترجیح شبکه رنگ معتبر در prefColors هست',
+    GameSim.TECH_KEYS.every(t => hexOk(pc[t])),
+    'keys=' + GameSim.TECH_KEYS.join(',') + ' colors=' + JSON.stringify(pc));
+}
+{
+  // 123b: ترجیح هر ساختمان همیشه یکی از TECH_KEYS است (رنگ هرگز undefined نمی‌شود) — ۱۹۹۱ و ۲۰۱۹
+  let allOk = true, bad = '';
+  for (const day of [1, 281]) {
+    const s = GameSim.newGame(42);
+    s.day = day;
+    for (const b of s.buildings) {
+      const t = GameSim.buildingPreference(s, b).type;
+      if (!GameSim.TECH_KEYS.includes(t) || !DATA.prefColors[t]) { allOk = false; bad = 'day=' + day + ' type=' + t; break; }
+    }
+    if (!allOk) break;
+  }
+  check('123b ترجیح همهٔ ساختمان‌ها در ۱۹۹۱ و ۲۰۱۹ رنگ دارد (بدون undefined)', allOk, bad);
+}
+{
+  // 123c: ترجیح با دوران عوض می‌شود (رنگ نقشه زنده به‌روز می‌شود): TD-LTE در ۱۹۹۱ نیست، در ۲۰۱۹ هست
+  const s91 = GameSim.newGame(42); s91.day = 1;
+  const s19 = GameSim.newGame(42); s19.day = 281;
+  const cnt = (s) => { const c = { fiber: 0, cellular: 0, fwa: 0 }; for (const b of s.buildings) c[GameSim.buildingPreference(s, b).type]++; return c; };
+  const c91 = cnt(s91), c19 = cnt(s19);
+  check('123c ترجیح TD-LTE در ۱۹۹۱ صفر و در ۲۰۱۹ موجود است (تغییر رنگ با دوران)',
+    c91.fwa === 0 && c19.fwa > 0 && c19.fiber > 0 && c19.cellular > 0,
+    '1991=' + JSON.stringify(c91) + ' 2019=' + JSON.stringify(c19));
+}
+{
+  // 123d: ترجیح قطعی است (فراخوانی دوباره همان نتیجه) تا کش نقشه امن باشد
+  const s = GameSim.newGame(7); s.day = 281;
+  let det = true;
+  for (const b of s.buildings) {
+    if (GameSim.buildingPreference(s, b).type !== GameSim.buildingPreference(s, b).type) { det = false; break; }
+  }
+  check('123d ترجیح ساختمان قطعی و تکرارپذیر است', det);
+}
+
 console.log('\nنتیجه: ' + pass + ' پاس، ' + fail + ' رد');
 process.exit(fail ? 1 : 0);
