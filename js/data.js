@@ -493,6 +493,8 @@ const GAME_DATA = (() => {
     packageList,
     techDemandSplit,
     techDemandSplitDefault,
+    // رنگ ترجیح شبکهٔ هر ساختمان (منبع واحد رنگ‌ها؛ پنل ساختمان، راهنمای نقشه و لایهٔ «ترجیح شبکه ساختمان» از همین می‌خوانند)
+    prefColors: { fiber: '#22d3ee', cellular: '#3fb950', fwa: '#fb923c' },
     techGuides,
     missions,
     events,
