@@ -2545,5 +2545,72 @@ let s1, cell1, link1;
     html.includes('btn-tutorial') && html.includes('btn-timeline') && !html.includes('btn-rd') && !html.includes('btn-contracts'));
 }
 
+// ---------- 92: ارقام فارسی در نوار بالا (رضایت) و چیپ‌های آمار موبایل ----------
+{
+  const uiSrc = require('fs').readFileSync(__dirname + '/../js/ui.js', 'utf8');
+  const css = require('fs').readFileSync(__dirname + '/../css/style.css', 'utf8');
+  check('92a مقدار رضایت در نوار بالا با ارقام فارسی است (نه لاتین)',
+    uiSrc.includes("faDigits(String(Math.round(state.satisfaction)))") &&
+    !uiSrc.includes("Math.round(state.satisfaction) + '٪'"));
+  check('92b چیپ‌های آمار موبایل و مخفی‌بودن آمار ثانویه در CSS هست',
+    css.includes('.stats .stat:first-child{flex-grow:1.7}') &&
+    css.includes('#topbar .stat.secondary{display:none}'));
+}
+
+// ---------- 93: ماژول TD-LTE فقط روی دکل 4G/5G ----------
+{
+  const REASON = 'ماژول TD-LTE فقط روی دکل 4G و 5G نصب می‌شود';
+  const s = newGameAll(42); // ۲۰۱۹: همهٔ دوران‌ها باز
+  s.cash = 9999999;
+  const core = coreOf(s);
+  const t4 = GameSim.buildNode(s, 'cell_4g', core.x - 300, core.y);
+  const t5 = GameSim.buildNode(s, 'cell_5g', core.x - 420, core.y);
+  [t4, t5].forEach(n => finishBuild(s, n));
+  const r4 = GameSim.installModule(s, t4.id, 'tdlte');
+  const r5 = GameSim.installModule(s, t5.id, 'tdlte');
+  check('93a ماژول TD-LTE روی دکل 4G و 5G نصب می‌شود',
+    r4.ok === true && r5.ok === true && GameSim.hasModule(t4, 'tdlte') && GameSim.hasModule(t5, 'tdlte'),
+    JSON.stringify({ r4, r5 }));
+
+  const badTypes = ['cell_2g', 'cell_3g', 'street_cabinet', 'ftth', 'ptp_link', 'repeater'];
+  let allRejected = true, detail = '';
+  badTypes.forEach((type, i) => {
+    const n = GameSim.buildNode(s, type, core.x - 300 - i * 60, core.y + 320);
+    if (!n) { allRejected = false; detail = type + ':build-null'; return; }
+    finishBuild(s, n);
+    const cashB = s.cash;
+    const r = GameSim.installModule(s, n.id, 'tdlte');
+    if (!(r.ok === false && r.error === REASON && s.cash === cashB && !GameSim.hasModule(n, 'tdlte'))) {
+      allRejected = false; detail = type + ':' + JSON.stringify(r) + ' cashΔ=' + (s.cash - cashB);
+    }
+  });
+  check('93b ماژول TD-LTE روی 2G/3G/کابینت/FTTH/PtP/تقویت‌کننده با دلیل فارسی رد می‌شود و پولی کم نمی‌شود',
+    allRejected, detail);
+
+  const t2 = s.nodes.find(n => n.type === 'cell_2g');
+  const info2 = GameSim.moduleInfo(s, t2.id);
+  const opt2 = info2 && info2.options.find(o => o.id === 'tdlte');
+  check('93c moduleInfo روی دکل 2G ماژول TD-LTE را غیرقابل‌نصب با همان دلیل نشان می‌دهد',
+    !!opt2 && opt2.ok === false && opt2.reason === REASON, JSON.stringify(opt2));
+
+  // مهاجرت: ذخیره با ماژول TD-LTE روی دکل 2G → هنگام بارگذاری برداشته و هزینه برگردد؛ روی 4G بماند
+  const s2 = newGameAll(7);
+  s2.cash = 500000;
+  const core2 = coreOf(s2);
+  const m2 = GameSim.buildNode(s2, 'cell_2g', core2.x - 300, core2.y);
+  const m4 = GameSim.buildNode(s2, 'cell_4g', core2.x - 420, core2.y);
+  [m2, m4].forEach(n => finishBuild(s2, n));
+  GameSim.installModule(s2, m4.id, 'tdlte');
+  m2.modules.push('tdlte'); // نصب اشتباهِ ذخیرهٔ قبلی (دستی)
+  const cashBeforeSave = s2.cash;
+  const loaded = GameSim.loadGame(GameSim.saveGame(s2));
+  const lm2 = loaded.nodes.find(n => n.id === m2.id);
+  const lm4 = loaded.nodes.find(n => n.id === m4.id);
+  check('93d ذخیرهٔ دارای TD-LTE روی دکل 2G: ماژول برداشته و ۱۵٬۰۰۰ برگشت؛ روی 4G ماند',
+    lm2 && !GameSim.hasModule(lm2, 'tdlte') && loaded.cash === cashBeforeSave + 15000 &&
+    lm4 && GameSim.hasModule(lm4, 'tdlte'),
+    'cash=' + loaded.cash + ' before=' + cashBeforeSave);
+}
+
 console.log('\nنتیجه: ' + pass + ' پاس، ' + fail + ' رد');
 process.exit(fail ? 1 : 0);
