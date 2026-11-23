@@ -144,7 +144,7 @@
       else if (installed.length >= slots) { ok = false; reason = 'همهٔ اسلات‌های ماژول پر است.'; }
       else if (y < (m.era || 1991)) { ok = false; reason = 'از سال ' + m.era + ' در دسترس است.'; }
       else if (m.id === 'tdlte') {
-        if (n.type !== 'cell_4g' && n.type !== 'cell_5g') { ok = false; reason = 'فقط روی دکل 4G و 5G نصب می‌شود.'; }
+        if (n.type !== 'cell_4g' && n.type !== 'cell_5g') { ok = false; reason = 'ماژول TD-LTE فقط روی دکل 4G و 5G نصب می‌شود'; }
         else if (hasModule(n, 'tdlte')) { ok = false; reason = 'قبلاً نصب شده است.'; }
       } else if (m.id === 'ports_boost') {
         if (n.type !== 'street_cabinet' && n.type !== 'ftth') { ok = false; reason = 'فقط برای کابینت خیابانی و گره FTTH است.'; }
@@ -3251,6 +3251,15 @@
       // سطح ارتقای قدیمی → ماژول: هر سطح بالاتر از ۱ یک «ماژول افزایش ظرفیت» می‌شود
       // (ظرفیت ×۱٫۵ دقیقاً مثل سطح قدیمی حفظ می‌شود) و اگر اسلات ماند «ماژول افزایش برد».
       if (!Array.isArray(n.modules)) n.modules = [];
+      // ماژول TD-LTE فقط روی دکل 4G/5G مجاز است: از بقیهٔ گره‌ها برداشته و هزینه‌اش برگردانده می‌شود
+      if (n.type !== 'cell_4g' && n.type !== 'cell_5g') {
+        const misplaced = n.modules.filter((m) => m === 'tdlte').length;
+        if (misplaced > 0) {
+          n.modules = n.modules.filter((m) => m !== 'tdlte');
+          state.cash = (state.cash || 0) + ((getModule('tdlte') || {}).cost || 15000) * misplaced;
+          if (Array.isArray(state.log)) log(state, 'ماژول TD-LTE از روی «' + (n.name || 'گره') + '» برداشته شد (فقط روی دکل 4G و 5G مجاز است) و هزینهٔ نصبش برگشت.', 'build');
+        }
+      }
       const eqN = getEq(n.type);
       if (n.baseCapacity == null) n.baseCapacity = eqN ? (eqN.capacity || 0) : (n.capacity || 0);
       if (n.baseRadius == null) n.baseRadius = eqN ? (eqN.radius || 0) : (n.radius || 0);
