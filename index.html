@@ -207,6 +207,17 @@
   <button id="medium-cancel" class="btn">لغو</button>
 </div>
 
+<!-- New game modal -->
+<div id="modal-newgame" class="modal hidden"><div class="modal-head"><h3>بازی جدید</h3><button class="btn icon sm modal-close" data-close="modal-newgame"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+<div class="modal-body">
+  <p>بازی جدید شروع شود؟ ذخیرهٔ فعلی حذف می‌شود.</p>
+  <label style="display:flex;align-items:center;gap:8px;margin:12px 0"><input type="checkbox" id="newgame-rival" checked> شرکت رقیب در شهر فعال باشد (شبکهٔ خودش را می‌سازد و برای مشترکان رقابت می‌کند)</label>
+  <div class="row">
+    <button id="newgame-start" class="btn primary">شروع بازی جدید</button>
+    <button id="newgame-cancel" class="btn">لغو</button>
+  </div>
+</div></div>
+
 <!-- Panels / Modals -->
 <div id="modal-backdrop" class="hidden"></div>
 <div id="modal-finance" class="modal hidden"><div class="modal-head"><h3>مالی</h3><button class="btn icon sm modal-close" data-close="modal-finance"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div><div class="modal-body" id="finance-body"></div></div>
