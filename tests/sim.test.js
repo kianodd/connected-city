@@ -4065,5 +4065,71 @@ let s1, cell1, link1;
   check('123d ترجیح ساختمان قطعی و تکرارپذیر است', det);
 }
 
+{
+  // 124a: لینک اشباع‌شده روی مسیر منطقه به‌عنوان گلوگاه نام برده می‌شود (با درصد مصرف و رفع مشخص)
+  const s = newGameAll(42); s.cash = 9999999;
+  const d = s.districts.find(x => x.id === 'center');
+  const tw = GameSim.buildNode(s, 'cell_4g', d.x, d.y); finishBuild(s, tw);
+  let sw = null;
+  for (const [ox, oy] of [[80, 0], [-80, 0], [0, 80], [0, -80], [160, 0], [-160, 0]]) {
+    sw = GameSim.buildNode(s, 'switch', tw.x + ox, tw.y + oy);
+    if (sw) break;
+  }
+  finishBuild(s, sw);
+  GameSim.connect(s, tw.id, sw.id, 'fiber');
+  const copper = GameSim.connect(s, sw.id, coreOf(s).id, 'copper'); // لینک ضعیف ۱۰۰ مگابیت روی مسیر
+  d.subscribers = 3000;
+  keepAlive(s);
+  const prob = (s.problems || []).find(p => p.cause === 'congestion' && p.districtId === d.id);
+  const bn0 = prob && prob.bottlenecks && prob.bottlenecks[0];
+  check('124a لینک مسی اشباع‌شده گلوگاه اول منطقه است با درصد و رفع موازی',
+    !!bn0 && bn0.kind === 'link' && bn0.linkId === copper.id && bn0.utilPct > 100 &&
+    bn0.fix && bn0.fix.action === 'parallel_link' && bn0.fix.linkId === copper.id && !!bn0.fixText,
+    'bn=' + JSON.stringify(bn0) + ' qos=' + d.qos);
+  check('124a2 همهٔ گلوگاه‌ها هدف ضربه (nodeId/linkId) و درصد دارند',
+    !!prob && prob.bottlenecks.length > 0 && prob.bottlenecks.every(b => (b.nodeId || b.linkId) && b.utilPct > 0 && b.fixText),
+    'n=' + (prob && prob.bottlenecks.length));
+}
+{
+  // 124b: گره دسترسیِ کامل (دکل 2G با ظرفیت ۶۰) به‌عنوان گلوگاه گرهی نام برده می‌شود
+  const s = newGameAll(42); s.cash = 9999999;
+  const d = s.districts.find(x => x.id === 'center');
+  const tw = GameSim.buildNode(s, 'cell_2g', d.x, d.y); finishBuild(s, tw);
+  connectTower(s, tw.id, coreOf(s).id, 'fiber');
+  d.subscribers = 3000;
+  keepAlive(s);
+  const prob = (s.problems || []).find(p => p.cause === 'congestion' && p.districtId === d.id);
+  const bnN = prob && (prob.bottlenecks || []).find(b => b.kind === 'node' && b.nodeId === tw.id);
+  check('124b دکل اشباع‌شده گلوگاه گرهی است با رفع ماژول ظرفیت',
+    !!bnN && bnN.utilPct >= 99 && bnN.fix && bnN.fix.action === 'install_module' && bnN.fix.moduleId === 'cap_boost' && bnN.fix.nodeId === tw.id,
+    'bn=' + JSON.stringify(bnN) + ' qos=' + d.qos);
+}
+{
+  // 124c: منطقهٔ بدون ازدحام هشدار کمبود ظرفیت ندارد
+  const s = newGameAll(42); s.cash = 9999999;
+  const d = s.districts.find(x => x.id === 'center');
+  const tw = GameSim.buildNode(s, 'cell_4g', d.x, d.y); finishBuild(s, tw);
+  connectTower(s, tw.id, coreOf(s).id, 'fiber');
+  d.subscribers = 5;
+  keepAlive(s);
+  const prob = (s.problems || []).find(p => p.cause === 'congestion' && p.districtId === d.id);
+  check('124c منطقهٔ سالم هشدار کمبود ظرفیت ندارد', !prob && d.qos >= 0.5, 'qos=' + d.qos);
+}
+{
+  // 124d: وقتی گلوگاه مشخصی نیست ولی تقاضا از مجموع ظرفیت دسترسی بیشتر است، پیام صریح همان را می‌گوید
+  const s = newGameAll(42); s.cash = 9999999;
+  const d = s.districts.find(x => x.id === 'center');
+  const tw = GameSim.buildNode(s, 'cell_2g', d.x, d.y); finishBuild(s, tw);
+  connectTower(s, tw.id, coreOf(s).id, 'fiber');
+  d.subscribers = 3000;
+  keepAlive(s); // qos پایین می‌آید و مصرف‌ها ثبت می‌شوند
+  tw.usage = 10; // هیچ عنصری اشباع نیست (حالت مجموع ظرفیت دسترسی)
+  const probs = GameSim.buildProblems(s);
+  const prob = probs.find(p => p.cause === 'congestion' && p.districtId === d.id);
+  check('124d بدون گلوگاه مشخص، پیام «مجموع ظرفیت دسترسی» با اعداد می‌آید',
+    !!prob && (prob.bottlenecks || []).length === 0 && prob.message.indexOf('مجموع ظرفیت دسترسی') >= 0,
+    'msg=' + (prob && prob.message));
+}
+
 console.log('\nنتیجه: ' + pass + ' پاس، ' + fail + ' رد');
 process.exit(fail ? 1 : 0);
