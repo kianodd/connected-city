@@ -2333,7 +2333,11 @@ let s1, cell1, link1;
   const res = s.districts.find(d => d.type === 'residential');
   const cc0 = GameSim.commuteCoverage(s, res);
   const work = GameSim.nearestWorkDistrict(s, res);
-  const midPt = GameSim.commuteRoutePoints(res, work, 8)[4];
+  const hb77 = s.buildings.find(b => b.districtId === res.id && b.type === 'residential');
+  const wb77 = s.buildings.find(b => b.districtId === work.id && ['commercial', 'office', 'industrial'].includes(b.type));
+  const cA77 = { x: hb77.x + (hb77.w || 26) / 2, y: hb77.y + (hb77.h || 20) / 2 };
+  const cB77 = { x: wb77.x + (wb77.w || 26) / 2, y: wb77.y + (wb77.h || 20) / 2 };
+  const midPt = GameSim.commuteRoutePoints(s, cA77, cB77, 8)[4];
   const tw = GameSim.buildNode(s, 'cell_2g', midPt.x, midPt.y);
   GameSim.connect(s, tw.id, coreOf(s).id, 'fiber');
   const cc1 = GameSim.commuteCoverage(s, res);
@@ -2947,6 +2951,108 @@ let s1, cell1, link1;
   let crashed = false;
   try { GameSim.tick(loaded, 1); } catch (e) { crashed = true; }
   check('103g ذخیرهٔ قدیمی (بدون اندازهٔ جهان) با جهان ۷۲۰۰×۵۴۰۰ بارگذاری و تیک می‌خورد', loaded.worldW === 7200 && loaded.worldH === 5400 && !crashed);
+}
+
+// ---------- 104: انشعاب فیبر ساختمان با دوران قفل است (اول مسی، فیبر از ۲۰۰۴) ----------
+{
+  const s = GameSim.newGame(42); s.cash = 9999999; // ۱۹۹۱
+  const d = s.districts.find(x => x.id === 'center');
+  const b0 = s.buildings.filter(b => b.districtId === d.id)
+    .sort((a, b) => Math.hypot(a.x - d.x, a.y - d.y) - Math.hypot(b.x - d.x, b.y - d.y))[0];
+  const cabB = GameSim.buildNode(s, 'cabinet_basic', b0.x + (b0.w || 26) / 2 + 40, b0.y + (b0.h || 20) / 2);
+  finishBuild(s, cabB);
+  GameSim.connect(s, cabB.id, coreOf(s).id, 'copper');
+  const dropsBefore = (s.fiberDrops || []).length;
+  const rF91 = GameSim.connectBuildingWired(s, b0.id, cabB.id, 'fiber');
+  check('104a در ۱۹۹۱ انشعاب فیبر رد می‌شود و هیچ انشعابی ساخته نمی‌شود',
+    rF91.ok === false && (s.fiberDrops || []).length === dropsBefore && /فیبر|مسی/.test(rF91.error || ''), rF91.error || '');
+  // سال ۲۰۰۰: کابینت خیابانی هست ولی انشعاب فیبر هنوز تا ۲۰۰۴ قفل است
+  s.day = 95;
+  const cab = GameSim.buildNode(s, 'street_cabinet', b0.x + (b0.w || 26) / 2 - 50, b0.y + (b0.h || 20) / 2);
+  finishBuild(s, cab);
+  GameSim.connect(s, cab.id, coreOf(s).id, 'fiber');
+  GameSim.refreshConnectivity(s);
+  const rF00 = GameSim.connectBuildingWired(s, b0.id, cab.id, 'fiber');
+  check('104b در ۲۰۰۰ انشعاب فیبر از کابینت خیابانی با دلیل فارسی (سال ۲۰۰۴) رد می‌شود',
+    rF00.ok === false && /۲۰۰۴/.test(rF00.error || '') && (s.fiberDrops || []).length === dropsBefore, rF00.error || '');
+  const rC00 = GameSim.connectBuildingWired(s, b0.id, cab.id, 'copper');
+  check('104c در همان سال سیم مسی وصل می‌شود', rC00.ok === true, rC00.error || '');
+  GameSim.disconnectBuildingWired(s, b0.id);
+  // سال ۲۰۰۴: انشعاب فیبر باز می‌شود
+  s.day = 131;
+  const rF04 = GameSim.connectBuildingWired(s, b0.id, cab.id, 'fiber');
+  check('104d از سال ۲۰۰۴ انشعاب فیبر وصل می‌شود', rF04.ok === true && GameSim.buildingWiredStatus(s, b0.id).medium === 'fiber', rF04.error || '');
+}
+
+// ---------- 105: انحصار لایه‌های سیگنال/سرعت در همهٔ مسیرهای تغییر لایه ----------
+{
+  const CityMap = require('../js/map.js');
+  CityMap.setLayer('signal', false); CityMap.setLayer('speed', false);
+  CityMap.setLayer('signal', true);
+  check('105a setLayer: روشن‌کردن سیگنال سرعت را خاموش نگه می‌دارد', CityMap.layers.signal === true && CityMap.layers.speed === false);
+  CityMap.setLayer('speed', true);
+  check('105b setLayer: روشن‌کردن سرعت سیگنال را خاموش می‌کند', CityMap.layers.speed === true && CityMap.layers.signal === false);
+  CityMap.toggleLayer('signal');
+  check('105c toggleLayer: انحصار سیگنال/سرعت رعایت می‌شود', CityMap.layers.signal === true && CityMap.layers.speed === false);
+  CityMap.setLayers({ signal: true, speed: true });
+  check('105d setLayers: هر دو با هم روشن نمی‌مانند', !(CityMap.layers.signal && CityMap.layers.speed));
+  CityMap.setLayer('signal', false); CityMap.setLayer('speed', false);
+}
+
+// ---------- 106: پالس‌های رفت‌وآمد بین ساختمان‌ها و روی خیابان‌ها ----------
+{
+  const s = newGameAll(42);
+  const bIds = new Set(s.buildings.map(b => b.id));
+  const pulses = GameSim.commutePulses(s, 8);
+  check('106a مبدأ و مقصد هر پالس یک ساختمان واقعی است',
+    pulses.length > 0 && pulses.every(p => bIds.has(p.fromId) && bIds.has(p.toId)), 'n=' + pulses.length);
+  const roads = s.map.roads;
+  const onRoad = (p) => roads.v.some(x => Math.abs(x - p.x) < 0.6) || roads.h.some(y => Math.abs(y - p.y) < 0.6);
+  const bA = s.buildings.find(b => b.type === 'residential');
+  const bB = s.buildings.find(b => b.type === 'industrial' || b.type === 'commercial');
+  const cA = { x: bA.x + (bA.w || 26) / 2, y: bA.y + (bA.h || 20) / 2 };
+  const cB = { x: bB.x + (bB.w || 26) / 2, y: bB.y + (bB.h || 20) / 2 };
+  const path = GameSim.commuteRoadPath(s, cA, cB);
+  check('106b مسیر از مرکز ساختمان شروع و به مرکز ساختمان ختم می‌شود',
+    path[0].x === cA.x && path[0].y === cA.y && path[path.length - 1].x === cB.x && path[path.length - 1].y === cB.y);
+  check('106c همهٔ نقاط میانی مسیر روی خطوط خیابان‌اند',
+    path.slice(1, -1).every(onRoad), JSON.stringify(path.slice(1, -1)));
+  let segOk = true, segInfo = '';
+  for (let i = 1; i < path.length; i++) {
+    const p0 = path[i - 1], p1 = path[i];
+    const onLine = (p0.x === p1.x && roads.v.some(x => Math.abs(x - p0.x) < 0.6)) ||
+      (p0.y === p1.y && roads.h.some(y => Math.abs(y - p0.y) < 0.6));
+    const isStub = (i === 1 || i === path.length - 1); // پلهٔ کوتاه از درِ ساختمان تا خیابان
+    const len = Math.hypot(p1.x - p0.x, p1.y - p0.y);
+    if (!onLine && !(isStub && len <= 160)) { segOk = false; segInfo = JSON.stringify([p0, p1, Math.round(len)]); }
+  }
+  check('106d همهٔ قطعه‌های مسیر روی خیابان‌اند (جز پلهٔ کوتاه درِ ساختمان تا خیابان)', segOk, segInfo);
+  // عبور از رودخانه فقط از پل
+  const river = s.map.river, bridges = s.map.bridges;
+  const rxAt = (y) => {
+    for (let i = 0; i < river.length - 1; i++) {
+      const a = river[i], b = river[i + 1];
+      if (y >= a.y && y <= b.y) return a.x + (b.x - a.x) * ((y - a.y) / Math.max(1, b.y - a.y));
+    }
+    return river[river.length - 1].x;
+  };
+  const west = s.buildings.find(b => (b.x + (b.w || 26) / 2) < rxAt(b.y) - 300);
+  const east = s.buildings.find(b => (b.x + (b.w || 26) / 2) > rxAt(b.y) + 300);
+  let bridgeOk = false, crossInfo = 'no-pair';
+  if (west && east) {
+    const wp = GameSim.commuteRoadPath(s,
+      { x: west.x + (west.w || 26) / 2, y: west.y + (west.h || 20) / 2 },
+      { x: east.x + (east.w || 26) / 2, y: east.y + (east.h || 20) / 2 });
+    bridgeOk = true;
+    for (let i = 1; i < wp.length; i++) {
+      const p0 = wp[i - 1], p1 = wp[i];
+      const s0 = p0.x < rxAt(p0.y), s1 = p1.x < rxAt(p1.y);
+      if (s0 !== s1) { // این قطعه از رودخانه رد می‌شود: باید افقی و روی ردیف پل باشد
+        if (!(p0.y === p1.y && bridges.some(y => Math.abs(y - p0.y) < 0.6))) { bridgeOk = false; crossInfo = JSON.stringify([p0, p1]); }
+      }
+    }
+  }
+  check('106e مسیر بین دو سوی رودخانه فقط از روی پل رد می‌شود', bridgeOk, crossInfo);
 }
 
 console.log('\nنتیجه: ' + pass + ' پاس، ' + fail + ' رد');
