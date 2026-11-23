@@ -3136,5 +3136,68 @@ let s1, cell1, link1;
   check('108d شعاع دایرهٔ قفل همهٔ ساختمان‌های هر منطقه را می‌پوشاند', radiusOk, worst);
 }
 
+// ---------- 109: میدان سرعت لایهٔ «سرعت اتصال» — همهٔ فناوری‌ها ----------
+{
+  const s = GameSim.newGame(42); s.cash = 99999999; s.day = 281;
+  s.districts.forEach(dd => { dd.unlocked = true; });
+  const core = s.nodes.find(n => n.type === 'core_router');
+  const d = s.districts.find(x => x.id === 'center');
+  const bs = s.buildings.filter(b => b.districtId === d.id)
+    .sort((a, b) => Math.hypot(a.x - d.x, a.y - d.y) - Math.hypot(b.x - d.x, b.y - d.y));
+  const finish = (node) => { for (let i = 0; i < 40 && node.status === 'building'; i++) GameSim.tick(s, 1); };
+  // مسی: کابینت ساده + انشعاب مسی
+  const cabB = GameSim.buildNode(s, 'cabinet_basic', bs[0].x + (bs[0].w || 26) / 2 + 40, bs[0].y + (bs[0].h || 20) / 2);
+  finish(cabB); GameSim.connect(s, cabB.id, core.id, 'ethernet');
+  GameSim.connectBuildingWired(s, bs[0].id, cabB.id, 'copper');
+  // فیبر: کابینت خیابانی + انشعاب فیبر
+  const cab = GameSim.buildNode(s, 'street_cabinet', bs[5].x + (bs[5].w || 26) / 2 + 40, bs[5].y + (bs[5].h || 20) / 2);
+  finish(cab); GameSim.connect(s, cab.id, core.id, 'fiber');
+  GameSim.connectBuildingWired(s, bs[5].id, cab.id, 'fiber');
+  // سلولار: دکل 2G دور از ساختمان‌های سیمی
+  const t2 = GameSim.buildNode(s, 'cell_2g', d.x + 900, d.y + 600);
+  finish(t2); GameSim.connect(s, t2.id, core.id, 'fiber');
+  GameSim.refreshConnectivity(s);
+  const prep = GameSim.prepareSpeedField(s);
+  const cuCx = bs[0].x + (bs[0].w || 26) / 2, cuCy = bs[0].y + (bs[0].h || 20) / 2;
+  const fCu = GameSim.speedFieldAt(prep, cuCx, cuCy);
+  check('109a میدان سرعت در ساختمان مسی (DSL) ناصفر و حداکثر سقف مسی است',
+    fCu > 0 && fCu <= 100, 'f=' + fCu);
+  // حلقهٔ دور ساختمان مسی (بیرون ردپا، داخل حاشیهٔ نمونه‌برداری): سرعت خودِ انشعاب (≤۱۰۰)
+  // باید دیده شود، نه سرعت شعاعی کابینت — سناریوی جدا فقط با مسی تا فیبر دخالت نکند
+  {
+    const s2 = GameSim.newGame(42); s2.cash = 99999999; s2.day = 281;
+    s2.districts.forEach(dd => { dd.unlocked = true; });
+    const core2 = s2.nodes.find(n => n.type === 'core_router');
+    const d2 = s2.districts.find(x => x.id === 'center');
+    const bs2 = s2.buildings.filter(b => b.districtId === d2.id)
+      .sort((a, b) => Math.hypot(a.x - d2.x, a.y - d2.y) - Math.hypot(b.x - d2.x, b.y - d2.y));
+    const b0 = bs2[0];
+    const cab2 = GameSim.buildNode(s2, 'cabinet_basic', b0.x + (b0.w || 26) / 2 + 40, b0.y + (b0.h || 20) / 2);
+    for (let i = 0; i < 40 && cab2.status === 'building'; i++) GameSim.tick(s2, 1);
+    GameSim.connect(s2, cab2.id, core2.id, 'ethernet');
+    GameSim.connectBuildingWired(s2, b0.id, cab2.id, 'copper');
+    GameSim.refreshConnectivity(s2);
+    const prep2 = GameSim.prepareSpeedField(s2);
+    let ringOk = false, ringVals = [];
+    const cx0 = b0.x + (b0.w || 26) / 2, cy0 = b0.y + (b0.h || 20) / 2;
+    for (let dx = -(b0.w || 26) / 2 - 18; dx <= (b0.w || 26) / 2 + 18; dx += 6) {
+      for (let dy = -(b0.h || 20) / 2 - 18; dy <= (b0.h || 20) / 2 + 18; dy += 6) {
+        if (Math.abs(dx) <= (b0.w || 26) / 2 && Math.abs(dy) <= (b0.h || 20) / 2) continue; // فقط حلقهٔ بیرون ردپا
+        const v = GameSim.speedFieldAt(prep2, cx0 + dx, cy0 + dy);
+        ringVals.push(v);
+        if (v > 0 && v <= 100) ringOk = true;
+      }
+    }
+    check('109b میدان سرعت در حلقهٔ دور ساختمان مسی سرعت انشعاب (≤۱۰۰) را نشان می‌دهد',
+      ringOk, 'ring=' + ringVals.slice(0, 8).join(','));
+  }
+  const fiCx = bs[5].x + (bs[5].w || 26) / 2, fiCy = bs[5].y + (bs[5].h || 20) / 2;
+  check('109c میدان سرعت در ساختمان فیبری بالا است',
+    GameSim.speedFieldAt(prep, fiCx, fiCy) > 500, 'f=' + GameSim.speedFieldAt(prep, fiCx, fiCy));
+  check('109d میدان سرعت زیر دکل 2G ناصفر و در نقطهٔ بی‌سرویس صفر است',
+    GameSim.speedFieldAt(prep, t2.x, t2.y) > 0 && GameSim.speedFieldAt(prep, 200, 200) === 0,
+    'tower=' + GameSim.speedFieldAt(prep, t2.x, t2.y) + ' far=' + GameSim.speedFieldAt(prep, 200, 200));
+}
+
 console.log('\nنتیجه: ' + pass + ' پاس، ' + fail + ' رد');
 process.exit(fail ? 1 : 0);
