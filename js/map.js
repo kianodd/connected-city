@@ -18,6 +18,13 @@
 (function (global) {
   var WORLD_W = (global.GAME_DATA && global.GAME_DATA.world && global.GAME_DATA.world.width) || 3200;
   var WORLD_H = (global.GAME_DATA && global.GAME_DATA.world && global.GAME_DATA.world.height) || 2400;
+  /* اندازهٔ جهان از خودِ بازی خوانده می‌شود: ذخیره‌های قدیمی جهان کوچک خودشان را نگه می‌دارند */
+  function applyWorldSize() {
+    if (state && state.worldW && state.worldH) {
+      WORLD_W = state.worldW; WORLD_H = state.worldH;
+      CityMap.WORLD_W = WORLD_W; CityMap.WORLD_H = WORLD_H;
+    }
+  }
 
   /* ---------- helpers ---------- */
   function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
@@ -277,6 +284,7 @@
 
   /* ---------- module state ---------- */
   var canvas = null, ctx = null, state = null;
+  var surveyPreview = null; // پیش‌نمایش نظرسنجی پهپاد برای لینک PtP: {aId, bId}
   var cb = { onSelect: null, onPlace: null, onSectorRotate: null };
   var dpr = 1, viewW = 0, viewH = 0;
   var cam = { x: WORLD_W / 2, y: WORLD_H / 2, z: 0.6 };       // current (smoothed)
@@ -532,6 +540,8 @@
     drawNodes();
     if (layers.problems) drawProblemBadges(); // مثلث هشدار روی گره/لینک مشکل‌دار
     drawHighlights();
+    drawConstruction(); // ساختمان‌های تازه‌ساخته (کمتر از ۳ روز) با حاشیهٔ کهربایی
+    drawSurveyPreview(); // خط‌چین + پهپاد در حال پرواز روی مسیر PtP
     if (layers.revenue) drawRevenue();
     drawSuggestions();
     if (placementMode) drawPlacementGhost();
@@ -540,6 +550,53 @@
 
     if (layers.weather) drawWeather();
     drawHud();
+  }
+
+  /* ساختمان‌های در حال ساخت/تازه: حاشیهٔ کهربایی خط‌چین تپنده تا ۳ روز بعد از تولد */
+  function drawConstruction() {
+    var bs = getBuildings();
+    var day = (state && state.day) || 0;
+    ctx.save();
+    for (var i = 0; i < bs.length; i++) {
+      var b = bs[i];
+      if (b.bornDay == null || day - b.bornDay >= 3) continue;
+      if (!inRect(b.x + (b.w || 26) / 2, b.y + (b.h || 20) / 2, cullRect)) continue;
+      var pulse = 0.55 + 0.35 * Math.sin(animT * 4);
+      ctx.strokeStyle = 'rgba(245,158,11,' + pulse.toFixed(2) + ')';
+      ctx.lineWidth = 2 / Math.sqrt(cam.z);
+      ctx.setLineDash([6 / Math.sqrt(cam.z), 4 / Math.sqrt(cam.z)]);
+      ctx.strokeRect(b.x - 2, b.y - 2, (b.w || 26) + 4, (b.h || 20) + 4);
+    }
+    ctx.restore();
+  }
+
+  /* پیش‌نمایش پهپاد نقشه‌برداری: خط‌چین بین دو گره + نقطهٔ پهپاد که روی مسیر رفت‌وبرگشت می‌کند */
+  function drawSurveyPreview() {
+    if (!surveyPreview) return;
+    var a = nodeById(state, surveyPreview.aId), b = nodeById(state, surveyPreview.bId);
+    if (!a || !b) return;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(56,189,248,0.9)';
+    ctx.lineWidth = 2.2 / Math.sqrt(cam.z);
+    ctx.setLineDash([9 / Math.sqrt(cam.z), 6 / Math.sqrt(cam.z)]);
+    ctx.lineDashOffset = -animT * 24;
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    ctx.setLineDash([]);
+    var t = (animT % 2.4) / 2.4; // رفت‌وبرگشت
+    if (t > 0.5) t = 1 - t;
+    t = t * 2;
+    var dx = a.x + (b.x - a.x) * t, dy = a.y + (b.y - a.y) * t;
+    var dr = Math.max(5, 7 / Math.sqrt(cam.z));
+    ctx.fillStyle = '#38bdf8'; ctx.strokeStyle = 'rgba(0,0,0,0.7)'; ctx.lineWidth = 1.4 / Math.sqrt(cam.z);
+    ctx.beginPath(); ctx.arc(dx, dy, dr, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    // چهار ملخ کوچک پهپاد
+    ctx.strokeStyle = 'rgba(56,189,248,0.9)'; ctx.lineWidth = 1.6 / Math.sqrt(cam.z);
+    var u = dr * 1.7;
+    ctx.beginPath();
+    ctx.moveTo(dx - u, dy - u); ctx.lineTo(dx + u, dy + u);
+    ctx.moveTo(dx + u, dy - u); ctx.lineTo(dx - u, dy + u);
+    ctx.stroke();
+    ctx.restore();
   }
 
   /* ---------- مناطق قفل‌شده: خاکستری + قفل ---------- */
@@ -633,7 +690,7 @@
         var px = from.x + (to.x - from.x) * tt, py = from.y + (to.y - from.y) * tt;
         ctx.fillStyle = dir > 0 ? 'rgba(120,220,255,0.95)' : 'rgba(255,205,120,0.95)';
         ctx.beginPath();
-        ctx.arc(px, py, (2.4 + util * 1.6) / cam.z, 0, Math.PI * 2);
+        ctx.arc(px, py, (3.0 + util * 1.8) / cam.z, 0, Math.PI * 2);
         ctx.fill();
         drawn++;
       }
@@ -655,7 +712,7 @@
       if (!inRect(p.x, p.y, cullRect)) continue;
       ctx.fillStyle = p.covered ? 'rgba(110,255,170,0.95)' : 'rgba(255,110,110,0.95)';
       ctx.beginPath();
-      ctx.arc(p.x, p.y, 3.4 / cam.z, 0, Math.PI * 2);
+      ctx.arc(p.x, p.y, 4.4 / cam.z, 0, Math.PI * 2);
       ctx.fill();
     }
     ctx.restore();
@@ -943,7 +1000,8 @@
       var s = srcs[i], n = s.node;
       if (!circleInRect(n.x, n.y, s.r, cullRect)) continue;
       var fill, stroke;
-      if (s.kind === 'cell') { fill = 'rgba(56,189,248,0.14)'; stroke = 'rgba(56,189,248,0.55)'; }
+      if (n.owner === 'rival') { fill = 'rgba(244,63,94,0.13)'; stroke = 'rgba(244,63,94,0.55)'; } // پوشش شرکت رقیب: قرمز
+      else if (s.kind === 'cell') { fill = 'rgba(56,189,248,0.14)'; stroke = 'rgba(56,189,248,0.55)'; }
       else if (s.kind === 'fwa') { fill = 'rgba(52,211,153,0.13)'; stroke = 'rgba(52,211,153,0.55)'; }
       else { fill = 'rgba(192,132,252,0.14)'; stroke = 'rgba(192,132,252,0.55)'; }
       ctx.fillStyle = fill; ctx.strokeStyle = stroke; ctx.lineWidth = 1.4 / cam.z;
@@ -1314,9 +1372,12 @@
         linkPath(a, b, st); ctx.stroke();
       }
 
+      // لینک‌های شرکت رقیب: خط‌چین قرمز
+      var rivalLink = (a.owner === 'rival' || b.owner === 'rival');
+      if (rivalLink) col = '#f43f5e';
       ctx.strokeStyle = col;
       ctx.lineWidth = w / sqrtZ;
-      ctx.setLineDash(st.dash.map(function (v) { return v / sqrtZ; }));
+      ctx.setLineDash(rivalLink ? [8 / sqrtZ, 6 / sqrtZ] : st.dash.map(function (v) { return v / sqrtZ; }));
       if (layers.traffic) ctx.lineDashOffset = -animT * 30;
       linkPath(a, b, st); ctx.stroke();
       if (st.arrow) drawArrow(a.x, a.y, b.x, b.y, col);
@@ -1417,7 +1478,8 @@
       if (!inRect(n.x, n.y, cullRect)) continue;
       var col = NODE_COLORS[k] || NODE_COLORS.generic;
       var conn = isConnected(n), failed = isFailed(n), bld = isBuilding(n);
-      if (!conn) col = '#6b7280';
+      if (n.owner === 'rival') col = '#f43f5e'; // گره‌های شرکت رقیب: قرمز رز
+      if (!conn) col = n.owner === 'rival' ? '#9f1239' : '#6b7280';
       var r = (k === 'core' || k === 'gateway') ? 13 : 10;
       labelObstacles.push({ x: n.x - r, y: n.y - r, w: r * 2, h: r * 2 });
 
@@ -1460,8 +1522,8 @@
       // inner vector mark per kind (canvas paths, no text glyphs)
       drawNodeMark(k, n.x, n.y, r);
 
-      // نشان ماژول‌ها: دایرهٔ کوچک با تعداد ماژول‌های نصب‌شده (TD-LTE با رنگ متفاوت)
-      var modCount = Array.isArray(n.modules) ? n.modules.length : 0;
+      // نشان ماژول‌ها: دایرهٔ کوچک با تعداد ماژول‌های نصب‌شده (منبع تغذیه شمرده نمی‌شود؛ TD-LTE با رنگ متفاوت)
+      var modCount = Array.isArray(n.modules) ? n.modules.filter(function (m) { return m !== 'power'; }).length : 0;
       if (modCount > 0) {
         var bx = n.x + r * 0.95, by = n.y + r * 0.95, br = Math.max(6, 7 / Math.sqrt(cam.z));
         ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI * 2);
@@ -1485,6 +1547,23 @@
 
       // failed X
       if (failed && layers.failures) drawX(n.x, n.y, r + 4, '#ef4444');
+
+      // هشدار برق/خرابی ماژول: مثلث کهربایی (گره بدون برق کافی یا ماژول خراب دارد)
+      var hasBrokenModule = n.brokenModules && Object.keys(n.brokenModules).some(function (mid) { return n.brokenModules[mid]; });
+      if ((n.status === 'nopower' || hasBrokenModule) && n.owner !== 'rival') {
+        var px2 = n.x - r - 2, py2 = n.y - r - 2, ps = Math.max(7, 8 / Math.sqrt(cam.z));
+        ctx.save();
+        ctx.fillStyle = '#f59e0b'; ctx.strokeStyle = 'rgba(0,0,0,0.65)'; ctx.lineWidth = 1.2 / Math.sqrt(cam.z);
+        ctx.beginPath();
+        ctx.moveTo(px2, py2 - ps); ctx.lineTo(px2 - ps * 0.9, py2 + ps * 0.75); ctx.lineTo(px2 + ps * 0.9, py2 + ps * 0.75);
+        ctx.closePath(); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = 'rgba(0,0,0,0.85)';
+        ctx.font = 'bold ' + Math.round(ps * 1.15) + 'px Tahoma, sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('!', px2, py2 + ps * 0.18);
+        ctx.restore();
+        labelObstacles.push({ x: px2 - ps, y: py2 - ps, w: ps * 2, h: ps * 2 });
+      }
 
       // هشدار تداخل: مثلث کهربایی با «!» در گوشهٔ گره (بدون ایموجی)
       if (typeof n.interference === 'number' && n.interference > 0.45) {
@@ -2057,6 +2136,7 @@
       canvas = canvasEl;
       ctx = canvas.getContext('2d');
       state = initialState || {};
+      applyWorldSize();
       applyMapData();
       if (callbacks) { cb.onSelect = callbacks.onSelect || null; cb.onPlace = callbacks.onPlace || null; cb.onSectorRotate = callbacks.onSectorRotate || null; }
       resize();
@@ -2077,7 +2157,7 @@
       return CityMap;
     },
 
-    setState: function (s) { state = s || state; staticCam = null; _distCache = null; _heat.signal = null; _heat.speed = null; applyMapData(); },
+    setState: function (s) { state = s || state; staticCam = null; _distCache = null; _heat.signal = null; _heat.speed = null; applyWorldSize(); applyMapData(); },
     getState: function () { return state; },
 
     layers: layers,
@@ -2106,6 +2186,10 @@
     clearSuggestions: function () { suggestions = null; },
     setHighlightPath: function (ids) { highlightPath = Array.isArray(ids) ? ids.slice() : []; },
     clearHighlight: function () { highlightPath = []; },
+
+    setSurveyPreview: function (aId, bId) { surveyPreview = (aId && bId) ? { aId: aId, bId: bId } : null; },
+    clearSurveyPreview: function () { surveyPreview = null; },
+    getSurveyPreview: function () { return surveyPreview; },
 
     setPlacementMode: function (on) {
       placementMode = !!on;
