@@ -31,7 +31,7 @@
   function lerp(a, b, t) { return a + (b - a) * t; }
   function dist(x1, y1, x2, y2) { var dx = x2 - x1, dy = y2 - y1; return Math.sqrt(dx * dx + dy * dy); }
   function isActive(n) { return n && (n.status === 'active' || n.status === 'online' || n.status === 'ok' || n.status === 'up'); }
-  function isFailed(n) { return n && (n.status === 'failed' || n.status === 'down' || n.status === 'error' || n.status === 'fault'); }
+  function isFailed(n) { return n && (n.status === 'failed' || n.status === 'down' || n.status === 'error' || n.status === 'fault' || n.status === 'cut'); }
   function isBuilding(n) { return n && (n.status === 'building' || n.status === 'constructing' || n.status === 'installing' || n.status === 'pending' || n.status === 'upgrading'); }
   function isConnected(n) {
     if (!n) return false;
@@ -420,21 +420,19 @@
       if (r <= 0) continue;
       if (!(k === 'cell' || k === 'fwa' || k === 'wifi')) continue;
       if (!isActive(n) || !isConnected(n)) continue;
-      if (k === 'cell' && !layers.cellular) continue;
-      if (k === 'fwa' && !layers.fwa) continue;
-      out.push({
-        node: n, kind: k, r: r,
-        direction: (typeof n.direction === 'number' ? n.direction : null),
-        angle: (typeof n.angle === 'number' ? n.angle : null)
-      });
-      // دکل 4G/5G دارای ماژول TD-LTE: پوشش TD-LTE هم روی نقشه دیده می‌شود
-      if (k === 'cell' && layers.fwa && (n.type === 'cell_4g' || n.type === 'cell_5g') &&
-          Array.isArray(n.modules) && n.modules.indexOf('tdlte') >= 0) {
-        out.push({
-          node: n, kind: 'fwa', r: r,
-          direction: (typeof n.direction === 'number' ? n.direction : null),
-          angle: (typeof n.angle === 'number' ? n.angle : null)
-        });
+      var dir = (typeof n.direction === 'number' ? n.direction : null);
+      var ang = (typeof n.angle === 'number' ? n.angle : null);
+      if (k === 'cell') {
+        if (layers.cellular) out.push({ node: n, kind: 'cell', r: r, direction: dir, angle: ang });
+        // دکل 4G/5G دارای ماژول TD-LTE: پوشش TD-LTE مستقل از لایهٔ سلولار دیده می‌شود
+        if (layers.fwa && (n.type === 'cell_4g' || n.type === 'cell_5g') &&
+            Array.isArray(n.modules) && n.modules.indexOf('tdlte') >= 0) {
+          out.push({ node: n, kind: 'fwa', r: r, direction: dir, angle: ang });
+        }
+      } else if (k === 'fwa') {
+        if (layers.fwa) out.push({ node: n, kind: 'fwa', r: r, direction: dir, angle: ang });
+      } else if (k === 'wifi') {
+        out.push({ node: n, kind: 'wifi', r: r, direction: dir, angle: ang });
       }
     }
     return out;
@@ -1139,6 +1137,62 @@
       ctx.rect(tb.x, tb.y, tw, 3);
     }
     ctx.fill();
+    // آیکون نوع ساختمان روی هر ساختمان (فقط در زوم نزدیک و برای ساختمان‌های روی صفحه)
+    if (cam.z >= 0.55) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255,255,255,0.92)';
+      ctx.fillStyle = 'rgba(255,255,255,0.92)';
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      for (var ii = 0; ii < sorted.length; ii++) {
+        var ib = sorted[ii], iw = ib.w || 26, ih = ib.h || 20;
+        if (ib.x + iw < cullRect.x0 || ib.x > cullRect.x1 || ib.y + ih < cullRect.y0 || ib.y > cullRect.y1) continue;
+        if (ib.landmark || (ib.type && LANDMARKS[String(ib.type).toLowerCase()])) continue; // بناهای شاخص آیکون خودشان را دارند
+        var mwh = Math.min(iw, ih);
+        if (mwh * cam.z < 12) continue; // ساختمان خیلی کوچک روی صفحه: آیکون خوانا نیست
+        var u = mwh * 0.30, cx = ib.x + iw / 2, cy = ib.y + ih / 2;
+        ctx.lineWidth = Math.max(1.2 / cam.z, u * 0.16);
+        ctx.beginPath();
+        if (ib.type === 'residential') {
+          // خانه: سقف شیروانی + بدنه + در
+          ctx.moveTo(cx - u, cy - u * 0.1); ctx.lineTo(cx, cy - u * 0.85); ctx.lineTo(cx + u, cy - u * 0.1);
+          ctx.rect(cx - u * 0.66, cy - u * 0.1, u * 1.32, u * 0.9);
+          ctx.rect(cx - u * 0.17, cy + u * 0.28, u * 0.34, u * 0.52);
+          ctx.stroke();
+        } else if (ib.type === 'commercial') {
+          // مغازه: سایبان + ویترین
+          ctx.rect(cx - u * 0.85, cy - u * 0.72, u * 1.7, u * 0.34);
+          ctx.moveTo(cx - u * 0.42, cy - u * 0.72); ctx.lineTo(cx - u * 0.42, cy - u * 0.38);
+          ctx.moveTo(cx, cy - u * 0.72); ctx.lineTo(cx, cy - u * 0.38);
+          ctx.moveTo(cx + u * 0.42, cy - u * 0.72); ctx.lineTo(cx + u * 0.42, cy - u * 0.38);
+          ctx.rect(cx - u * 0.68, cy - u * 0.38, u * 1.36, u * 1.18);
+          ctx.moveTo(cx - u * 0.68, cy + u * 0.18); ctx.lineTo(cx + u * 0.68, cy + u * 0.18);
+          ctx.stroke();
+        } else if (ib.type === 'office') {
+          // برج اداری: بدنهٔ بلند + پنجره‌ها
+          ctx.rect(cx - u * 0.48, cy - u * 0.88, u * 0.96, u * 1.76);
+          ctx.stroke();
+          ctx.beginPath();
+          for (var wr = 0; wr < 4; wr++) {
+            var wy = cy - u * 0.62 + wr * u * 0.36;
+            ctx.rect(cx - u * 0.26, wy, u * 0.17, u * 0.18);
+            ctx.rect(cx + u * 0.09, wy, u * 0.17, u * 0.18);
+          }
+          ctx.fill();
+        } else if (ib.type === 'industrial') {
+          // کارخانه: سقف دندانه‌ای + دودکش
+          ctx.moveTo(cx - u * 0.92, cy + u * 0.8);
+          ctx.lineTo(cx - u * 0.92, cy - u * 0.05);
+          ctx.lineTo(cx - u * 0.32, cy - u * 0.5);
+          ctx.lineTo(cx - u * 0.32, cy - u * 0.05);
+          ctx.lineTo(cx + u * 0.28, cy - u * 0.5);
+          ctx.lineTo(cx + u * 0.28, cy + u * 0.8);
+          ctx.closePath();
+          ctx.rect(cx + u * 0.42, cy - u * 0.88, u * 0.3, u * 1.68);
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+    }
     for (var li = 0; li < landmarks.length; li++) drawLandmark(landmarks[li].b, landmarks[li].key, landmarks[li].w, landmarks[li].h);
     // synthesized landmarks if data provides none: بازار، دانشگاه، بیمارستان (district centers) + ایستگاه قطار، ورزشگاه (fixed)
     var hasLm = false;
@@ -1266,7 +1320,7 @@
   function layerAllowsLink(med, l) {
     if (med === 'fiber' && !layers.fiber) return false;
     if (med === 'copper' && !layers.copper) return false;
-    if (med === 'ptp' && !(layers.fwa || layers.cellular)) return false;
+    // لینک‌های نقطه‌به‌نقطه تابع لایهٔ «اتصالات» هستند، نه لایه‌های پوشش
     return true;
   }
 
@@ -1277,6 +1331,7 @@
 
   // انشعاب‌های فیبر ساختمان‌ها: خط باریک فیروزه‌ای (در حال نصب: کهربایی خط‌چین)
   function drawFiberDrops() {
+    if (!layers.links) return; // انشعاب‌ها هم جزو لایهٔ اتصالات‌اند
     var drops = (state && state.fiberDrops) || [];
     if (!drops.length) return;
     var bMap = {};
@@ -1289,6 +1344,7 @@
     for (var i = 0; i < drops.length; i++) {
       var fd = drops[i], b = bMap[fd.buildingId], n = nMap[fd.nodeId];
       if (!b || !n) continue;
+      if (fd.medium === 'copper' ? !layers.copper : !layers.fiber) continue;
       var cx = b.x + (b.w || 26) / 2, cy = b.y + (b.h || 20) / 2;
       if (!inRect(cx, cy, cullRect) && !inRect(n.x, n.y, cullRect)) continue;
       if (fd.status === 'building') {
@@ -1726,6 +1782,8 @@
       s += d.buildingId + ':' + d.nodeId + ',' + (d.medium || 'fiber') + ',' + d.status + ';';
     }
     s += '|' + ((state.weather && state.weather.kind) || 'clear');
+    // اندازهٔ جهان و تعداد ساختمان‌ها هم روی میدان اثر می‌گذارند (افت سیگنال از ساختمان‌ها)
+    s += '|W' + WORLD_W + 'x' + WORLD_H + '|B' + ((state.buildings || []).length);
     if (kind === 'speed') s += '|' + Math.floor(state.day || 0) + '|' + Math.floor(state.hour || 0);
     return s;
   }
@@ -1751,10 +1809,13 @@
       var job = st.job;
       var px = job.img.data;
       var rgba = [0, 0, 0, 0];
+      // گام نمونه‌برداری از اندازهٔ واقعی جهان می‌آید تا میدان کل نقشه را بپوشاند
+      // (جهان‌های قدیمی ۷۲۰۰×۵۴۰۰ و جدید ۱۴۴۰۰×۱۰۸۰۰ هر دو نسبت ۴:۳ دارند)
+      var step = WORLD_W / cfg.pw;
       var t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
       while (job.row < cfg.ph) {
         var j = job.row;
-        try { G.sampleFieldRows(job.prep, kind, 0, 0, cfg.step, cfg.pw, j, j + 1, job.buf); } catch (e) { /* ردیف خالی می‌ماند */ }
+        try { G.sampleFieldRows(job.prep, kind, 0, 0, step, cfg.pw, j, j + 1, job.buf); } catch (e) { /* ردیف خالی می‌ماند */ }
         for (var i = 0; i < cfg.pw; i++) {
           var v = job.buf[j * cfg.pw + i] || 0;
           if (kind === 'signal') signalRGBA(clamp(v, 0, 1), rgba); else speedRGBA(v, rgba);
@@ -1876,7 +1937,11 @@
     ctx.save();
     var small = viewW < 600;
     ctx.font = (small ? '10px' : '12px') + ' Vazirmatn, Tahoma, sans-serif';
-    var items = [
+    // وقتی لایهٔ تأخیر روشن است رنگ لینک‌ها بر اساس پینگ است؛ راهنما هم همان را نشان می‌دهد
+    var items = layers.latency ? [
+      ['#4ade80', 'پینگ کم'], ['#facc15', 'پینگ متوسط'], ['#ef4444', 'پینگ بالا'],
+      ['#9ca3af', 'بدون داده']
+    ] : [
       ['#22d3ee', 'فیبر نوری'], ['#fb923c', 'مسی (DSL)'], ['#a78bfa', 'نقطه‌به‌نقطه'],
       ['#9ca3af', 'اترنت'], ['#ef4444', 'ازدحام/خرابی']
     ];
@@ -2173,9 +2238,19 @@
     setLayers: function (obj) {
       if (!obj) return;
       for (var k in layers) if (typeof obj[k] === 'boolean') layers[k] = obj[k];
+      // انحصار سیگنال/سرعت در همهٔ مسیرهای تغییر لایه رعایت می‌شود
+      if (layers.signal && layers.speed) layers.signal = false;
       staticCam = null;
     },
-    toggleLayer: function (name) { if (name in layers) { layers[name] = !layers[name]; staticCam = null; } return layers[name]; },
+    toggleLayer: function (name) {
+      if (name in layers) {
+        layers[name] = !layers[name];
+        if (layers[name] && name === 'speed') layers.signal = false;
+        if (layers[name] && name === 'signal') layers.speed = false;
+        staticCam = null;
+      }
+      return layers[name];
+    },
 
     setSelected: function (kind, id) { selected = kind ? { kind: kind, id: id } : null; },
     getSelected: function () { return selected; },
