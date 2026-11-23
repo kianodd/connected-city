@@ -384,6 +384,11 @@ input[type=number]{background:var(--bg);color:var(--text);border:1px solid var(-
 .indiv-row[data-indiv-bld]:hover{background:rgba(163,113,247,.12)}
 .subs-table td,.subs-table th{padding:3px 6px;text-align:right}
 .indiv-head{display:flex;justify-content:space-between;gap:8px;font-size:12px;margin-bottom:2px}
+.indiv-tech{font-size:12px;margin-top:4px;color:var(--accent2)}
+.indiv-tests{display:flex;gap:6px;margin-top:6px}
+.indiv-tests .btn{flex:1;min-height:36px}
+.indiv-result{margin-top:6px;font-size:12px;line-height:1.7}
+.indiv-result:empty{display:none}
 .pkg-kind{display:inline-block;font-size:11px;padding:1px 7px;border-radius:999px;border:1px solid var(--border);vertical-align:middle}
 .pkg-kind.kind-gaming{border-color:var(--accent2);color:var(--accent2)}
 .pkg-kind.kind-streaming{border-color:#a371f7;color:#a371f7}
