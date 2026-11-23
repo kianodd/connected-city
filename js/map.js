@@ -522,12 +522,14 @@
     if (!canStatic) drawStaticScene(); // fallback: no offscreen canvas available
     drawRiverFlow();
     if (layers.locked) drawLockedDistricts(); // مناطق قفل‌شده خاکستری با قفل
-    if (layers.signal) drawSignalHeat(); // بالای زمین، زیر پوشش/لینک/گره
-    if (layers.speed) drawSpeedHeat(); // لایهٔ سرعت اتصال (با سیگنال ناسازگار/انحصاری)
     var srcs = coverageSources();
     if (layers.qos) drawQosTint();
     if (layers.techdemand) drawTechDemandTint();
     if (layers.coverage) drawCoverage(srcs);
+    // هیت‌مپ‌ها بالای دیسک‌های پوشش کشیده می‌شوند تا زیر رنگ پوشش محو نشوند
+    // (قبلاً زیر پوشش بودند و لایهٔ سرعت عملاً دیده نمی‌شد)
+    if (layers.signal) drawSignalHeat(); // نقشه حرارتی سیگنال
+    if (layers.speed) drawSpeedHeat(); // لایهٔ سرعت اتصال (با سیگنال ناسازگار/انحصاری)
     if (layers.demand) drawDemandHeat();
     drawBuildingSelection();
     if (layers.indivsubs) drawIndivBadges(); // نشان تعداد مشترکان فردی روی ساختمان‌ها
@@ -1825,6 +1827,8 @@
       // گام نمونه‌برداری از اندازهٔ واقعی جهان می‌آید تا میدان کل نقشه را بپوشاند
       // (جهان‌های قدیمی ۷۲۰۰×۵۴۰۰ و جدید ۱۴۴۰۰×۱۰۸۰۰ هر دو نسبت ۴:۳ دارند)
       var step = WORLD_W / cfg.pw;
+      // ساخت اول (هنوز بوم آماده نیست) بودجهٔ بیشتری می‌گیرد تا لایه زودتر دیده شود
+      var budget = st.canvas ? 8 : 24;
       var t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
       while (job.row < cfg.ph) {
         var j = job.row;
@@ -1837,7 +1841,7 @@
         }
         job.row++;
         var t1 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
-        if (t1 - t0 >= 8) break;
+        if (t1 - t0 >= budget) break;
       }
       if (job.row >= cfg.ph) {
         job.octx.putImageData(job.img, 0, 0);
