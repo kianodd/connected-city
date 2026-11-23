@@ -212,6 +212,17 @@
 <div id="modal-newgame" class="modal hidden"><div class="modal-head"><h3>بازی جدید</h3><button class="btn icon sm modal-close" data-close="modal-newgame"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
 <div class="modal-body">
   <p>بازی جدید شروع شود؟ ذخیرهٔ فعلی حذف می‌شود.</p>
+  <label style="display:block;margin:12px 0">نقشهٔ شهر
+    <select id="newgame-preset" style="display:block;width:100%;margin-top:6px;padding:10px;border-radius:10px;background:#1e293b;color:#e2e8f0;border:1px solid #334155">
+      <option value="river" selected>شهر رودخانه‌ای — رودخانه در شرق شهر، ۴ پل</option>
+      <option value="coast">شهر ساحلی — رودخانه در حاشیهٔ غربی، ۳ پل</option>
+      <option value="central">رودخانهٔ مرکزی — رودخانه از وسط شهر، ۶ پل</option>
+      <option value="desert">شهر کویری — رودخانهٔ باریک در شرق، روستاهای دورتر و ساختمان کمتر</option>
+    </select>
+  </label>
+  <label style="display:block;margin:12px 0">بذر نقشه (خالی = تصادفی؛ یک بذر ثابت همیشه همان نقشه را می‌سازد)
+    <input type="text" inputmode="numeric" id="newgame-seed" placeholder="تصادفی" style="display:block;width:100%;margin-top:6px;padding:10px;border-radius:10px;box-sizing:border-box;background:#1e293b;color:#e2e8f0;border:1px solid #334155">
+  </label>
   <label style="display:flex;align-items:center;gap:8px;margin:12px 0"><input type="checkbox" id="newgame-rival" checked> شرکت رقیب در شهر فعال باشد (شبکهٔ خودش را می‌سازد و برای مشترکان رقابت می‌کند)</label>
   <div class="row">
     <button id="newgame-start" class="btn primary">شروع بازی جدید</button>
