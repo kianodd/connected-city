@@ -826,7 +826,8 @@
 
   // ترجیح اینترنت: هر ساختمان فقط «یک» نوع فعال دارد (برچسب تک)؛ منطقه شمار ساختمان‌ها را نشان می‌دهد
   var PREF_FA = { fiber: 'فیبر/مسی', cellular: 'سلولار', fwa: 'TD-LTE' };
-  var PREF_COLOR = { fiber: '#22d3ee', cellular: '#3fb950', fwa: '#fb923c' };
+  // منبع واحد رنگ‌ها GAME_DATA.prefColors است (لایهٔ نقشه هم از همان می‌خواند)
+  var PREF_COLOR = (window.GAME_DATA && GAME_DATA.prefColors) || { fiber: '#22d3ee', cellular: '#3fb950', fwa: '#fb923c' };
   function prefHtml(pref) {
     if (!pref) return '';
     if (pref.type) {
@@ -1945,6 +1946,10 @@
         // راهنمای رنگ‌های لایهٔ تقاضای فناوری فقط وقتی آن لایه فعال است دیده شود
         if (layerName === 'techdemand') {
           var lg = $('tech-legend'); if (lg) lg.classList.toggle('hidden', !cb.checked);
+        }
+        // راهنمای رنگ ترجیح شبکهٔ ساختمان هم با لایه‌اش می‌آید و می‌رود
+        if (layerName === 'prefnet') {
+          var pl = $('pref-legend'); if (pl) pl.classList.toggle('hidden', !cb.checked);
         }
         // دو هیت‌مپ «سیگنال» و «سرعت اتصال» انحصاری‌اند: روشن‌شدن یکی، دیگری را خاموش می‌کند
         if (layerName === 'signal' || layerName === 'speed') {
