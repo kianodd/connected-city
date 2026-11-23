@@ -1039,9 +1039,15 @@
         html += '<div class="warn-box">' + ICONS.warn + ' این منطقه هنوز سرویس ندارد. یک دستگاه دسترسی نزدیک آن نصب و به شبکه وصل کنید.</div>';
       }
       var penPct = n.population ? Math.round((n.subscribers || 0) / n.population * 100) : 0;
+      var proj = (window.GameSim && GameSim.activeProjectFor) ? GameSim.activeProjectFor(state, n.id) : null;
       html += '<dl class="kv">' +
         '<dt>نوع منطقه</dt><dd>' + esc(TYPE_FA[n.type] || n.type || '—') + '</dd>' +
         '<dt>جمعیت</dt><dd>' + fmt(n.population) + '</dd>' +
+        (n.popTrend ? '<dt>روند جمعیت</dt><dd>' + (n.popTrend > 0 ? 'در حال رشد (+' + fmt(n.popTrend) + ' نفر در ماه)' : 'در حال کاهش (' + fmt(n.popTrend) + ' نفر در ماه)') + '</dd>' : '') +
+        (proj ? '<dt>پروژهٔ عمرانی</dt><dd>' + esc(proj.name) + ' — در حال ساخت، ' + fmt(Math.max(0, proj.endDay - Math.floor(state.day || 0))) + ' روز مانده</dd>' : '') +
+        ((n.projectsDone || 0) > 0 ? '<dt>پروژه‌های تمام‌شده</dt><dd>' + fmt(n.projectsDone) + ' پروژه (تقاضا +' + fmt(Math.round((n.projectDemandBoost || 0) * 100)) + '٪)</dd>' : '') +
+        ((n.onlineBiz || 0) > 0 ? '<dt>کسب‌وکارهای آنلاین</dt><dd>' + fmt(n.onlineBiz) + ' کسب‌وکار (تقاضا و درآمد تجاری بیشتر)</dd>' : '') +
+        (n.cdnServed ? '<dt>کش محلی</dt><dd>فعال — ترانزیت ارزان‌تر و تأخیر کمتر</dd>' : '') +
         '<dt>ترافیک مشترکان</dt><dd>' + fmt(n.demand) + ' Mbps</dd>' +
         '<dt>ترافیک سرویس‌شده</dt><dd>' + fmt(n.servedDemand) + ' Mbps</dd>' +
         '<dt>مشترکان</dt><dd>' + fmt(n.subscribers) + '</dd>' +
@@ -1134,6 +1140,13 @@
         html += hasTdlte
           ? '<p class="status-ok"><span class="dot-ok"></span>ماژول TD-LTE نصب است — مشترکان ثابت داخل پوشش این دکل سرویس TD-LTE می‌گیرند (پینگ پایدار)</p>'
           : '<div class="warn-box">' + ICONS.warn + ' ماژول TD-LTE ندارد — تقاضای TD-LTE در پوشش این دکل سرویس نمی‌گیرد. از بخش «ماژول‌ها» نصب کنید.</div>';
+      }
+      // گره کش محلی: مناطق تحت پوشش و مزیت ترانزیت/تأخیر
+      if (n.type === 'cdn_cache') {
+        var servedNames = (window.GameSim && GameSim.cdnServedDistricts) ? GameSim.cdnServedDistricts(state, n.id) : [];
+        html += servedNames.length
+          ? '<p class="status-ok"><span class="dot-ok"></span>کش محلی فعال است — ' + fmt(servedNames.length) + ' منطقه تحت پوشش (' + esc(servedNames.join('، ')) + '): هزینهٔ ترانزیت آن‌ها ۳۰٪ کمتر و تأخیرشان ۳۰٪ پایین‌تر است.</p>'
+          : '<div class="warn-box">' + ICONS.warn + ' این گره کش هنوز هیچ منطقه‌ای را پوشش نمی‌دهد؛ آن را به شبکه وصل کنید و نزدیک مناطق پرترافیک بگذارید (شعاع اثر: ' + fmt(1000) + ' واحد).</div>';
       }
       html += '<button class="btn primary connect-from-btn" data-connect-from="' + esc(n.id) + '">' + ICONS.backhaul + ' اتصال</button>';
       html += ' <button class="btn" data-ping-from="' + esc(n.id) + '">پینگ از این گره</button>';
